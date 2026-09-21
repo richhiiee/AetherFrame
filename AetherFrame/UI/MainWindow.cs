@@ -65,6 +65,12 @@ internal sealed class MainWindow : Window, IDisposable
             plugin.ToggleProfileEditorUi();
         }
 
+        ImGui.SameLine();
+        if (ImGui.Button("View Profile"))
+        {
+            plugin.ToggleProfileViewUi();
+        }
+
         if (profileService.IsBusy)
         {
             ImGui.SameLine();

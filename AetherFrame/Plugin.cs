@@ -38,6 +38,7 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
     private readonly ImageTextureCache imageTextureCache;
     private readonly MainWindow mainWindow;
     private readonly ProfileEditorWindow profileEditorWindow;
+    private readonly ProfileViewWindow profileViewWindow;
 
     public Plugin()
     {
@@ -60,9 +61,11 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
         mainWindow = new MainWindow(this, profileService);
         profileEditorWindow = new ProfileEditorWindow(
             profileService, editorSession, keyboardShortcutService, imageTextureCache, fileDialogManager);
+        profileViewWindow = new ProfileViewWindow(profileService, imageTextureCache);
 
         WindowSystem.AddWindow(mainWindow);
         WindowSystem.AddWindow(profileEditorWindow);
+        WindowSystem.AddWindow(profileViewWindow);
 
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
         {
@@ -89,6 +92,7 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
 
         mainWindow.Dispose();
         profileEditorWindow.Dispose();
+        profileViewWindow.Dispose();
         keyboardShortcutService.Dispose();
         imageTextureCache.Clear();
 
@@ -102,4 +106,6 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
     public void ToggleMainUi() => mainWindow.Toggle();
 
     public void ToggleProfileEditorUi() => profileEditorWindow.Toggle();
+
+    public void ToggleProfileViewUi() => profileViewWindow.Toggle();
 }
