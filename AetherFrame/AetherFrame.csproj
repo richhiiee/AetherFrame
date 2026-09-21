@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project Sdk="Dalamud.NET.Sdk/15.0.0">
+  <PropertyGroup>
+    <Version>0.0.0.1</Version>
+    <!-- Manifest fields (see https://github.com/goatcorp/DalamudPackager/blob/827d88dc/DalamudPackager/DalamudPackager.cs#L420) -->
+    <Author>richhiiee</Author>
+    <Name>AetherFrame</Name>
+    <Punchline>Character-bound profile overlays.</Punchline>
+    <Description>AetherFrame lets you build character-bound profiles made of simple text elements.</Description>
+    <RepoUrl>https://github.com/richhiiee/AetherFrame</RepoUrl>
+    <Tags>aetherframe;profiles</Tags>
+  </PropertyGroup>
+</Project>
