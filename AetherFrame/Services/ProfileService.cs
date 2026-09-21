@@ -160,6 +160,37 @@ internal sealed class ProfileService
     }
 
     /// <summary>
+    /// Adds an image element referencing an already-imported asset to the currently loaded
+    /// profile. Synchronous UI mutation; safe to call directly from ImGui Draw. Returns the new
+    /// element's id.
+    /// </summary>
+    internal Guid AddImageElement(Guid assetId)
+    {
+        lock (gate)
+        {
+            var profile = RequireEditableProfileLocked();
+            EnsureCapacityLocked(profile);
+
+            var size = new Vector2(ImageProfileElement.DefaultSize, ImageProfileElement.DefaultSize);
+            var maxX = Math.Max(0f, ProfileDocument.CanvasWidth - size.X);
+            var maxY = Math.Max(0f, ProfileDocument.CanvasHeight - size.Y);
+            var position = new Vector2(
+                Math.Clamp(ProfileElement.DefaultPositionX, 0f, maxX),
+                Math.Clamp(ProfileElement.DefaultPositionY, 0f, maxY));
+
+            var element = new ImageProfileElement
+            {
+                AssetId = assetId,
+                Position = position,
+                Size = size,
+                ZIndex = NextZIndexLocked(profile),
+            };
+            profile.Elements.Add(element);
+            return element.Id;
+        }
+    }
+
+    /// <summary>
     /// Removes an element from the currently loaded profile. Synchronous UI mutation; safe to
     /// call directly from ImGui Draw.
     /// </summary>
@@ -301,6 +332,42 @@ internal sealed class ProfileService
                     element.ZIndex = zIndex;
                 }
             }
+        }
+    }
+
+    /// <summary>
+    /// Mutates the current profile's background fields (asset, fit mode, opacity). Kept
+    /// separate from <see cref="Elements"/> since the background isn't itself a
+    /// <see cref="ProfileElement"/> (no Z order, not hit-testable).
+    /// </summary>
+    internal void UpdateBackground(Action<ProfileDocument> update)
+    {
+        lock (gate)
+        {
+            var profile = RequireEditableProfileLocked();
+            update(profile);
+        }
+    }
+
+    /// <summary>Captures the current profile's background fields, e.g. for an undo/redo snapshot.</summary>
+    internal BackgroundState CaptureBackgroundState()
+    {
+        lock (gate)
+        {
+            var profile = RequireEditableProfileLocked();
+            return new BackgroundState(profile.BackgroundAssetId, profile.BackgroundFitMode, profile.BackgroundOpacity);
+        }
+    }
+
+    /// <summary>Restores a previously captured background snapshot (see <see cref="CaptureBackgroundState"/>).</summary>
+    internal void RestoreBackgroundState(BackgroundState state)
+    {
+        lock (gate)
+        {
+            var profile = RequireEditableProfileLocked();
+            profile.BackgroundAssetId = state.AssetId;
+            profile.BackgroundFitMode = state.FitMode;
+            profile.BackgroundOpacity = state.Opacity;
         }
     }
 
@@ -485,8 +552,14 @@ internal sealed class ProfileService
         Revision = revision,
         CreatedAtUtc = source.CreatedAtUtc,
         UpdatedAtUtc = updatedAtUtc,
+        BackgroundAssetId = source.BackgroundAssetId,
+        BackgroundFitMode = source.BackgroundFitMode,
+        BackgroundOpacity = source.BackgroundOpacity,
         Elements = new List<ProfileElement>(source.Elements),
     };
+
+    /// <summary>Immutable snapshot of a profile's background fields, for undo/redo.</summary>
+    internal readonly record struct BackgroundState(Guid? AssetId, BackgroundFitMode FitMode, float Opacity);
 
     private static void AssertFrameworkThread()
     {

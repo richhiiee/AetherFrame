@@ -6,6 +6,7 @@ namespace AetherFrame.Domain.Profiles;
 
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "elementType")]
 [JsonDerivedType(typeof(TextProfileElement), typeDiscriminator: "text")]
+[JsonDerivedType(typeof(ImageProfileElement), typeDiscriminator: "image")]
 public abstract class ProfileElement
 {
     // Sensible default layout for an element with no (valid) canvas placement yet, e.g. one

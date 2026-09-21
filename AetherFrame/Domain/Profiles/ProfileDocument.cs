@@ -27,4 +27,22 @@ public sealed class ProfileDocument
     public DateTime UpdatedAtUtc { get; set; } = DateTime.UtcNow;
 
     public List<ProfileElement> Elements { get; set; } = new();
+
+    /// <summary>
+    /// Managed asset id of the profile's background image, or null for none. Rendered behind
+    /// every <see cref="ProfileElement"/>, not selectable via ordinary canvas hit testing, and
+    /// tracked separately from element Z order.
+    /// </summary>
+    public Guid? BackgroundAssetId { get; set; }
+
+    public BackgroundFitMode BackgroundFitMode { get; set; } = BackgroundFitMode.Cover;
+
+    public float BackgroundOpacity { get; set; } = 1f;
+}
+
+public enum BackgroundFitMode
+{
+    Cover,
+    Contain,
+    Stretch,
 }

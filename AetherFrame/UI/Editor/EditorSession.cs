@@ -42,6 +42,8 @@ internal sealed class EditorSession
     private const int MaxHistoryEntries = 100;
 
     private readonly ProfileService profileService;
+    private readonly AssetStorageService assetStorage;
+    private readonly ImageTextureCache imageTextureCache;
 
     // Active drag/resize interaction. Runtime only; never persisted.
     private Guid interactingElementId;
@@ -55,6 +57,10 @@ internal sealed class EditorSession
     private Guid pendingEditElementId;
     private ProfileElement? pendingEditBefore;
 
+    // A background slider/combo edit in progress; same "commit on deactivate" pattern as
+    // pendingEditBefore above, just for ProfileDocument-level background fields.
+    private ProfileService.BackgroundState? pendingBackgroundBefore;
+
     private readonly List<HistoryEntry> undoStack = new();
     private readonly List<HistoryEntry> redoStack = new();
 
@@ -67,10 +73,13 @@ internal sealed class EditorSession
     // the same profile, so a reference change reliably means "establish a new clean baseline".
     private ProfileDocument? baselineSourceProfile;
     private List<ProfileElement>? savedBaseline;
+    private ProfileService.BackgroundState? savedBackgroundBaseline;
 
-    internal EditorSession(ProfileService profileService)
+    internal EditorSession(ProfileService profileService, AssetStorageService assetStorage, ImageTextureCache imageTextureCache)
     {
         this.profileService = profileService;
+        this.assetStorage = assetStorage;
+        this.imageTextureCache = imageTextureCache;
     }
 
     internal string NewElementText { get; set; } = string.Empty;
@@ -87,9 +96,12 @@ internal sealed class EditorSession
         get
         {
             EnsureBaselineCurrent();
-            return !ProfileStatesEqual(savedBaseline, profileService.CurrentProfile?.Elements)
+            var currentProfile = profileService.CurrentProfile;
+            return !ProfileStatesEqual(savedBaseline, currentProfile?.Elements)
+                || !BackgroundStatesEqual(savedBackgroundBaseline, currentProfile)
                 || ActiveInteraction != ElementInteractionKind.None
-                || pendingEditBefore is not null;
+                || pendingEditBefore is not null
+                || pendingBackgroundBefore is not null;
         }
     }
 
@@ -123,6 +135,60 @@ internal sealed class EditorSession
         {
             ErrorMessage = ex.Message;
         }
+    }
+
+    /// <summary>
+    /// Imports an image file into managed asset storage and adds it as a new element, selecting
+    /// it and recording one undoable history entry. Errors (unreadable file, unsupported
+    /// format, profile at capacity, etc.) are surfaced via <see cref="ErrorMessage"/>.
+    /// </summary>
+    internal void AddImageElement(string sourceFilePath)
+    {
+        ErrorMessage = null;
+
+        try
+        {
+            var assetId = assetStorage.ImportImage(sourceFilePath);
+            var newId = profileService.AddImageElement(assetId);
+            Select(newId);
+
+            var snapshot = profileService.CloneElement(newId);
+            RecordHistory(
+                undo: () => profileService.RemoveElement(snapshot.Id),
+                redo: () => profileService.InsertElement(snapshot.Clone()));
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = ex.Message;
+        }
+    }
+
+    /// <summary>
+    /// Imports a new image file and points an existing image element at it. The previous asset
+    /// remains on disk (undo may still need it) and its cache entry is left alone.
+    /// </summary>
+    internal void ReplaceImage(Guid elementId, string sourceFilePath)
+    {
+        ErrorMessage = null;
+
+        Guid assetId;
+        try
+        {
+            assetId = assetStorage.ImportImage(sourceFilePath);
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = ex.Message;
+            return;
+        }
+
+        ApplyImmediateEdit(elementId, element =>
+        {
+            if (element is ImageProfileElement image)
+            {
+                image.AssetId = assetId;
+            }
+        });
     }
 
     internal void RemoveElement(Guid elementId)
@@ -348,6 +414,121 @@ internal sealed class EditorSession
             redo: () => profileService.UpdateElement(elementId, element => element.CopyFrom(after)));
     }
 
+    /// <summary>Imports an image and sets it as the profile's background.</summary>
+    internal void SetBackground(string sourceFilePath)
+    {
+        ErrorMessage = null;
+
+        Guid assetId;
+        try
+        {
+            assetId = assetStorage.ImportImage(sourceFilePath);
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = ex.Message;
+            return;
+        }
+
+        ApplyBackgroundEdit(doc => doc.BackgroundAssetId = assetId);
+    }
+
+    /// <summary>Clears the profile's background. The asset itself is left on disk (see undo).</summary>
+    internal void RemoveBackground() => ApplyBackgroundEdit(doc => doc.BackgroundAssetId = null);
+
+    /// <summary>
+    /// Applies a discrete background edit (combo, button) and immediately records one history
+    /// entry, mirroring <see cref="ApplyImmediateEdit"/> for elements.
+    /// </summary>
+    internal void ApplyBackgroundEdit(Action<ProfileDocument> update)
+    {
+        ErrorMessage = null;
+
+        ProfileService.BackgroundState before;
+        try
+        {
+            before = profileService.CaptureBackgroundState();
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = ex.Message;
+            return;
+        }
+
+        try
+        {
+            profileService.UpdateBackground(update);
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = ex.Message;
+            return;
+        }
+
+        var after = profileService.CaptureBackgroundState();
+        RecordHistory(
+            undo: () => profileService.RestoreBackgroundState(before),
+            redo: () => profileService.RestoreBackgroundState(after));
+    }
+
+    /// <summary>
+    /// Applies a live, in-progress background edit (e.g. the opacity slider being dragged)
+    /// without recording history yet. Mirrors <see cref="BeginOrContinueEdit"/> for elements;
+    /// call <see cref="CommitPendingBackgroundEdit"/> once the edit completes.
+    /// </summary>
+    internal void BeginOrContinueBackgroundEdit(Action<ProfileDocument> apply)
+    {
+        ErrorMessage = null;
+
+        if (pendingBackgroundBefore is null)
+        {
+            try
+            {
+                pendingBackgroundBefore = profileService.CaptureBackgroundState();
+            }
+            catch (Exception ex)
+            {
+                ErrorMessage = ex.Message;
+                return;
+            }
+        }
+
+        try
+        {
+            profileService.UpdateBackground(apply);
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = ex.Message;
+        }
+    }
+
+    /// <summary>Finalizes a pending background edit started by <see cref="BeginOrContinueBackgroundEdit"/>.</summary>
+    internal void CommitPendingBackgroundEdit()
+    {
+        if (pendingBackgroundBefore is not { } before)
+        {
+            return;
+        }
+
+        pendingBackgroundBefore = null;
+
+        ProfileService.BackgroundState after;
+        try
+        {
+            after = profileService.CaptureBackgroundState();
+        }
+        catch
+        {
+            // Profile no longer editable (e.g. character switch mid-edit); nothing to record.
+            return;
+        }
+
+        RecordHistory(
+            undo: () => profileService.RestoreBackgroundState(before),
+            redo: () => profileService.RestoreBackgroundState(after));
+    }
+
     internal async void SaveProfile()
     {
         ErrorMessage = null;
@@ -425,7 +606,11 @@ internal sealed class EditorSession
             }
             else
             {
-                var (newPosition, newSize) = ComputeResize(dragOriginalPosition, dragOriginalSize, ActiveResizeHandle, delta);
+                var lockedAspectRatio = interactionBeforeSnapshot is ImageProfileElement { PreserveAspectRatio: true } && dragOriginalSize.Y > 0f
+                    ? dragOriginalSize.X / dragOriginalSize.Y
+                    : (float?)null;
+
+                var (newPosition, newSize) = ComputeResize(dragOriginalPosition, dragOriginalSize, ActiveResizeHandle, delta, lockedAspectRatio);
                 profileService.UpdateElement(elementId, element =>
                 {
                     element.Position = newPosition;
@@ -565,6 +750,9 @@ internal sealed class EditorSession
         var profile = profileService.CurrentProfile;
         if (!ReferenceEquals(profile, baselineSourceProfile))
         {
+            // A genuine profile switch (not just a post-save re-baseline of the same profile):
+            // cached GPU textures for the old profile's images are no longer relevant.
+            imageTextureCache.Clear();
             CaptureBaseline(profile);
         }
     }
@@ -573,6 +761,22 @@ internal sealed class EditorSession
     {
         baselineSourceProfile = profile;
         savedBaseline = profile?.Elements.Select(e => e.Clone()).ToList();
+        savedBackgroundBaseline = profile is null
+            ? null
+            : new ProfileService.BackgroundState(profile.BackgroundAssetId, profile.BackgroundFitMode, profile.BackgroundOpacity);
+    }
+
+    private static bool BackgroundStatesEqual(ProfileService.BackgroundState? baseline, ProfileDocument? current)
+    {
+        if (baseline is null || current is null)
+        {
+            return baseline is null && current is null;
+        }
+
+        var b = baseline.Value;
+        return b.AssetId == current.BackgroundAssetId
+            && b.FitMode == current.BackgroundFitMode
+            && b.Opacity.Equals(current.BackgroundOpacity);
     }
 
     private static bool ProfileStatesEqual(List<ProfileElement>? baseline, List<ProfileElement>? current)
@@ -630,6 +834,13 @@ internal sealed class EditorSession
                 && textA.Wrap == textB.Wrap;
         }
 
+        if (a is ImageProfileElement imageA && b is ImageProfileElement imageB)
+        {
+            return imageA.AssetId == imageB.AssetId
+                && imageA.Opacity.Equals(imageB.Opacity)
+                && imageA.PreserveAspectRatio == imageB.PreserveAspectRatio;
+        }
+
         return true;
     }
 
@@ -641,7 +852,7 @@ internal sealed class EditorSession
     }
 
     private static (Vector2 Position, Vector2 Size) ComputeResize(
-        Vector2 originalPosition, Vector2 originalSize, ResizeHandle handle, Vector2 delta)
+        Vector2 originalPosition, Vector2 originalSize, ResizeHandle handle, Vector2 delta, float? lockedAspectRatio = null)
     {
         var left = originalPosition.X;
         var top = originalPosition.Y;
@@ -673,6 +884,47 @@ internal sealed class EditorSession
         top = Math.Clamp(top, 0f, ProfileDocument.CanvasHeight);
         right = Math.Clamp(right, 0f, ProfileDocument.CanvasWidth);
         bottom = Math.Clamp(bottom, 0f, ProfileDocument.CanvasHeight);
+
+        if (lockedAspectRatio is { } aspectRatio && aspectRatio > 0f)
+        {
+            // Fit the largest box of the locked aspect ratio that stays within the raw
+            // (unconstrained) drag bounds just computed, anchored at the corner opposite the
+            // dragged handle.
+            var rawWidth = Math.Max(0f, right - left);
+            var rawHeight = Math.Max(0f, bottom - top);
+
+            float width, height;
+            if (rawHeight <= 0f || rawWidth / aspectRatio <= rawHeight)
+            {
+                width = rawWidth;
+                height = rawWidth / aspectRatio;
+            }
+            else
+            {
+                height = rawHeight;
+                width = rawHeight * aspectRatio;
+            }
+
+            switch (handle)
+            {
+                case ResizeHandle.TopLeft:
+                    left = right - width;
+                    top = bottom - height;
+                    break;
+                case ResizeHandle.TopRight:
+                    right = left + width;
+                    top = bottom - height;
+                    break;
+                case ResizeHandle.BottomLeft:
+                    left = right - width;
+                    bottom = top + height;
+                    break;
+                case ResizeHandle.BottomRight:
+                    right = left + width;
+                    bottom = top + height;
+                    break;
+            }
+        }
 
         // Enforce a minimum size by holding the edge opposite the dragged handle in place,
         // which also rules out negative width/height.

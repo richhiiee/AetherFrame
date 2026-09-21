@@ -5,6 +5,7 @@ using AetherFrame.Domain.Profiles;
 using AetherFrame.Services;
 using AetherFrame.UI.Editor;
 using Dalamud.Bindings.ImGui;
+using Dalamud.Interface.ImGuiFileDialog;
 using Dalamud.Interface.Utility.Raii;
 using Dalamud.Interface.Windowing;
 
@@ -16,12 +17,20 @@ internal sealed class ProfileEditorWindow : Window, IDisposable
     private const float HandleScreenSize = 8f;
 
     private static readonly string[] AlignmentLabels = ["Left", "Center", "Right"];
+    private static readonly string[] FitModeLabels = ["Cover", "Contain", "Stretch"];
 
     private readonly ProfileService profileService;
     private readonly EditorSession editorSession;
     private readonly KeyboardShortcutService keyboardShortcutService;
+    private readonly ImageTextureCache imageTextureCache;
+    private readonly FileDialogManager fileDialogManager;
 
-    internal ProfileEditorWindow(ProfileService profileService, EditorSession editorSession, KeyboardShortcutService keyboardShortcutService)
+    internal ProfileEditorWindow(
+        ProfileService profileService,
+        EditorSession editorSession,
+        KeyboardShortcutService keyboardShortcutService,
+        ImageTextureCache imageTextureCache,
+        FileDialogManager fileDialogManager)
         : base("AetherFrame Profile Editor##ProfileEditorWindow")
     {
         SizeConstraints = new WindowSizeConstraints
@@ -33,6 +42,8 @@ internal sealed class ProfileEditorWindow : Window, IDisposable
         this.profileService = profileService;
         this.editorSession = editorSession;
         this.keyboardShortcutService = keyboardShortcutService;
+        this.imageTextureCache = imageTextureCache;
+        this.fileDialogManager = fileDialogManager;
     }
 
     public void Dispose()
@@ -47,10 +58,15 @@ internal sealed class ProfileEditorWindow : Window, IDisposable
     public override void OnClose()
     {
         keyboardShortcutService.SetEditorFocusState(editorFocused: false, textInputActive: false);
+        fileDialogManager.Reset();
     }
 
     public override void Draw()
     {
+        // Drawn unconditionally so an in-progress file pick isn't stranded if the profile
+        // becomes unavailable (e.g. character logs out) while the dialog is open.
+        fileDialogManager.Draw();
+
         var profile = profileService.CurrentProfile;
         if (profile is null)
         {
@@ -86,18 +102,27 @@ internal sealed class ProfileEditorWindow : Window, IDisposable
         DrawCanvas(profile);
         ImGui.Separator();
 
+        DrawBackgroundControls(profile);
+        ImGui.Separator();
+
         // Snapshot before iterating: Remove below mutates the live list, and ImGui buttons
         // can fire mid-loop, which would otherwise invalidate this enumeration.
         foreach (var element in profile.Elements.ToArray())
         {
-            if (element is not TextProfileElement textElement)
+            ImGui.PushID(element.Id.ToString());
+
+            switch (element)
             {
-                continue;
+                case TextProfileElement textElement:
+                    DrawTextElementInspector(textElement);
+                    ImGui.Separator();
+                    break;
+                case ImageProfileElement imageElement:
+                    DrawImageElementInspector(imageElement);
+                    ImGui.Separator();
+                    break;
             }
 
-            ImGui.PushID(textElement.Id.ToString());
-            DrawTextElementInspector(textElement);
-            ImGui.Separator();
             ImGui.PopID();
         }
 
@@ -119,6 +144,15 @@ internal sealed class ProfileEditorWindow : Window, IDisposable
         if (ImGui.Button("Add Text") && !atCapacity)
         {
             editorSession.AddTextElement();
+        }
+
+        ImGui.SameLine();
+        using (ImRaii.Disabled(atCapacity))
+        {
+            if (ImGui.Button("Add Image"))
+            {
+                OpenImageFileDialog("Add Image", path => editorSession.AddImageElement(path));
+            }
         }
 
         ImGui.SameLine();
@@ -159,35 +193,7 @@ internal sealed class ProfileEditorWindow : Window, IDisposable
 
         ImGui.Indent();
 
-        // Bring Forward / Send Backward / Bring to Front / Send to Back / Duplicate. These
-        // operate on ZIndex under the hood, but that number itself is never shown to the user.
-        if (ImGui.SmallButton("Bring Forward"))
-        {
-            editorSession.BringForward(textElement.Id);
-        }
-
-        ImGui.SameLine();
-        if (ImGui.SmallButton("Send Backward"))
-        {
-            editorSession.SendBackward(textElement.Id);
-        }
-
-        ImGui.SameLine();
-        if (ImGui.SmallButton("Bring to Front"))
-        {
-            editorSession.BringToFront(textElement.Id);
-        }
-
-        ImGui.SameLine();
-        if (ImGui.SmallButton("Send to Back"))
-        {
-            editorSession.SendToBack(textElement.Id);
-        }
-
-        if (ImGui.SmallButton("Duplicate"))
-        {
-            editorSession.DuplicateElement(textElement.Id);
-        }
+        DrawZOrderAndDuplicateControls(textElement.Id);
 
         // Locked stays interactive even while locked, so the user can unlock the element.
         var locked = textElement.Locked;
@@ -263,6 +269,181 @@ internal sealed class ProfileEditorWindow : Window, IDisposable
             if (element is TextProfileElement textElement)
             {
                 update(textElement);
+            }
+        });
+    }
+
+    private void DrawImageElementInspector(ImageProfileElement imageElement)
+    {
+        var isSelected = editorSession.SelectedElementId == imageElement.Id;
+
+        ImGui.TextUnformatted((isSelected ? "> " : string.Empty) + "Image");
+
+        ImGui.SameLine();
+        if (ImGui.SmallButton("Remove"))
+        {
+            editorSession.RemoveElement(imageElement.Id);
+            return;
+        }
+
+        ImGui.Indent();
+
+        DrawZOrderAndDuplicateControls(imageElement.Id);
+
+        // Locked stays interactive even while locked, so the user can unlock the element.
+        var locked = imageElement.Locked;
+        if (ImGui.Checkbox("Locked", ref locked))
+        {
+            editorSession.ApplyImmediateEdit(imageElement.Id, element => element.Locked = locked);
+        }
+
+        using (ImRaii.Disabled(imageElement.Locked))
+        {
+            var opacity = imageElement.Opacity;
+            if (ImGui.SliderFloat("Opacity", ref opacity, 0f, 1f))
+            {
+                ContinueImageEdit(imageElement.Id, element => element.Opacity = opacity);
+            }
+
+            if (ImGui.IsItemDeactivatedAfterEdit())
+            {
+                editorSession.CommitPendingEdit();
+            }
+
+            var preserveAspectRatio = imageElement.PreserveAspectRatio;
+            if (ImGui.Checkbox("Preserve Aspect Ratio", ref preserveAspectRatio))
+            {
+                ApplyImmediateImageEdit(imageElement.Id, element => element.PreserveAspectRatio = preserveAspectRatio);
+            }
+
+            var visible = imageElement.Visible;
+            if (ImGui.Checkbox("Visible", ref visible))
+            {
+                editorSession.ApplyImmediateEdit(imageElement.Id, element => element.Visible = visible);
+            }
+
+            if (ImGui.SmallButton("Replace Image"))
+            {
+                var elementId = imageElement.Id;
+                OpenImageFileDialog("Replace Image", path => editorSession.ReplaceImage(elementId, path));
+            }
+        }
+
+        ImGui.Unindent();
+    }
+
+    /// <summary>Routes a discrete (checkbox) <see cref="ImageProfileElement"/> edit.</summary>
+    private void ApplyImmediateImageEdit(Guid elementId, Action<ImageProfileElement> update)
+    {
+        editorSession.ApplyImmediateEdit(elementId, element =>
+        {
+            if (element is ImageProfileElement imageElement)
+            {
+                update(imageElement);
+            }
+        });
+    }
+
+    /// <summary>Routes a live, in-progress (slider) <see cref="ImageProfileElement"/> edit.</summary>
+    private void ContinueImageEdit(Guid elementId, Action<ImageProfileElement> update)
+    {
+        editorSession.BeginOrContinueEdit(elementId, element =>
+        {
+            if (element is ImageProfileElement imageElement)
+            {
+                update(imageElement);
+            }
+        });
+    }
+
+    /// <summary>
+    /// Bring Forward / Send Backward / Bring to Front / Send to Back / Duplicate, shared by
+    /// every element inspector. These operate on ZIndex under the hood, but that number itself
+    /// is never shown to the user.
+    /// </summary>
+    private void DrawZOrderAndDuplicateControls(Guid elementId)
+    {
+        if (ImGui.SmallButton("Bring Forward"))
+        {
+            editorSession.BringForward(elementId);
+        }
+
+        ImGui.SameLine();
+        if (ImGui.SmallButton("Send Backward"))
+        {
+            editorSession.SendBackward(elementId);
+        }
+
+        ImGui.SameLine();
+        if (ImGui.SmallButton("Bring to Front"))
+        {
+            editorSession.BringToFront(elementId);
+        }
+
+        ImGui.SameLine();
+        if (ImGui.SmallButton("Send to Back"))
+        {
+            editorSession.SendToBack(elementId);
+        }
+
+        if (ImGui.SmallButton("Duplicate"))
+        {
+            editorSession.DuplicateElement(elementId);
+        }
+    }
+
+    private void DrawBackgroundControls(ProfileDocument profile)
+    {
+        ImGui.TextUnformatted("Background: " + (profile.BackgroundAssetId is null ? "(none)" : "set"));
+
+        if (ImGui.SmallButton("Set Background"))
+        {
+            OpenImageFileDialog("Set Background", path => editorSession.SetBackground(path));
+        }
+
+        if (profile.BackgroundAssetId is null)
+        {
+            return;
+        }
+
+        ImGui.SameLine();
+        if (ImGui.SmallButton("Remove Background"))
+        {
+            editorSession.RemoveBackground();
+        }
+
+        var fitModeIndex = (int)profile.BackgroundFitMode;
+        ImGui.SetNextItemWidth(160);
+        if (ImGui.Combo("Fit", ref fitModeIndex, FitModeLabels, FitModeLabels.Length))
+        {
+            var newFitMode = (BackgroundFitMode)fitModeIndex;
+            editorSession.ApplyBackgroundEdit(document => document.BackgroundFitMode = newFitMode);
+        }
+
+        var opacity = profile.BackgroundOpacity;
+        ImGui.SetNextItemWidth(160);
+        if (ImGui.SliderFloat("Background Opacity", ref opacity, 0f, 1f))
+        {
+            editorSession.BeginOrContinueBackgroundEdit(document => document.BackgroundOpacity = opacity);
+        }
+
+        if (ImGui.IsItemDeactivatedAfterEdit())
+        {
+            editorSession.CommitPendingBackgroundEdit();
+        }
+    }
+
+    /// <summary>
+    /// Opens a single-file picker restricted to the image formats AetherFrame currently
+    /// supports, invoking <paramref name="onSelected"/> with the chosen path on success.
+    /// </summary>
+    private void OpenImageFileDialog(string title, Action<string> onSelected)
+    {
+        fileDialogManager.OpenFileDialog(title, ImageFormatSupport.BuildFileDialogFilter(), (success, path) =>
+        {
+            if (success)
+            {
+                onSelected(path);
             }
         });
     }
@@ -344,6 +525,12 @@ internal sealed class ProfileEditorWindow : Window, IDisposable
         var canvasHovered = ImGui.IsItemHovered();
 
         drawList.AddRectFilled(canvasOrigin, canvasOrigin + canvasScreenSize, ImGui.GetColorU32(new Vector4(0.09f, 0.09f, 0.09f, 1f)));
+
+        // The background isn't a ProfileElement: it's always painted first (beneath every
+        // element) and is deliberately excluded from hit testing below, so it can never be
+        // selected, dragged, resized, or reordered like an ordinary element.
+        DrawBackground(drawList, profile, canvasOrigin, canvasScreenSize);
+
         drawList.AddRect(canvasOrigin, canvasOrigin + canvasScreenSize, ImGui.GetColorU32(new Vector4(0.4f, 0.4f, 0.4f, 1f)));
 
         // Paint order: ascending ZIndex, ties broken by list (insertion) order, so a later
@@ -445,46 +632,140 @@ internal sealed class ProfileEditorWindow : Window, IDisposable
         }
     }
 
-    private static void DrawCanvasElement(ImDrawListPtr drawList, ProfileElement element, Vector2 canvasOrigin, float zoom)
+    private void DrawCanvasElement(ImDrawListPtr drawList, ProfileElement element, Vector2 canvasOrigin, float zoom)
     {
         var screenPos = canvasOrigin + element.Position * zoom;
         var screenSize = element.Size * zoom;
 
-        if (element is TextProfileElement textElement)
+        switch (element)
         {
-            drawList.AddRectFilled(screenPos, screenPos + screenSize, ImGui.GetColorU32(new Vector4(0.15f, 0.15f, 0.15f, 0.6f)));
-            drawList.AddRect(screenPos, screenPos + screenSize, ImGui.GetColorU32(new Vector4(0.5f, 0.5f, 0.5f, 0.8f)));
-
-            var text = string.IsNullOrEmpty(textElement.Text) ? "(empty)" : textElement.Text;
-
-            // Render at the element's own FontSize (scaled by zoom), not the current default
-            // ImGui font size, so the Font Size control actually changes what's drawn. There's
-            // no CalcTextSizeA(font, size, ...) in this binding, so approximate the rendered
-            // extent by scaling the default-size measurement — glyph metrics scale linearly.
-            var font = ImGui.GetFont();
-            var renderedFontSize = Math.Max(1f, textElement.FontSize * zoom);
-            var sizeScale = renderedFontSize / ImGui.GetFontSize();
-            var textSize = ImGui.CalcTextSize(text) * sizeScale;
-            var textPos = screenPos + new Vector2(4f, 4f);
-
-            if (textElement.Alignment == TextAlignment.Center)
-            {
-                textPos.X = screenPos.X + Math.Max(0f, (screenSize.X - textSize.X) / 2f);
-            }
-            else if (textElement.Alignment == TextAlignment.Right)
-            {
-                textPos.X = screenPos.X + Math.Max(0f, screenSize.X - textSize.X - 4f);
-            }
-
-            drawList.PushClipRect(screenPos, screenPos + screenSize, true);
-            drawList.AddText(font, renderedFontSize, textPos, ImGui.GetColorU32(textElement.Color), text);
-            drawList.PopClipRect();
+            case TextProfileElement textElement:
+                DrawTextCanvasElement(drawList, textElement, screenPos, screenSize, zoom);
+                break;
+            case ImageProfileElement imageElement:
+                DrawImageCanvasElement(drawList, imageElement, screenPos, screenSize);
+                break;
+            default:
+                drawList.AddRectFilled(screenPos, screenPos + screenSize, ImGui.GetColorU32(new Vector4(0.2f, 0.2f, 0.2f, 0.6f)));
+                drawList.AddRect(screenPos, screenPos + screenSize, ImGui.GetColorU32(new Vector4(0.5f, 0.5f, 0.5f, 0.8f)));
+                break;
         }
-        else
+    }
+
+    private static void DrawTextCanvasElement(ImDrawListPtr drawList, TextProfileElement textElement, Vector2 screenPos, Vector2 screenSize, float zoom)
+    {
+        drawList.AddRectFilled(screenPos, screenPos + screenSize, ImGui.GetColorU32(new Vector4(0.15f, 0.15f, 0.15f, 0.6f)));
+        drawList.AddRect(screenPos, screenPos + screenSize, ImGui.GetColorU32(new Vector4(0.5f, 0.5f, 0.5f, 0.8f)));
+
+        var text = string.IsNullOrEmpty(textElement.Text) ? "(empty)" : textElement.Text;
+
+        // Render at the element's own FontSize (scaled by zoom), not the current default
+        // ImGui font size, so the Font Size control actually changes what's drawn. There's
+        // no CalcTextSizeA(font, size, ...) in this binding, so approximate the rendered
+        // extent by scaling the default-size measurement — glyph metrics scale linearly.
+        var font = ImGui.GetFont();
+        var renderedFontSize = Math.Max(1f, textElement.FontSize * zoom);
+        var sizeScale = renderedFontSize / ImGui.GetFontSize();
+        var textSize = ImGui.CalcTextSize(text) * sizeScale;
+        var textPos = screenPos + new Vector2(4f, 4f);
+
+        if (textElement.Alignment == TextAlignment.Center)
         {
-            drawList.AddRectFilled(screenPos, screenPos + screenSize, ImGui.GetColorU32(new Vector4(0.2f, 0.2f, 0.2f, 0.6f)));
-            drawList.AddRect(screenPos, screenPos + screenSize, ImGui.GetColorU32(new Vector4(0.5f, 0.5f, 0.5f, 0.8f)));
+            textPos.X = screenPos.X + Math.Max(0f, (screenSize.X - textSize.X) / 2f);
         }
+        else if (textElement.Alignment == TextAlignment.Right)
+        {
+            textPos.X = screenPos.X + Math.Max(0f, screenSize.X - textSize.X - 4f);
+        }
+
+        drawList.PushClipRect(screenPos, screenPos + screenSize, true);
+        drawList.AddText(font, renderedFontSize, textPos, ImGui.GetColorU32(textElement.Color), text);
+        drawList.PopClipRect();
+    }
+
+    private void DrawImageCanvasElement(ImDrawListPtr drawList, ImageProfileElement imageElement, Vector2 screenPos, Vector2 screenSize)
+    {
+        var wrap = imageTextureCache.GetWrapOrNull(imageElement.AssetId);
+
+        if (wrap is null)
+        {
+            // Missing, still loading, or failed to decode: a visible placeholder rather than
+            // nothing, so a broken image element is still selectable/removable on the canvas.
+            drawList.AddRectFilled(screenPos, screenPos + screenSize, ImGui.GetColorU32(new Vector4(0.35f, 0.12f, 0.12f, 0.6f)));
+            drawList.AddRect(screenPos, screenPos + screenSize, ImGui.GetColorU32(new Vector4(0.8f, 0.3f, 0.3f, 0.9f)));
+            return;
+        }
+
+        var tint = ImGui.GetColorU32(new Vector4(1f, 1f, 1f, Math.Clamp(imageElement.Opacity, 0f, 1f)));
+        drawList.AddImage(wrap.Handle, screenPos, screenPos + screenSize, Vector2.Zero, Vector2.One, tint);
+    }
+
+    private void DrawBackground(ImDrawListPtr drawList, ProfileDocument profile, Vector2 canvasOrigin, Vector2 canvasScreenSize)
+    {
+        if (profile.BackgroundAssetId is not { } assetId)
+        {
+            return;
+        }
+
+        var wrap = imageTextureCache.GetWrapOrNull(assetId);
+        if (wrap is null)
+        {
+            drawList.AddRectFilled(canvasOrigin, canvasOrigin + canvasScreenSize, ImGui.GetColorU32(new Vector4(0.35f, 0.12f, 0.12f, 0.5f)));
+            return;
+        }
+
+        var (drawPos, drawSize, uvMin, uvMax) = ComputeBackgroundLayout(
+            profile.BackgroundFitMode, wrap.Width, wrap.Height, canvasOrigin, canvasScreenSize);
+
+        var tint = ImGui.GetColorU32(new Vector4(1f, 1f, 1f, Math.Clamp(profile.BackgroundOpacity, 0f, 1f)));
+        drawList.AddImage(wrap.Handle, drawPos, drawPos + drawSize, uvMin, uvMax, tint);
+    }
+
+    /// <summary>
+    /// Computes the screen-space rect and UV window to draw a background texture with, for the
+    /// given fit mode. Cover crops via UV (drawn rect always fills the canvas); Contain shrinks
+    /// the drawn rect instead (letterboxed, full UV); Stretch fills the canvas with full UV,
+    /// ignoring aspect ratio.
+    /// </summary>
+    private static (Vector2 Position, Vector2 Size, Vector2 UvMin, Vector2 UvMax) ComputeBackgroundLayout(
+        BackgroundFitMode fitMode, int textureWidth, int textureHeight, Vector2 canvasOrigin, Vector2 canvasSize)
+    {
+        if (textureWidth <= 0 || textureHeight <= 0 || fitMode == BackgroundFitMode.Stretch || canvasSize.X <= 0f || canvasSize.Y <= 0f)
+        {
+            return (canvasOrigin, canvasSize, Vector2.Zero, Vector2.One);
+        }
+
+        var textureAspect = textureWidth / (float)textureHeight;
+        var canvasAspect = canvasSize.X / canvasSize.Y;
+
+        if (fitMode == BackgroundFitMode.Cover)
+        {
+            Vector2 uvMin, uvMax;
+            if (textureAspect > canvasAspect)
+            {
+                var visibleFraction = canvasAspect / textureAspect;
+                var margin = (1f - visibleFraction) / 2f;
+                uvMin = new Vector2(margin, 0f);
+                uvMax = new Vector2(1f - margin, 1f);
+            }
+            else
+            {
+                var visibleFraction = textureAspect / canvasAspect;
+                var margin = (1f - visibleFraction) / 2f;
+                uvMin = new Vector2(0f, margin);
+                uvMax = new Vector2(1f, 1f - margin);
+            }
+
+            return (canvasOrigin, canvasSize, uvMin, uvMax);
+        }
+
+        // Contain: shrink the drawn rect to fit fully inside the canvas, centered.
+        var drawSize = textureAspect > canvasAspect
+            ? new Vector2(canvasSize.X, canvasSize.X / textureAspect)
+            : new Vector2(canvasSize.Y * textureAspect, canvasSize.Y);
+
+        var offset = (canvasSize - drawSize) / 2f;
+        return (canvasOrigin + offset, drawSize, Vector2.Zero, Vector2.One);
     }
 
     private static void DrawResizeHandles(ImDrawListPtr drawList, Vector2 elementScreenPos, Vector2 elementScreenSize)

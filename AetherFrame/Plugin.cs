@@ -7,6 +7,7 @@ using AetherFrame.UI;
 using AetherFrame.UI.Editor;
 using AetherFrame.Windows;
 using Dalamud.Game.Command;
+using Dalamud.Interface.ImGuiFileDialog;
 using Dalamud.Interface.Windowing;
 using Dalamud.IoC;
 using Dalamud.Plugin;
@@ -24,6 +25,7 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
     [PluginService] internal static IReliableFileStorage FileStorage { get; private set; } = null!;
     [PluginService] internal static IPluginLog Log { get; private set; } = null!;
     [PluginService] internal static IKeyState KeyState { get; private set; } = null!;
+    [PluginService] internal static ITextureProvider TextureProvider { get; private set; } = null!;
 
     private const string CommandName = "/aetherframe";
 
@@ -33,12 +35,13 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
 
     private readonly ProfileService profileService;
     private readonly KeyboardShortcutService keyboardShortcutService;
+    private readonly ImageTextureCache imageTextureCache;
     private readonly MainWindow mainWindow;
     private readonly ProfileEditorWindow profileEditorWindow;
 
     public Plugin()
     {
-        DalamudServices.Initialize(PluginInterface, CommandManager, ClientState, PlayerState, Framework, FileStorage, Log, KeyState);
+        DalamudServices.Initialize(PluginInterface, CommandManager, ClientState, PlayerState, Framework, FileStorage, Log, KeyState, TextureProvider);
 
         Configuration = PluginInterface.GetPluginConfig() as PluginConfiguration ?? new PluginConfiguration();
 
@@ -47,11 +50,16 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
         var profileRepository = new ProfileRepository();
         profileService = new ProfileService(bindingRepository, profileRepository, characterIdentityService);
 
-        var editorSession = new EditorSession(profileService);
+        var assetStorageService = new AssetStorageService();
+        imageTextureCache = new ImageTextureCache(assetStorageService);
+        var fileDialogManager = new FileDialogManager();
+
+        var editorSession = new EditorSession(profileService, assetStorageService, imageTextureCache);
         keyboardShortcutService = new KeyboardShortcutService();
 
         mainWindow = new MainWindow(this, profileService);
-        profileEditorWindow = new ProfileEditorWindow(profileService, editorSession, keyboardShortcutService);
+        profileEditorWindow = new ProfileEditorWindow(
+            profileService, editorSession, keyboardShortcutService, imageTextureCache, fileDialogManager);
 
         WindowSystem.AddWindow(mainWindow);
         WindowSystem.AddWindow(profileEditorWindow);
@@ -82,6 +90,7 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
         mainWindow.Dispose();
         profileEditorWindow.Dispose();
         keyboardShortcutService.Dispose();
+        imageTextureCache.Clear();
 
         CommandManager.RemoveHandler(CommandName);
 
