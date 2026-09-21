@@ -57,4 +57,24 @@ public abstract class ProfileElement
 
         return true;
     }
+
+    /// <summary>
+    /// Creates an independent copy (including <see cref="Id"/>) of this element, for undo/redo
+    /// snapshots and for <c>Duplicate</c>. Never touched by further live mutations.
+    /// </summary>
+    internal abstract ProfileElement Clone();
+
+    /// <summary>
+    /// Copies every editable property (except <see cref="Id"/>) from <paramref name="source"/>
+    /// into this instance. Used to restore an undo/redo snapshot onto the live element in
+    /// place via <c>ProfileService.UpdateElement</c>, without replacing its identity.
+    /// </summary>
+    internal virtual void CopyFrom(ProfileElement source)
+    {
+        Visible = source.Visible;
+        Locked = source.Locked;
+        Position = source.Position;
+        Size = source.Size;
+        ZIndex = source.ZIndex;
+    }
 }

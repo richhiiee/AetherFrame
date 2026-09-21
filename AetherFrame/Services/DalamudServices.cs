@@ -19,6 +19,8 @@ internal static class DalamudServices
 
     internal static IPluginLog Log { get; private set; } = null!;
 
+    internal static IKeyState KeyState { get; private set; } = null!;
+
     internal static void Initialize(
         IDalamudPluginInterface pluginInterface,
         ICommandManager commandManager,
@@ -26,7 +28,8 @@ internal static class DalamudServices
         IPlayerState playerState,
         IFramework framework,
         IReliableFileStorage fileStorage,
-        IPluginLog log)
+        IPluginLog log,
+        IKeyState keyState)
     {
         PluginInterface = pluginInterface;
         CommandManager = commandManager;
@@ -35,5 +38,6 @@ internal static class DalamudServices
         Framework = framework;
         FileStorage = fileStorage;
         Log = log;
+        KeyState = keyState;
     }
 }

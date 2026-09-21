@@ -17,6 +17,35 @@ public sealed class TextProfileElement : ProfileElement
     public TextAlignment Alignment { get; set; } = TextAlignment.Left;
 
     public bool Wrap { get; set; } = true;
+
+    internal override ProfileElement Clone() => new TextProfileElement
+    {
+        Id = Id,
+        Visible = Visible,
+        Locked = Locked,
+        Position = Position,
+        Size = Size,
+        ZIndex = ZIndex,
+        Text = Text,
+        FontSize = FontSize,
+        Color = Color,
+        Alignment = Alignment,
+        Wrap = Wrap,
+    };
+
+    internal override void CopyFrom(ProfileElement source)
+    {
+        base.CopyFrom(source);
+
+        if (source is TextProfileElement text)
+        {
+            Text = text.Text;
+            FontSize = text.FontSize;
+            Color = text.Color;
+            Alignment = text.Alignment;
+            Wrap = text.Wrap;
+        }
+    }
 }
 
 public enum TextAlignment

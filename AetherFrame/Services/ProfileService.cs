@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Numerics;
 using System.Threading.Tasks;
 using AetherFrame.Domain.Characters;
 using AetherFrame.Domain.Profiles;
@@ -136,19 +138,14 @@ internal sealed class ProfileService
 
     /// <summary>
     /// Adds a text element to the currently loaded profile. Synchronous UI mutation; safe to
-    /// call directly from ImGui Draw.
+    /// call directly from ImGui Draw. Returns the new element's id.
     /// </summary>
-    internal void AddTextElement(string text)
+    internal Guid AddTextElement(string text)
     {
         lock (gate)
         {
             var profile = RequireEditableProfileLocked();
-
-            if (profile.Elements.Count >= ProfileDocument.MaxElementCount)
-            {
-                throw new InvalidOperationException(
-                    $"Profile already has the maximum of {ProfileDocument.MaxElementCount} elements.");
-            }
+            EnsureCapacityLocked(profile);
 
             var content = text ?? string.Empty;
             if (content.Length > TextProfileElement.MaxTextLength)
@@ -156,7 +153,9 @@ internal sealed class ProfileService
                 content = content[..TextProfileElement.MaxTextLength];
             }
 
-            profile.Elements.Add(new TextProfileElement { Text = content });
+            var element = new TextProfileElement { Text = content, ZIndex = NextZIndexLocked(profile) };
+            profile.Elements.Add(element);
+            return element.Id;
         }
     }
 
@@ -184,11 +183,124 @@ internal sealed class ProfileService
         lock (gate)
         {
             var profile = RequireEditableProfileLocked();
+            update(FindElementLocked(profile, elementId));
+        }
+    }
 
-            var element = profile.Elements.Find(e => e.Id == elementId)
-                ?? throw new InvalidOperationException($"No element with id {elementId} exists in the current profile.");
+    /// <summary>Returns an independent copy of an existing element, e.g. for undo/redo snapshots.</summary>
+    internal ProfileElement CloneElement(Guid elementId)
+    {
+        lock (gate)
+        {
+            var profile = RequireEditableProfileLocked();
+            return FindElementLocked(profile, elementId).Clone();
+        }
+    }
 
-            update(element);
+    /// <summary>
+    /// Inserts a fully-formed element (e.g. an undo/redo snapshot, or a duplicate) into the
+    /// currently loaded profile, replacing any existing element with the same id.
+    /// </summary>
+    internal void InsertElement(ProfileElement element)
+    {
+        lock (gate)
+        {
+            var profile = RequireEditableProfileLocked();
+
+            profile.Elements.RemoveAll(e => e.Id == element.Id);
+            EnsureCapacityLocked(profile);
+            profile.Elements.Add(element);
+        }
+    }
+
+    /// <summary>
+    /// Duplicates an existing element: new id, same editable properties, offset and clamped
+    /// position, placed above the source in z-order. Returns the duplicate's id.
+    /// </summary>
+    internal Guid DuplicateElement(Guid elementId)
+    {
+        const float offset = 16f;
+
+        lock (gate)
+        {
+            var profile = RequireEditableProfileLocked();
+            var source = FindElementLocked(profile, elementId);
+            EnsureCapacityLocked(profile);
+
+            var duplicate = source.Clone();
+            duplicate.Id = Guid.NewGuid();
+
+            var maxX = Math.Max(0f, ProfileDocument.CanvasWidth - duplicate.Size.X);
+            var maxY = Math.Max(0f, ProfileDocument.CanvasHeight - duplicate.Size.Y);
+            duplicate.Position = new Vector2(
+                Math.Clamp(duplicate.Position.X + offset, 0f, maxX),
+                Math.Clamp(duplicate.Position.Y + offset, 0f, maxY));
+
+            duplicate.ZIndex = NextZIndexLocked(profile);
+
+            profile.Elements.Add(duplicate);
+            return duplicate.Id;
+        }
+    }
+
+    /// <summary>Moves an element one step towards the front of the visual stacking order.</summary>
+    internal void BringForward(Guid elementId) => ReorderZIndex(elementId, static (ordered, index) =>
+    {
+        if (index < ordered.Count - 1)
+        {
+            (ordered[index], ordered[index + 1]) = (ordered[index + 1], ordered[index]);
+        }
+    });
+
+    /// <summary>Moves an element one step towards the back of the visual stacking order.</summary>
+    internal void SendBackward(Guid elementId) => ReorderZIndex(elementId, static (ordered, index) =>
+    {
+        if (index > 0)
+        {
+            (ordered[index], ordered[index - 1]) = (ordered[index - 1], ordered[index]);
+        }
+    });
+
+    /// <summary>Moves an element to the very front of the visual stacking order.</summary>
+    internal void BringToFront(Guid elementId) => ReorderZIndex(elementId, static (ordered, index) =>
+    {
+        var element = ordered[index];
+        ordered.RemoveAt(index);
+        ordered.Add(element);
+    });
+
+    /// <summary>Moves an element to the very back of the visual stacking order.</summary>
+    internal void SendToBack(Guid elementId) => ReorderZIndex(elementId, static (ordered, index) =>
+    {
+        var element = ordered[index];
+        ordered.RemoveAt(index);
+        ordered.Insert(0, element);
+    });
+
+    /// <summary>Captures every element's current ZIndex, e.g. for an undo/redo snapshot.</summary>
+    internal Dictionary<Guid, int> SnapshotZOrder()
+    {
+        lock (gate)
+        {
+            var profile = RequireEditableProfileLocked();
+            return profile.Elements.ToDictionary(e => e.Id, e => e.ZIndex);
+        }
+    }
+
+    /// <summary>Restores a previously captured ZIndex snapshot (see <see cref="SnapshotZOrder"/>).</summary>
+    internal void RestoreZOrder(Dictionary<Guid, int> snapshot)
+    {
+        lock (gate)
+        {
+            var profile = RequireEditableProfileLocked();
+
+            foreach (var element in profile.Elements)
+            {
+                if (snapshot.TryGetValue(element.Id, out var zIndex))
+                {
+                    element.ZIndex = zIndex;
+                }
+            }
         }
     }
 
@@ -203,6 +315,52 @@ internal sealed class ProfileService
         lock (gate)
         {
             RequireEditableProfileLocked();
+        }
+    }
+
+    /// <summary>Must be called while holding <see cref="gate"/>.</summary>
+    private static ProfileElement FindElementLocked(ProfileDocument profile, Guid elementId) =>
+        profile.Elements.Find(e => e.Id == elementId)
+            ?? throw new InvalidOperationException($"No element with id {elementId} exists in the current profile.");
+
+    /// <summary>Must be called while holding <see cref="gate"/>.</summary>
+    private static void EnsureCapacityLocked(ProfileDocument profile)
+    {
+        if (profile.Elements.Count >= ProfileDocument.MaxElementCount)
+        {
+            throw new InvalidOperationException(
+                $"Profile already has the maximum of {ProfileDocument.MaxElementCount} elements.");
+        }
+    }
+
+    /// <summary>Must be called while holding <see cref="gate"/>.</summary>
+    private static int NextZIndexLocked(ProfileDocument profile) =>
+        profile.Elements.Count == 0 ? 0 : profile.Elements.Max(e => e.ZIndex) + 1;
+
+    /// <summary>
+    /// Applies a reordering operation to the elements sorted by their current ZIndex (ties
+    /// broken by list order), then renumbers every element's ZIndex to a compact 0..N-1
+    /// sequence matching the new order, so values never grow unbounded.
+    /// </summary>
+    private void ReorderZIndex(Guid elementId, Action<List<ProfileElement>, int> reorder)
+    {
+        lock (gate)
+        {
+            var profile = RequireEditableProfileLocked();
+
+            var ordered = profile.Elements.OrderBy(e => e.ZIndex).ToList();
+            var index = ordered.FindIndex(e => e.Id == elementId);
+            if (index < 0)
+            {
+                throw new InvalidOperationException($"No element with id {elementId} exists in the current profile.");
+            }
+
+            reorder(ordered, index);
+
+            for (var i = 0; i < ordered.Count; i++)
+            {
+                ordered[i].ZIndex = i;
+            }
         }
     }
 

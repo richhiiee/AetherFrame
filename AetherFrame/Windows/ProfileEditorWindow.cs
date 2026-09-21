@@ -19,8 +19,9 @@ internal sealed class ProfileEditorWindow : Window, IDisposable
 
     private readonly ProfileService profileService;
     private readonly EditorSession editorSession;
+    private readonly KeyboardShortcutService keyboardShortcutService;
 
-    internal ProfileEditorWindow(ProfileService profileService, EditorSession editorSession)
+    internal ProfileEditorWindow(ProfileService profileService, EditorSession editorSession, KeyboardShortcutService keyboardShortcutService)
         : base("AetherFrame Profile Editor##ProfileEditorWindow")
     {
         SizeConstraints = new WindowSizeConstraints
@@ -31,10 +32,21 @@ internal sealed class ProfileEditorWindow : Window, IDisposable
 
         this.profileService = profileService;
         this.editorSession = editorSession;
+        this.keyboardShortcutService = keyboardShortcutService;
     }
 
     public void Dispose()
     {
+    }
+
+    /// <summary>
+    /// Called by the window system exactly once when this window closes. Draw won't run again
+    /// until it reopens, so this is the only reliable place to tell the keyboard service to
+    /// stop intercepting immediately rather than leaving it stuck on stale "focused" state.
+    /// </summary>
+    public override void OnClose()
+    {
+        keyboardShortcutService.SetEditorFocusState(editorFocused: false, textInputActive: false);
     }
 
     public override void Draw()
@@ -46,8 +58,29 @@ internal sealed class ProfileEditorWindow : Window, IDisposable
             return;
         }
 
+        PublishKeyboardFocusState();
+        ApplyPendingShortcutActions();
+
         ImGui.TextUnformatted($"Editing: {profile.Name}");
         ImGui.TextUnformatted($"Elements: {profile.Elements.Count}/{ProfileDocument.MaxElementCount}");
+
+        using (ImRaii.Disabled(!editorSession.CanUndo))
+        {
+            if (ImGui.SmallButton("Undo"))
+            {
+                editorSession.Undo();
+            }
+        }
+
+        ImGui.SameLine();
+        using (ImRaii.Disabled(!editorSession.CanRedo))
+        {
+            if (ImGui.SmallButton("Redo"))
+            {
+                editorSession.Redo();
+            }
+        }
+
         ImGui.Separator();
 
         DrawCanvas(profile);
@@ -113,7 +146,9 @@ internal sealed class ProfileEditorWindow : Window, IDisposable
 
     private void DrawTextElementInspector(TextProfileElement textElement)
     {
-        ImGui.TextUnformatted(string.IsNullOrEmpty(textElement.Text) ? "(empty)" : textElement.Text);
+        var isSelected = editorSession.SelectedElementId == textElement.Id;
+
+        ImGui.TextUnformatted((isSelected ? "> " : string.Empty) + (string.IsNullOrEmpty(textElement.Text) ? "(empty)" : textElement.Text));
 
         ImGui.SameLine();
         if (ImGui.SmallButton("Remove"))
@@ -124,11 +159,41 @@ internal sealed class ProfileEditorWindow : Window, IDisposable
 
         ImGui.Indent();
 
+        // Bring Forward / Send Backward / Bring to Front / Send to Back / Duplicate. These
+        // operate on ZIndex under the hood, but that number itself is never shown to the user.
+        if (ImGui.SmallButton("Bring Forward"))
+        {
+            editorSession.BringForward(textElement.Id);
+        }
+
+        ImGui.SameLine();
+        if (ImGui.SmallButton("Send Backward"))
+        {
+            editorSession.SendBackward(textElement.Id);
+        }
+
+        ImGui.SameLine();
+        if (ImGui.SmallButton("Bring to Front"))
+        {
+            editorSession.BringToFront(textElement.Id);
+        }
+
+        ImGui.SameLine();
+        if (ImGui.SmallButton("Send to Back"))
+        {
+            editorSession.SendToBack(textElement.Id);
+        }
+
+        if (ImGui.SmallButton("Duplicate"))
+        {
+            editorSession.DuplicateElement(textElement.Id);
+        }
+
         // Locked stays interactive even while locked, so the user can unlock the element.
         var locked = textElement.Locked;
         if (ImGui.Checkbox("Locked", ref locked))
         {
-            editorSession.UpdateElement(textElement.Id, element => element.Locked = locked);
+            editorSession.ApplyImmediateEdit(textElement.Id, element => element.Locked = locked);
         }
 
         using (ImRaii.Disabled(textElement.Locked))
@@ -136,52 +201,123 @@ internal sealed class ProfileEditorWindow : Window, IDisposable
             var fontSize = textElement.FontSize;
             if (ImGui.SliderFloat("Font Size", ref fontSize, TextProfileElement.MinFontSize, TextProfileElement.MaxFontSize))
             {
-                UpdateTextElement(textElement.Id, element => element.FontSize = fontSize);
+                ContinueTextEdit(textElement.Id, element => element.FontSize = fontSize);
+            }
+
+            if (ImGui.IsItemDeactivatedAfterEdit())
+            {
+                editorSession.CommitPendingEdit();
             }
 
             var color = textElement.Color;
             if (ImGui.ColorEdit4("Color", ref color))
             {
-                UpdateTextElement(textElement.Id, element => element.Color = color);
+                ContinueTextEdit(textElement.Id, element => element.Color = color);
+            }
+
+            if (ImGui.IsItemDeactivatedAfterEdit())
+            {
+                editorSession.CommitPendingEdit();
             }
 
             var alignmentIndex = (int)textElement.Alignment;
             if (ImGui.Combo("Alignment", ref alignmentIndex, AlignmentLabels, AlignmentLabels.Length))
             {
                 var newAlignment = (TextAlignment)alignmentIndex;
-                UpdateTextElement(textElement.Id, element => element.Alignment = newAlignment);
+                ApplyImmediateTextEdit(textElement.Id, element => element.Alignment = newAlignment);
             }
 
             var wrap = textElement.Wrap;
             if (ImGui.Checkbox("Wrap", ref wrap))
             {
-                UpdateTextElement(textElement.Id, element => element.Wrap = wrap);
+                ApplyImmediateTextEdit(textElement.Id, element => element.Wrap = wrap);
             }
 
             var visible = textElement.Visible;
             if (ImGui.Checkbox("Visible", ref visible))
             {
-                editorSession.UpdateElement(textElement.Id, element => element.Visible = visible);
+                editorSession.ApplyImmediateEdit(textElement.Id, element => element.Visible = visible);
             }
         }
 
         ImGui.Unindent();
     }
 
-    /// <summary>
-    /// Routes a <see cref="TextProfileElement"/>-specific edit through
-    /// <see cref="EditorSession.UpdateElement"/>, which only knows about the common
-    /// <see cref="ProfileElement"/> base type.
-    /// </summary>
-    private void UpdateTextElement(Guid elementId, Action<TextProfileElement> update)
+    /// <summary>Routes a discrete (checkbox/combo) <see cref="TextProfileElement"/> edit.</summary>
+    private void ApplyImmediateTextEdit(Guid elementId, Action<TextProfileElement> update)
     {
-        editorSession.UpdateElement(elementId, element =>
+        editorSession.ApplyImmediateEdit(elementId, element =>
         {
             if (element is TextProfileElement textElement)
             {
                 update(textElement);
             }
         });
+    }
+
+    /// <summary>Routes a live, in-progress (slider/color) <see cref="TextProfileElement"/> edit.</summary>
+    private void ContinueTextEdit(Guid elementId, Action<TextProfileElement> update)
+    {
+        editorSession.BeginOrContinueEdit(elementId, element =>
+        {
+            if (element is TextProfileElement textElement)
+            {
+                update(textElement);
+            }
+        });
+    }
+
+    /// <summary>
+    /// Publishes this frame's focus/text-input state to <see cref="KeyboardShortcutService"/>
+    /// so it knows whether to intercept shortcuts on the NEXT <c>Framework.Update</c> tick.
+    /// Detection/suppression happen there now, not here — see that class for why.
+    /// </summary>
+    private void PublishKeyboardFocusState()
+    {
+        var io = ImGui.GetIO();
+        var editorFocused = ImGui.IsWindowFocused(ImGuiFocusedFlags.RootAndChildWindows);
+        var textInputActive = io.WantTextInput;
+
+        keyboardShortcutService.SetEditorFocusState(editorFocused, textInputActive);
+
+        if (editorFocused && !textInputActive)
+        {
+            // Claim the keyboard at the ImGui/WndProc level too, so clicks/typing route to us.
+            // The actual suppression that stops FFXIV from also reacting happens earlier, in
+            // KeyboardShortcutService during Framework.Update — this is a secondary measure.
+            ImGui.SetNextFrameWantCaptureKeyboard(true);
+        }
+    }
+
+    /// <summary>
+    /// Applies shortcut actions queued by <see cref="KeyboardShortcutService"/> during
+    /// <c>Framework.Update</c> (key detection/suppression already happened there; this just
+    /// performs the resulting edit through the normal, render-thread-only EditorSession API).
+    /// </summary>
+    private void ApplyPendingShortcutActions()
+    {
+        foreach (var action in keyboardShortcutService.DequeuePendingActions())
+        {
+            switch (action.Kind)
+            {
+                case EditorShortcutActionKind.Undo:
+                    editorSession.Undo();
+                    break;
+                case EditorShortcutActionKind.Redo:
+                    editorSession.Redo();
+                    break;
+                case EditorShortcutActionKind.Delete:
+                    if (editorSession.SelectedElementId is { } selectedId)
+                    {
+                        editorSession.RemoveElement(selectedId);
+                    }
+
+                    break;
+                case EditorShortcutActionKind.Nudge:
+                    editorSession.NudgeSelected(action.NudgeDelta);
+                    break;
+            }
+        }
     }
 
     private void DrawCanvas(ProfileDocument profile)

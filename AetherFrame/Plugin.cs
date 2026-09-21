@@ -23,6 +23,7 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
     [PluginService] internal static IFramework Framework { get; private set; } = null!;
     [PluginService] internal static IReliableFileStorage FileStorage { get; private set; } = null!;
     [PluginService] internal static IPluginLog Log { get; private set; } = null!;
+    [PluginService] internal static IKeyState KeyState { get; private set; } = null!;
 
     private const string CommandName = "/aetherframe";
 
@@ -31,12 +32,13 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
     public readonly WindowSystem WindowSystem = new("AetherFrame");
 
     private readonly ProfileService profileService;
+    private readonly KeyboardShortcutService keyboardShortcutService;
     private readonly MainWindow mainWindow;
     private readonly ProfileEditorWindow profileEditorWindow;
 
     public Plugin()
     {
-        DalamudServices.Initialize(PluginInterface, CommandManager, ClientState, PlayerState, Framework, FileStorage, Log);
+        DalamudServices.Initialize(PluginInterface, CommandManager, ClientState, PlayerState, Framework, FileStorage, Log, KeyState);
 
         Configuration = PluginInterface.GetPluginConfig() as PluginConfiguration ?? new PluginConfiguration();
 
@@ -46,9 +48,10 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
         profileService = new ProfileService(bindingRepository, profileRepository, characterIdentityService);
 
         var editorSession = new EditorSession(profileService);
+        keyboardShortcutService = new KeyboardShortcutService();
 
         mainWindow = new MainWindow(this, profileService);
-        profileEditorWindow = new ProfileEditorWindow(profileService, editorSession);
+        profileEditorWindow = new ProfileEditorWindow(profileService, editorSession, keyboardShortcutService);
 
         WindowSystem.AddWindow(mainWindow);
         WindowSystem.AddWindow(profileEditorWindow);
@@ -78,6 +81,7 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
 
         mainWindow.Dispose();
         profileEditorWindow.Dispose();
+        keyboardShortcutService.Dispose();
 
         CommandManager.RemoveHandler(CommandName);
 
