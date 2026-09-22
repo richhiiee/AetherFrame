@@ -9,8 +9,10 @@
     <Description>AetherFrame lets you build character-bound profiles made of simple text elements.</Description>
     <RepoUrl>https://github.com/richhiiee/AetherFrame</RepoUrl>
     <Tags>aetherframe;profiles</Tags>
-    <!-- Approved icon (see images/icon.png); DalamudPackager embeds this URL in the plugin
-         manifest, so it must point at the raw, publicly reachable file on the default branch. -->
-    <IconUrl>https://raw.githubusercontent.com/richhiiee/AetherFrame/master/AetherFrame/images/icon.png</IconUrl>
+    <!-- Approved icon. AetherFrame itself is private, so raw.githubusercontent.com can't serve
+         a file from it anonymously; the icon instead lives in the public AetherFrameAssets repo
+         (https://github.com/richhiiee/AetherFrameAssets), which DalamudPackager's manifest needs
+         to be able to fetch unauthenticated. -->
+    <IconUrl>https://raw.githubusercontent.com/richhiiee/AetherFrameAssets/master/images/icon.png</IconUrl>
   </PropertyGroup>
 </Project>
