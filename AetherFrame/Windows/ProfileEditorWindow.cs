@@ -1106,9 +1106,7 @@ internal sealed class ProfileEditorWindow : Window, IDisposable
         if (selectedElement is not null && !selectedElement.Locked && selectedScreenCorners is not null
             && TryGetHoveredHandle(mouseScreen, selectedScreenCorners, out var hoveredHandle))
         {
-            ImGui.SetMouseCursor(hoveredHandle is ResizeHandle.TopLeft or ResizeHandle.BottomRight
-                ? ImGuiMouseCursor.ResizeNwse
-                : ImGuiMouseCursor.ResizeNesw);
+            ImGui.SetMouseCursor(GetResizeCursor(selectedScreenCorners, hoveredHandle));
 
             if (leftClicked)
             {
@@ -1180,6 +1178,30 @@ internal sealed class ProfileEditorWindow : Window, IDisposable
 
         handle = ResizeHandle.None;
         return false;
+    }
+
+    /// <summary>
+    /// Picks the diagonal resize cursor (NW-SE vs NE-SW) that matches the CURRENT visual angle
+    /// between the hovered corner and its opposite — not <paramref name="handle"/>'s local
+    /// identity, which points at a different visual diagonal once the element is rotated. At 90
+    /// degrees, for example, the local TopLeft/BottomRight pair (the NW-SE diagonal at rotation
+    /// 0) visually sits on the NE-SW diagonal instead.
+    /// </summary>
+    private static ImGuiMouseCursor GetResizeCursor(Vector2[] screenCorners, ResizeHandle handle)
+    {
+        var index = handle switch
+        {
+            ResizeHandle.TopLeft => 0,
+            ResizeHandle.TopRight => 1,
+            ResizeHandle.BottomRight => 2,
+            _ => 3, // BottomLeft
+        };
+        var oppositeIndex = (index + 2) % 4;
+
+        // Same-signed X/Y offset to the opposite corner means it's visually down-right (or
+        // up-left) of the hovered one, i.e. the NW-SE diagonal; opposite signs mean NE-SW.
+        var diff = screenCorners[oppositeIndex] - screenCorners[index];
+        return diff.X * diff.Y >= 0f ? ImGuiMouseCursor.ResizeNwse : ImGuiMouseCursor.ResizeNesw;
     }
 
     /// <summary>

@@ -168,28 +168,65 @@ internal sealed class EditorSession
     }
 
     /// <summary>
-    /// Imports an image file into managed asset storage and adds it as a new element, selecting
-    /// it and recording one undoable history entry. Errors (unreadable file, unsupported
-    /// format, profile at capacity, etc.) are surfaced via <see cref="ErrorMessage"/>.
+    /// Imports an image file into managed asset storage and adds it as a new element, sized to
+    /// the source image's own aspect ratio (see <see cref="ComputeDefaultImportSize"/>),
+    /// selecting it and recording one undoable history entry. Errors (unreadable file,
+    /// unsupported format, profile at capacity, etc.) are surfaced via <see cref="ErrorMessage"/>.
     /// </summary>
     internal void AddImageElement(string sourceFilePath)
     {
         ErrorMessage = null;
 
+        Guid assetId;
         try
         {
-            var assetId = assetStorage.ImportImage(sourceFilePath);
-            var newId = profileService.AddImageElement(assetId);
-            Select(newId);
-
-            var snapshot = profileService.CloneElement(newId);
-            RecordHistory(
-                undo: () => profileService.RemoveElement(snapshot.Id),
-                redo: () => profileService.InsertElement(snapshot.Clone()));
+            assetId = assetStorage.ImportImage(sourceFilePath);
         }
         catch (Exception ex)
         {
             ErrorMessage = ex.Message;
+            return;
+        }
+
+        var size = ComputeDefaultImportSize(sourceFilePath);
+        var position = ClampPosition(new Vector2(ProfileElement.DefaultPositionX, ProfileElement.DefaultPositionY), size);
+
+        var newId = AddElement(new ImageProfileElement
+        {
+            AssetId = assetId,
+            Position = position,
+            Size = size,
+        });
+
+        if (newId != Guid.Empty)
+        {
+            Select(newId);
+        }
+    }
+
+    /// <summary>
+    /// Adds a fully-formed element (e.g. a Basic-mode role-tagged element with its own default
+    /// position and styling) and records one undoable history entry. Mirrors
+    /// <see cref="AddTextElement"/>/<see cref="AddImageElement(string)"/> for callers that need
+    /// more control than those Advanced-editor-oriented defaults provide.
+    /// </summary>
+    internal Guid AddElement(ProfileElement element)
+    {
+        ErrorMessage = null;
+
+        try
+        {
+            var newId = profileService.AddElement(element);
+            var snapshot = profileService.CloneElement(newId);
+            RecordHistory(
+                undo: () => profileService.RemoveElement(snapshot.Id),
+                redo: () => profileService.InsertElement(snapshot.Clone()));
+            return newId;
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = ex.Message;
+            return Guid.Empty;
         }
     }
 
@@ -606,18 +643,10 @@ internal sealed class EditorSession
         ActiveInteraction = ElementInteractionKind.Resizing;
         ActiveResizeHandle = handle;
         interactingElementId = element.Id;
+        dragStartMousePosition = mouseCanvasPosition;
         dragOriginalPosition = element.Position;
         dragOriginalSize = element.Size;
         interactionBeforeSnapshot = element.Clone();
-
-        // For a rotated element, resizing has to happen in the element's own (unrotated) local
-        // frame — see UpdateInteraction. Pre-transform the start position into that frame here,
-        // using the fixed pivot/rotation captured above, so every later frame just transforms
-        // the live mouse position the same way and subtracts.
-        var rotationDegrees = RotationGeometry.GetRotationDegrees(element);
-        dragStartMousePosition = rotationDegrees == 0f
-            ? mouseCanvasPosition
-            : RotationGeometry.RotatePoint(mouseCanvasPosition, RotationGeometry.GetCenter(dragOriginalPosition, dragOriginalSize), -rotationDegrees);
     }
 
     /// <summary>
@@ -651,17 +680,22 @@ internal sealed class EditorSession
                     ? dragOriginalSize.X / dragOriginalSize.Y
                     : (float?)null;
 
-                // Resizing has to happen in the element's own local (unrotated) frame: transform
-                // the live mouse position into that frame using the SAME fixed pivot/rotation
-                // BeginResize used for the start position, so the resulting delta is purely
-                // local — see BeginResize and ComputeResize.
-                var pivot = RotationGeometry.GetCenter(dragOriginalPosition, dragOriginalSize);
-                var localMouse = rotationDegrees == 0f
-                    ? mouseCanvasPosition
-                    : RotationGeometry.RotatePoint(mouseCanvasPosition, pivot, -rotationDegrees);
-                var delta = localMouse - dragStartMousePosition;
+                Vector2 newPosition, newSize;
+                if (rotationDegrees == 0f)
+                {
+                    var delta = mouseCanvasPosition - dragStartMousePosition;
+                    (newPosition, newSize) = ComputeResize(dragOriginalPosition, dragOriginalSize, ActiveResizeHandle, delta, lockedAspectRatio);
+                }
+                else
+                {
+                    // Resizing a rotated element keeps the VISIBLE corner opposite the one being
+                    // dragged fixed in canvas space — see ComputeRotatedResize for why the naive
+                    // "hold the opposite LOCAL corner's coordinates fixed" approach (used above
+                    // for rotation 0) doesn't generalize to a rotated element.
+                    (newPosition, newSize) = ComputeRotatedResize(
+                        dragOriginalPosition, dragOriginalSize, ActiveResizeHandle, mouseCanvasPosition, lockedAspectRatio, rotationDegrees);
+                }
 
-                var (newPosition, newSize) = ComputeResize(dragOriginalPosition, dragOriginalSize, ActiveResizeHandle, delta, lockedAspectRatio, rotationDegrees);
                 profileService.UpdateElement(elementId, element =>
                 {
                     element.Position = newPosition;
@@ -896,6 +930,29 @@ internal sealed class EditorSession
         return true;
     }
 
+    /// <summary>
+    /// Picks a newly imported image's initial canvas size: its native aspect ratio, scaled down
+    /// (never up) so its longer side fits <see cref="ImageProfileElement.DefaultSize"/> — a
+    /// square image keeps exactly the old default footprint, while a tall or wide one starts
+    /// correctly proportioned instead of stretched into a square. Falls back to the old fixed
+    /// square default if the file's dimensions can't be read (unrecognized/corrupt header).
+    /// </summary>
+    private static Vector2 ComputeDefaultImportSize(string sourceFilePath)
+    {
+        if (ImageDimensionReader.TryReadDimensions(sourceFilePath) is not { } native || native.Width <= 0 || native.Height <= 0)
+        {
+            return new Vector2(ImageProfileElement.DefaultSize, ImageProfileElement.DefaultSize);
+        }
+
+        var scale = Math.Min(1f, Math.Min(ImageProfileElement.DefaultSize / native.Width, ImageProfileElement.DefaultSize / native.Height));
+        var size = new Vector2(native.Width * scale, native.Height * scale);
+
+        // Guards an extreme aspect ratio (e.g. a very wide banner) from shrinking to a sliver
+        // too small to see or grab, at the cost of slightly distorting its proportions in that
+        // edge case only.
+        return new Vector2(Math.Max(MinElementWidth, size.X), Math.Max(MinElementHeight, size.Y));
+    }
+
     private static Vector2 ClampPosition(Vector2 position, Vector2 size)
     {
         var maxX = Math.Max(0f, ProfileDocument.CanvasWidth - size.X);
@@ -928,8 +985,14 @@ internal sealed class EditorSession
         return clampedCenter - (size / 2f);
     }
 
+    /// <summary>
+    /// Axis-aligned resize (rotation 0 only — see <see cref="ComputeRotatedResize"/> for a
+    /// rotated element). Unchanged from before rotation existed: the opposite edge/corner is
+    /// simply held at its original canvas coordinate while the dragged edge/corner moves by
+    /// <paramref name="delta"/>.
+    /// </summary>
     private static (Vector2 Position, Vector2 Size) ComputeResize(
-        Vector2 originalPosition, Vector2 originalSize, ResizeHandle handle, Vector2 delta, float? lockedAspectRatio, float rotationDegrees)
+        Vector2 originalPosition, Vector2 originalSize, ResizeHandle handle, Vector2 delta, float? lockedAspectRatio)
     {
         var left = originalPosition.X;
         var top = originalPosition.Y;
@@ -956,16 +1019,11 @@ internal sealed class EditorSession
                 break;
         }
 
-        if (rotationDegrees == 0f)
-        {
-            // Keep every edge inside the canvas before enforcing minimum size. Only meaningful
-            // for an axis-aligned element — a rotated one is clamped as a whole box at the end,
-            // since its individual "edges" (in this local frame) aren't the canvas edges.
-            left = Math.Clamp(left, 0f, ProfileDocument.CanvasWidth);
-            top = Math.Clamp(top, 0f, ProfileDocument.CanvasHeight);
-            right = Math.Clamp(right, 0f, ProfileDocument.CanvasWidth);
-            bottom = Math.Clamp(bottom, 0f, ProfileDocument.CanvasHeight);
-        }
+        // Keep every edge inside the canvas before enforcing minimum size.
+        left = Math.Clamp(left, 0f, ProfileDocument.CanvasWidth);
+        top = Math.Clamp(top, 0f, ProfileDocument.CanvasHeight);
+        right = Math.Clamp(right, 0f, ProfileDocument.CanvasWidth);
+        bottom = Math.Clamp(bottom, 0f, ProfileDocument.CanvasHeight);
 
         if (lockedAspectRatio is { } aspectRatio && aspectRatio > 0f)
         {
@@ -1034,16 +1092,109 @@ internal sealed class EditorSession
             }
         }
 
-        var newPosition = new Vector2(left, top);
-        var newSize = new Vector2(right - left, bottom - top);
+        return (new Vector2(left, top), new Vector2(right - left, bottom - top));
+    }
 
-        if (rotationDegrees != 0f)
+    /// <summary>
+    /// Resize for a rotated element, keeping the VISIBLE corner diagonally opposite the one
+    /// being dragged exactly fixed in canvas space for the whole drag.
+    ///
+    /// This is deliberately not a rotation-aware variant of <see cref="ComputeResize"/>'s
+    /// "hold the opposite corner's local coordinates fixed, then re-derive the rotation center"
+    /// approach. That approach is correct at rotation 0 (where local space IS canvas space,
+    /// so an unmoved local coordinate trivially stays visually fixed too) but NOT once the
+    /// element is rotated: <see cref="RotationGeometry.GetCenter"/> recomputes the rotation
+    /// pivot from Position/Size on every use, and resizing by moving only two of four local
+    /// edges shifts that center — so rotating the new box around its new (shifted) center no
+    /// longer puts the "fixed" corner back where it visually was. The drift is small near
+    /// rotation 0 but becomes obviously wrong near 90/270 degrees, where a corner can end up a
+    /// full side-length away from where the user grabbed it.
+    ///
+    /// Instead, this solves directly for the new center that keeps the anchor's canvas-space
+    /// position exactly at its drag-start value, for whatever size the drag implies:
+    /// 1. anchorWorld: the anchor corner's fixed canvas position, from the ORIGINAL box.
+    /// 2. xAxis/yAxis: canvas-space unit vectors for the element's local +X/+Y directions —
+    ///    fixed for the whole drag, since rotation doesn't change while resizing.
+    /// 3. The current mouse position, projected onto xAxis/yAxis relative to anchorWorld, gives
+    ///    the new local width/height (this is what "drag follows the local axes" means for a
+    ///    rotated element — equivalent to the plain delta.X/delta.Y projection ComputeResize
+    ///    uses at rotation 0).
+    /// 4. The new center is whatever makes the anchor corner (at its fixed local offset from
+    ///    that center) land back on anchorWorld when rotated — solved directly below, not
+    ///    iterated or approximated.
+    /// </summary>
+    private static (Vector2 Position, Vector2 Size) ComputeRotatedResize(
+        Vector2 originalPosition, Vector2 originalSize, ResizeHandle handle, Vector2 mouseCanvasPosition, float? lockedAspectRatio, float rotationDegrees)
+    {
+        var originalCenter = RotationGeometry.GetCenter(originalPosition, originalSize);
+
+        var xAxis = RotationGeometry.RotatePoint(Vector2.UnitX, Vector2.Zero, rotationDegrees);
+        var yAxis = RotationGeometry.RotatePoint(Vector2.UnitY, Vector2.Zero, rotationDegrees);
+
+        // Local +X/+Y direction, per axis, from the anchor corner towards the dragged (handle)
+        // corner — e.g. dragging TopLeft (anchor BottomRight) grows the box towards local -X,-Y.
+        var cornerSign = handle switch
         {
-            // The per-edge canvas clamp above was skipped for a rotated element; instead, pull
-            // the whole rotated box back inside the canvas now, without altering the size the
-            // user just chose.
-            newPosition = ClampPositionForRotation(newPosition, newSize, rotationDegrees);
+            ResizeHandle.TopLeft => new Vector2(-1f, -1f),
+            ResizeHandle.TopRight => new Vector2(1f, -1f),
+            ResizeHandle.BottomLeft => new Vector2(-1f, 1f),
+            _ => new Vector2(1f, 1f), // BottomRight
+        };
+
+        var anchorLocal = new Vector2(
+            originalPosition.X + ((cornerSign.X > 0f ? 0f : 1f) * originalSize.X),
+            originalPosition.Y + ((cornerSign.Y > 0f ? 0f : 1f) * originalSize.Y));
+        var anchorWorld = RotationGeometry.RotatePoint(anchorLocal, originalCenter, rotationDegrees);
+
+        var mouseOffset = mouseCanvasPosition - anchorWorld;
+        var along = Vector2.Dot(mouseOffset, xAxis) * cornerSign.X;
+        var up = Vector2.Dot(mouseOffset, yAxis) * cornerSign.Y;
+
+        var rawWidth = Math.Max(0f, along);
+        var rawHeight = Math.Max(0f, up);
+
+        float width, height;
+        if (lockedAspectRatio is { } aspectRatio && aspectRatio > 0f)
+        {
+            // Same "fit the largest box of the locked aspect ratio within the raw drag bounds"
+            // rule as ComputeResize, just expressed in the rotated local width/height instead
+            // of canvas-space edges.
+            if (rawHeight <= 0f || rawWidth / aspectRatio <= rawHeight)
+            {
+                width = rawWidth;
+                height = rawWidth / aspectRatio;
+            }
+            else
+            {
+                height = rawHeight;
+                width = rawHeight * aspectRatio;
+            }
         }
+        else
+        {
+            width = rawWidth;
+            height = rawHeight;
+        }
+
+        // Minimum size, same as ComputeResize — and since neither dimension is ever negative
+        // above, this is also what rules out a negative/zero size here.
+        width = Math.Max(MinElementWidth, width);
+        height = Math.Max(MinElementHeight, height);
+
+        // The new center that keeps anchorWorld fixed: the anchor sits at local offset
+        // cornerSign * (width/2, height/2) from the center (e.g. BottomRight is always at
+        // +halfWidth,+halfHeight from center), so the center is that same offset, in canvas
+        // space via xAxis/yAxis, back from the anchor.
+        var newCenter = anchorWorld
+            + (cornerSign.X * (width / 2f) * xAxis)
+            + (cornerSign.Y * (height / 2f) * yAxis);
+
+        var newSize = new Vector2(width, height);
+        var newPosition = newCenter - (newSize / 2f);
+
+        // Same rotated-bounds canvas clamp ComputeResize's caller already applies for a rotated
+        // element; reused as-is so canvas clamping behavior doesn't regress.
+        newPosition = ClampPositionForRotation(newPosition, newSize, rotationDegrees);
 
         return (newPosition, newSize);
     }

@@ -160,31 +160,21 @@ internal sealed class ProfileService
     }
 
     /// <summary>
-    /// Adds an image element referencing an already-imported asset to the currently loaded
-    /// profile. Synchronous UI mutation; safe to call directly from ImGui Draw. Returns the new
-    /// element's id.
+    /// Adds a fully-formed element (id, role, position, styling, etc. already set by the
+    /// caller) to the currently loaded profile, assigning it the next Z-index. Unlike
+    /// <see cref="AddTextElement"/>, which applies its own defaults, this lets a caller (the
+    /// Advanced editor's image import, or the Basic editor's role-tagged elements) fully control
+    /// the new element's initial layout and styling. Synchronous UI mutation; safe to call
+    /// directly from ImGui Draw.
     /// </summary>
-    internal Guid AddImageElement(Guid assetId)
+    internal Guid AddElement(ProfileElement element)
     {
         lock (gate)
         {
             var profile = RequireEditableProfileLocked();
             EnsureCapacityLocked(profile);
 
-            var size = new Vector2(ImageProfileElement.DefaultSize, ImageProfileElement.DefaultSize);
-            var maxX = Math.Max(0f, ProfileDocument.CanvasWidth - size.X);
-            var maxY = Math.Max(0f, ProfileDocument.CanvasHeight - size.Y);
-            var position = new Vector2(
-                Math.Clamp(ProfileElement.DefaultPositionX, 0f, maxX),
-                Math.Clamp(ProfileElement.DefaultPositionY, 0f, maxY));
-
-            var element = new ImageProfileElement
-            {
-                AssetId = assetId,
-                Position = position,
-                Size = size,
-                ZIndex = NextZIndexLocked(profile),
-            };
+            element.ZIndex = NextZIndexLocked(profile);
             profile.Elements.Add(element);
             return element.Id;
         }
