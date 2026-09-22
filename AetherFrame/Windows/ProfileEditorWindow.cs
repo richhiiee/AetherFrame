@@ -14,8 +14,14 @@ namespace AetherFrame.Windows;
 
 internal sealed class ProfileEditorWindow : Window, IDisposable
 {
-    private const float CanvasChildHeight = 360f;
     private const float HandleScreenSize = 8f;
+
+    private const float LeftPanelWidth = 210f;
+    private const float RightPanelWidth = 320f;
+    private const float MinCanvasWidth = 360f;
+    private const float NewElementTextBoxHeight = 48f;
+
+    private const string ElementContextMenuId = "##AetherFrameElementContextMenu";
 
     private static readonly string[] AlignmentLabels = ["Left", "Center", "Right"];
     private static readonly string[] FitModeLabels = ["Cover", "Contain", "Stretch"];
@@ -25,18 +31,35 @@ internal sealed class ProfileEditorWindow : Window, IDisposable
     private readonly KeyboardShortcutService keyboardShortcutService;
     private readonly ImageTextureCache imageTextureCache;
     private readonly FileDialogManager fileDialogManager;
+    private readonly Action openProfileView;
+
+    // Which element the currently-open context menu targets (read back when drawing the popup's
+    // body). Right-click can be detected from two different places with two different ImGui ID
+    // stacks (the canvas child vs. an Elements-panel row) — ImGui.OpenPopup/BeginPopup only
+    // match when called from the SAME id-stack scope, so both sites just record the request
+    // here, and Draw() is the single place that actually calls OpenPopup/BeginPopup, always
+    // from the same (outermost) scope.
+    private Guid contextMenuElementId;
+    private Guid? pendingContextMenuOpenElementId;
+
+    // Fit-to-window viewport state — all runtime only, never persisted with the profile.
+    // lastCanvasPanelSize starts at a sentinel that can never match a real panel size, so Auto
+    // Fit's size-change check always fires once on the first Draw after (re)opening.
+    private Vector2 lastCanvasPanelSize = new(-1f, -1f);
+    private bool resetCanvasScrollPending;
 
     internal ProfileEditorWindow(
         ProfileService profileService,
         EditorSession editorSession,
         KeyboardShortcutService keyboardShortcutService,
         ImageTextureCache imageTextureCache,
-        FileDialogManager fileDialogManager)
+        FileDialogManager fileDialogManager,
+        Action openProfileView)
         : base("AetherFrame Profile Editor##ProfileEditorWindow")
     {
         SizeConstraints = new WindowSizeConstraints
         {
-            MinimumSize = new Vector2(400, 300),
+            MinimumSize = new Vector2(860, 480),
             MaximumSize = new Vector2(float.MaxValue, float.MaxValue),
         };
 
@@ -45,10 +68,23 @@ internal sealed class ProfileEditorWindow : Window, IDisposable
         this.keyboardShortcutService = keyboardShortcutService;
         this.imageTextureCache = imageTextureCache;
         this.fileDialogManager = fileDialogManager;
+        this.openProfileView = openProfileView;
     }
 
     public void Dispose()
     {
+    }
+
+    /// <summary>
+    /// Called by the window system whenever this window (re)opens. Auto Fit always turns back
+    /// on for a freshly-opened editor, regardless of whatever manual zoom was left over from a
+    /// previous session, and the sentinel forces the very next Draw to (re)compute a fresh fit
+    /// against whatever the panel size actually is now.
+    /// </summary>
+    public override void OnOpen()
+    {
+        editorSession.AutoFit = true;
+        lastCanvasPanelSize = new Vector2(-1f, -1f);
     }
 
     /// <summary>
@@ -78,12 +114,42 @@ internal sealed class ProfileEditorWindow : Window, IDisposable
         PublishKeyboardFocusState();
         ApplyPendingShortcutActions();
 
+        DrawToolbar(profile);
+        ImGui.Separator();
+
+        var contentAvail = ImGui.GetContentRegionAvail();
+        var spacing = ImGui.GetStyle().ItemSpacing;
+        var statusBarHeight = ImGui.GetFrameHeightWithSpacing() + spacing.Y;
+        var bodyHeight = Math.Max(160f, contentAvail.Y - statusBarHeight - spacing.Y);
+        var canvasWidth = Math.Max(MinCanvasWidth, contentAvail.X - LeftPanelWidth - RightPanelWidth - (spacing.X * 2f));
+
+        DrawElementsPanel(profile, new Vector2(LeftPanelWidth, bodyHeight));
+        ImGui.SameLine();
+        DrawCanvasPanel(profile, new Vector2(canvasWidth, bodyHeight));
+        ImGui.SameLine();
+        DrawInspectorPanel(profile, new Vector2(RightPanelWidth, bodyHeight));
+
+        ImGui.Separator();
+        DrawStatusBar(profile);
+
+        // Outside every child region, so this is the one consistent id-stack scope both the
+        // canvas and the Elements panel's right-click can safely target — see
+        // DrawElementContextMenuPopup.
+        DrawElementContextMenuPopup(profile);
+    }
+
+    /// <summary>
+    /// Fixed row of editor-wide actions and the dirty/saved indicator. Drawn before any of the
+    /// scrolling panels below, so it (and Save Profile in particular) is always reachable
+    /// without scrolling, regardless of how long the element list or inspector gets.
+    /// </summary>
+    private void DrawToolbar(ProfileDocument profile)
+    {
         ImGui.TextUnformatted($"Editing: {profile.Name}");
-        ImGui.TextUnformatted($"Elements: {profile.Elements.Count}/{ProfileDocument.MaxElementCount}");
 
         using (ImRaii.Disabled(!editorSession.CanUndo))
         {
-            if (ImGui.SmallButton("Undo"))
+            if (ImGui.Button("Undo"))
             {
                 editorSession.Undo();
             }
@@ -92,86 +158,35 @@ internal sealed class ProfileEditorWindow : Window, IDisposable
         ImGui.SameLine();
         using (ImRaii.Disabled(!editorSession.CanRedo))
         {
-            if (ImGui.SmallButton("Redo"))
+            if (ImGui.Button("Redo"))
             {
                 editorSession.Redo();
             }
         }
 
-        ImGui.Separator();
-
-        DrawCanvas(profile);
-        ImGui.Separator();
-
-        DrawBackgroundControls(profile);
-        ImGui.Separator();
-
-        // Snapshot before iterating: Remove below mutates the live list, and ImGui buttons
-        // can fire mid-loop, which would otherwise invalidate this enumeration.
-        foreach (var element in profile.Elements.ToArray())
-        {
-            ImGui.PushID(element.Id.ToString());
-
-            switch (element)
-            {
-                case TextProfileElement textElement:
-                    DrawTextElementInspector(textElement);
-                    ImGui.Separator();
-                    break;
-                case ImageProfileElement imageElement:
-                    DrawImageElementInspector(imageElement);
-                    ImGui.Separator();
-                    break;
-            }
-
-            ImGui.PopID();
-        }
-
-        ImGui.Separator();
-
-        var buffer = editorSession.NewElementText;
-        ImGui.SetNextItemWidth(-1);
-        if (ImGui.InputTextMultiline("##NewElementText", ref buffer, TextProfileElement.MaxTextLength, new Vector2(-1, 60)))
-        {
-            editorSession.NewElementText = buffer;
-        }
-
-        var atCapacity = profile.Elements.Count >= ProfileDocument.MaxElementCount;
-        if (atCapacity)
-        {
-            ImGui.TextUnformatted($"Profile is at the maximum of {ProfileDocument.MaxElementCount} elements.");
-        }
-
-        if (ImGui.Button("Add Text") && !atCapacity)
-        {
-            editorSession.AddTextElement();
-        }
-
         ImGui.SameLine();
-        using (ImRaii.Disabled(atCapacity))
+        ImGui.Dummy(new Vector2(12f, 0f));
+        ImGui.SameLine();
+
+        var canSave = !profileService.IsBusy && editorSession.IsDirty;
+        using (ImRaii.Disabled(!canSave))
         {
-            if (ImGui.Button("Add Image"))
+            if (ImGui.Button("Save Profile"))
             {
-                OpenImageFileDialog("Add Image", path => editorSession.AddImageElement(path));
+                editorSession.SaveProfile();
             }
         }
 
         ImGui.SameLine();
-        if (ImGui.Button("Save Profile"))
+        if (ImGui.Button("View Profile"))
         {
-            editorSession.SaveProfile();
+            openProfileView();
         }
 
-        if (profileService.IsBusy)
-        {
-            ImGui.SameLine();
-            ImGui.TextUnformatted("Saving...");
-        }
-        else if (editorSession.IsDirty)
-        {
-            ImGui.SameLine();
-            ImGui.TextUnformatted("(unsaved changes)");
-        }
+        ImGui.SameLine();
+        ImGui.Dummy(new Vector2(12f, 0f));
+        ImGui.SameLine();
+        DrawSaveStateIndicator();
 
         if (editorSession.ErrorMessage is { } error)
         {
@@ -179,23 +194,414 @@ internal sealed class ProfileEditorWindow : Window, IDisposable
         }
     }
 
-    private void DrawTextElementInspector(TextProfileElement textElement)
+    /// <summary>Compact, non-technical save state: never exposes Revision or busy internals.</summary>
+    private void DrawSaveStateIndicator()
     {
-        var isSelected = editorSession.SelectedElementId == textElement.Id;
-
-        ImGui.TextUnformatted((isSelected ? "> " : string.Empty) + (string.IsNullOrEmpty(textElement.Text) ? "(empty)" : textElement.Text));
-
-        ImGui.SameLine();
-        if (ImGui.SmallButton("Remove"))
+        if (profileService.IsBusy)
         {
-            editorSession.RemoveElement(textElement.Id);
+            ImGui.TextColored(new Vector4(0.85f, 0.85f, 0.4f, 1f), "Saving...");
+        }
+        else if (editorSession.IsDirty)
+        {
+            ImGui.TextColored(new Vector4(1f, 0.65f, 0.3f, 1f), "Unsaved");
+        }
+        else
+        {
+            ImGui.TextColored(new Vector4(0.4f, 0.9f, 0.4f, 1f), "Saved");
+        }
+    }
+
+    /// <summary>
+    /// Left panel: the element list (own scroll region), selection-driven Duplicate/Delete/Z
+    /// order actions, and the Add Text/Add Image controls. The list scrolls independently so
+    /// the Add controls stay reachable regardless of how many elements exist.
+    /// </summary>
+    private void DrawElementsPanel(ProfileDocument profile, Vector2 size)
+    {
+        using var panel = ImRaii.Child("##AetherFrameElementsPanel", size, true);
+        if (!panel.Success)
+        {
             return;
         }
 
-        ImGui.Indent();
+        ImGui.TextDisabled("ELEMENTS");
+        ImGui.Separator();
 
-        DrawZOrderAndDuplicateControls(textElement.Id);
+        var hasSelection = editorSession.SelectedElementId is not null;
+        var frameHeight = ImGui.GetFrameHeightWithSpacing();
 
+        // Rough estimate of the footer's height (selection actions + add controls) so the list
+        // above gets an explicit size and scrolls on its own. Being slightly off just means the
+        // outer panel itself picks up the slack with its own scrollbar — never a hard failure.
+        var footerHeight = (frameHeight * 2f)
+            + (hasSelection ? frameHeight * 2f : 0f)
+            + NewElementTextBoxHeight
+            + (frameHeight * 2f)
+            + 32f;
+
+        var listHeight = Math.Max(60f, ImGui.GetContentRegionAvail().Y - footerHeight);
+        using (var list = ImRaii.Child("##AetherFrameElementsList", new Vector2(-1, listHeight), false))
+        {
+            if (list.Success)
+            {
+                // Snapshot before iterating: Select/Duplicate/Remove below can mutate the live
+                // list, and ImGui widgets can fire mid-loop, which would otherwise invalidate
+                // this enumeration.
+                foreach (var element in profile.Elements.ToArray())
+                {
+                    DrawElementListRow(element);
+                }
+            }
+        }
+
+        ImGui.Separator();
+
+        using (ImRaii.Disabled(!hasSelection))
+        {
+            var halfWidth = (ImGui.GetContentRegionAvail().X - ImGui.GetStyle().ItemSpacing.X) / 2f;
+
+            if (ImGui.Button("Duplicate", new Vector2(halfWidth, 0f)) && editorSession.SelectedElementId is { } duplicateId)
+            {
+                editorSession.DuplicateElement(duplicateId);
+            }
+
+            ImGui.SameLine();
+            if (ImGui.Button("Delete", new Vector2(halfWidth, 0f)) && editorSession.SelectedElementId is { } deleteId)
+            {
+                editorSession.RemoveElement(deleteId);
+            }
+
+            if (editorSession.SelectedElementId is { } zOrderId)
+            {
+                DrawZOrderRow(zOrderId);
+            }
+        }
+
+        ImGui.Separator();
+
+        var atCapacity = profile.Elements.Count >= ProfileDocument.MaxElementCount;
+        if (atCapacity)
+        {
+            ImGui.TextWrapped($"At the maximum of {ProfileDocument.MaxElementCount} elements.");
+        }
+
+        var buffer = editorSession.NewElementText;
+        ImGui.SetNextItemWidth(-1);
+        if (ImGui.InputTextMultiline("##NewElementText", ref buffer, TextProfileElement.MaxTextLength, new Vector2(-1, NewElementTextBoxHeight)))
+        {
+            editorSession.NewElementText = buffer;
+        }
+
+        using (ImRaii.Disabled(atCapacity))
+        {
+            if (ImGui.Button("Add Text", new Vector2(-1, 0f)))
+            {
+                editorSession.AddTextElement();
+            }
+
+            if (ImGui.Button("Add Image", new Vector2(-1, 0f)))
+            {
+                OpenImageFileDialog("Add Image", path => editorSession.AddImageElement(path));
+            }
+        }
+    }
+
+    private void DrawElementListRow(ProfileElement element)
+    {
+        var isSelected = editorSession.SelectedElementId == element.Id;
+
+        ImGui.PushID(element.Id.ToString());
+        if (ImGui.Selectable(GetElementListLabel(element), isSelected))
+        {
+            editorSession.Select(element.Id);
+        }
+
+        if (ImGui.IsItemClicked(ImGuiMouseButton.Right))
+        {
+            RequestElementContextMenu(element.Id);
+        }
+
+        ImGui.PopID();
+    }
+
+    private static string GetElementListLabel(ProfileElement element)
+    {
+        var baseLabel = element switch
+        {
+            TextProfileElement text => string.IsNullOrWhiteSpace(text.Text) ? "Text (empty)" : Truncate(text.Text, 22),
+            ImageProfileElement => "Image",
+            _ => "Element",
+        };
+
+        var suffix = string.Empty;
+        if (!element.Visible)
+        {
+            suffix += " (hidden)";
+        }
+
+        if (element.Locked)
+        {
+            suffix += " (locked)";
+        }
+
+        return baseLabel + suffix;
+    }
+
+    private static string Truncate(string value, int maxLength)
+    {
+        var singleLine = value.Replace('\n', ' ');
+        return singleLine.Length <= maxLength ? singleLine : singleLine[..maxLength] + "...";
+    }
+
+    /// <summary>
+    /// Bring Forward / Send Backward / Bring to Front / Send to Back for the given element.
+    /// These operate on ZIndex under the hood, but that number itself is never shown.
+    /// </summary>
+    private void DrawZOrderRow(Guid elementId)
+    {
+        var halfWidth = (ImGui.GetContentRegionAvail().X - ImGui.GetStyle().ItemSpacing.X) / 2f;
+
+        if (ImGui.Button("Bring Forward", new Vector2(halfWidth, 0f)))
+        {
+            editorSession.BringForward(elementId);
+        }
+
+        ImGui.SameLine();
+        if (ImGui.Button("Send Backward", new Vector2(halfWidth, 0f)))
+        {
+            editorSession.SendBackward(elementId);
+        }
+
+        if (ImGui.Button("Bring to Front", new Vector2(halfWidth, 0f)))
+        {
+            editorSession.BringToFront(elementId);
+        }
+
+        ImGui.SameLine();
+        if (ImGui.Button("Send to Back", new Vector2(halfWidth, 0f)))
+        {
+            editorSession.SendToBack(elementId);
+        }
+    }
+
+    /// <summary>
+    /// Selects <paramref name="elementId"/> (if it isn't already selected) and requests that its
+    /// context menu open. Shared by the canvas and the Elements panel, the two right-click entry
+    /// points; the actual <c>ImGui.OpenPopup</c> call happens once, later, in <see cref="Draw"/>
+    /// — see the field comment on <see cref="pendingContextMenuOpenElementId"/> for why.
+    /// </summary>
+    private void RequestElementContextMenu(Guid elementId)
+    {
+        if (editorSession.SelectedElementId != elementId)
+        {
+            editorSession.Select(elementId);
+        }
+
+        pendingContextMenuOpenElementId = elementId;
+    }
+
+    /// <summary>
+    /// Opens (if requested this frame) and draws the element context menu popup. Called exactly
+    /// once per frame, from <see cref="Draw"/>'s outermost scope, so the id-stack context of the
+    /// <c>OpenPopup</c>/<c>BeginPopup</c> pair always matches regardless of which UI element the
+    /// right-click actually came from.
+    /// </summary>
+    private void DrawElementContextMenuPopup(ProfileDocument profile)
+    {
+        if (pendingContextMenuOpenElementId is { } requestedElementId)
+        {
+            contextMenuElementId = requestedElementId;
+            ImGui.OpenPopup(ElementContextMenuId);
+            pendingContextMenuOpenElementId = null;
+        }
+
+        using var popup = ImRaii.Popup(ElementContextMenuId);
+        if (!popup.Success)
+        {
+            return;
+        }
+
+        var element = profile.Elements.Find(e => e.Id == contextMenuElementId);
+        if (element is null)
+        {
+            // The targeted element vanished (e.g. Delete elsewhere) while the menu was open.
+            ImGui.CloseCurrentPopup();
+            return;
+        }
+
+        DrawElementContextMenuContents(element);
+    }
+
+    /// <summary>
+    /// Quick-action menu body for one element: common actions for every element type, Image-
+    /// specific actions, then Delete visually separated at the bottom to reduce accidental hits.
+    /// Every action here routes through the same EditorSession methods as the Inspector/toolbar,
+    /// so ownership checks, dirty tracking, and Undo/Redo are identical either way.
+    /// </summary>
+    private void DrawElementContextMenuContents(ProfileElement element)
+    {
+        var visible = element.Visible;
+        if (ImGui.MenuItem("Visible", string.Empty, ref visible))
+        {
+            editorSession.ApplyImmediateEdit(element.Id, e => e.Visible = visible);
+        }
+
+        var locked = element.Locked;
+        if (ImGui.MenuItem("Locked", string.Empty, ref locked))
+        {
+            editorSession.ApplyImmediateEdit(element.Id, e => e.Locked = locked);
+        }
+
+        ImGui.Separator();
+
+        if (ImGui.MenuItem("Duplicate"))
+        {
+            editorSession.DuplicateElement(element.Id);
+        }
+
+        ImGui.Separator();
+
+        if (ImGui.MenuItem("Bring Forward"))
+        {
+            editorSession.BringForward(element.Id);
+        }
+
+        if (ImGui.MenuItem("Send Backward"))
+        {
+            editorSession.SendBackward(element.Id);
+        }
+
+        if (ImGui.MenuItem("Bring to Front"))
+        {
+            editorSession.BringToFront(element.Id);
+        }
+
+        if (ImGui.MenuItem("Send to Back"))
+        {
+            editorSession.SendToBack(element.Id);
+        }
+
+        if (element is ImageProfileElement imageElement)
+        {
+            ImGui.Separator();
+
+            if (ImGui.MenuItem("Replace Image"))
+            {
+                var elementId = imageElement.Id;
+                OpenImageFileDialog("Replace Image", path => editorSession.ReplaceImage(elementId, path));
+            }
+
+            if (ImGui.MenuItem("Rotate Left 90"))
+            {
+                RotateImageBy(imageElement.Id, -90f);
+            }
+
+            if (ImGui.MenuItem("Rotate Right 90"))
+            {
+                RotateImageBy(imageElement.Id, 90f);
+            }
+
+            if (ImGui.MenuItem("Reset Rotation", string.Empty, false, imageElement.RotationDegrees != 0f))
+            {
+                ApplyImmediateImageEdit(imageElement.Id, image => image.RotationDegrees = 0f);
+            }
+
+            var preserveAspectRatio = imageElement.PreserveAspectRatio;
+            if (ImGui.MenuItem("Preserve Aspect Ratio", string.Empty, ref preserveAspectRatio))
+            {
+                ApplyImmediateImageEdit(imageElement.Id, image => image.PreserveAspectRatio = preserveAspectRatio);
+            }
+        }
+
+        ImGui.Separator();
+
+        // Visually separated (own section, past a divider) and tinted, so it can't be hit by
+        // the same casual click that would land on Duplicate or a toggle above it.
+        using (ImRaii.PushColor(ImGuiCol.Text, new Vector4(1f, 0.45f, 0.45f, 1f)))
+        {
+            if (ImGui.MenuItem("Delete"))
+            {
+                editorSession.RemoveElement(element.Id);
+            }
+        }
+    }
+
+    /// <summary>90-degree quick rotation (context menu): one immediate, normalized history entry.</summary>
+    private void RotateImageBy(Guid elementId, float deltaDegrees)
+    {
+        ApplyImmediateImageEdit(elementId, image => image.RotationDegrees = RotationGeometry.NormalizeDegrees(image.RotationDegrees + deltaDegrees));
+    }
+
+    /// <summary>
+    /// Right panel: properties for the currently selected element only, plus a separate
+    /// Background tab so background configuration never mixes with element editing.
+    /// </summary>
+    private void DrawInspectorPanel(ProfileDocument profile, Vector2 size)
+    {
+        using var panel = ImRaii.Child("##AetherFrameInspectorPanel", size, true);
+        if (!panel.Success)
+        {
+            return;
+        }
+
+        ImGui.TextDisabled("INSPECTOR");
+        ImGui.Separator();
+
+        using var tabBar = ImRaii.TabBar("##AetherFrameInspectorTabs");
+        if (!tabBar.Success)
+        {
+            return;
+        }
+
+        using (var elementTab = ImRaii.TabItem("Element"))
+        {
+            if (elementTab.Success)
+            {
+                DrawSelectedElementInspector(profile);
+            }
+        }
+
+        using (var backgroundTab = ImRaii.TabItem("Background"))
+        {
+            if (backgroundTab.Success)
+            {
+                ImGui.Spacing();
+                DrawBackgroundControls(profile);
+            }
+        }
+    }
+
+    private void DrawSelectedElementInspector(ProfileDocument profile)
+    {
+        ImGui.Spacing();
+
+        var selected = editorSession.SelectedElementId is { } selectedId
+            ? profile.Elements.Find(e => e.Id == selectedId)
+            : null;
+
+        if (selected is null)
+        {
+            ImGui.TextWrapped("Select an element on the canvas or in the Elements panel to edit its properties.");
+            return;
+        }
+
+        ImGui.PushID(selected.Id.ToString());
+
+        switch (selected)
+        {
+            case TextProfileElement textElement:
+                DrawTextElementInspector(textElement);
+                break;
+            case ImageProfileElement imageElement:
+                DrawImageElementInspector(imageElement);
+                break;
+        }
+
+        ImGui.PopID();
+    }
+
+    private void DrawTextElementInspector(TextProfileElement textElement)
+    {
         // Locked stays interactive even while locked, so the user can unlock the element.
         var locked = textElement.Locked;
         if (ImGui.Checkbox("Locked", ref locked))
@@ -205,7 +611,33 @@ internal sealed class ProfileEditorWindow : Window, IDisposable
 
         using (ImRaii.Disabled(textElement.Locked))
         {
+            ImGui.Spacing();
+            ImGui.TextDisabled("CONTENT");
+
+            // Deferred edit, same pattern as Font Size/Color below: every keystroke updates the
+            // live profile immediately (so the canvas and Presentation Mode reflect it as you
+            // type), but only one history entry is recorded for the whole typing session, once
+            // the widget deactivates. While this widget holds keyboard focus, ImGui reports
+            // WantTextInput, which already makes KeyboardShortcutService stand down — so Ctrl+Z/
+            // Ctrl+Y here stay ordinary text-field undo/redo and never reach AetherFrame's
+            // global Undo/Redo.
+            var text = textElement.Text;
+            ImGui.SetNextItemWidth(-1);
+            if (ImGui.InputTextMultiline("##TextContent", ref text, TextProfileElement.MaxTextLength, new Vector2(-1, 80f)))
+            {
+                ContinueTextEdit(textElement.Id, element => element.Text = text);
+            }
+
+            if (ImGui.IsItemDeactivatedAfterEdit())
+            {
+                editorSession.CommitPendingEdit();
+            }
+
+            ImGui.Spacing();
+            ImGui.TextDisabled("APPEARANCE");
+
             var fontSize = textElement.FontSize;
+            ImGui.SetNextItemWidth(-1);
             if (ImGui.SliderFloat("Font Size", ref fontSize, TextProfileElement.MinFontSize, TextProfileElement.MaxFontSize))
             {
                 ContinueTextEdit(textElement.Id, element => element.FontSize = fontSize);
@@ -228,6 +660,7 @@ internal sealed class ProfileEditorWindow : Window, IDisposable
             }
 
             var alignmentIndex = (int)textElement.Alignment;
+            ImGui.SetNextItemWidth(-1);
             if (ImGui.Combo("Alignment", ref alignmentIndex, AlignmentLabels, AlignmentLabels.Length))
             {
                 var newAlignment = (TextAlignment)alignmentIndex;
@@ -240,14 +673,15 @@ internal sealed class ProfileEditorWindow : Window, IDisposable
                 ApplyImmediateTextEdit(textElement.Id, element => element.Wrap = wrap);
             }
 
+            ImGui.Spacing();
+            ImGui.TextDisabled("VISIBILITY");
+
             var visible = textElement.Visible;
             if (ImGui.Checkbox("Visible", ref visible))
             {
                 editorSession.ApplyImmediateEdit(textElement.Id, element => element.Visible = visible);
             }
         }
-
-        ImGui.Unindent();
     }
 
     /// <summary>Routes a discrete (checkbox/combo) <see cref="TextProfileElement"/> edit.</summary>
@@ -276,20 +710,9 @@ internal sealed class ProfileEditorWindow : Window, IDisposable
 
     private void DrawImageElementInspector(ImageProfileElement imageElement)
     {
-        var isSelected = editorSession.SelectedElementId == imageElement.Id;
-
-        ImGui.TextUnformatted((isSelected ? "> " : string.Empty) + "Image");
-
-        ImGui.SameLine();
-        if (ImGui.SmallButton("Remove"))
-        {
-            editorSession.RemoveElement(imageElement.Id);
-            return;
-        }
-
-        ImGui.Indent();
-
-        DrawZOrderAndDuplicateControls(imageElement.Id);
+        ImGui.TextDisabled("IMAGE ELEMENT");
+        ImGui.Spacing();
+        ImGui.Separator();
 
         // Locked stays interactive even while locked, so the user can unlock the element.
         var locked = imageElement.Locked;
@@ -300,7 +723,11 @@ internal sealed class ProfileEditorWindow : Window, IDisposable
 
         using (ImRaii.Disabled(imageElement.Locked))
         {
+            ImGui.Spacing();
+            ImGui.TextDisabled("APPEARANCE");
+
             var opacity = imageElement.Opacity;
+            ImGui.SetNextItemWidth(-1);
             if (ImGui.SliderFloat("Opacity", ref opacity, 0f, 1f))
             {
                 ContinueImageEdit(imageElement.Id, element => element.Opacity = opacity);
@@ -317,20 +744,44 @@ internal sealed class ProfileEditorWindow : Window, IDisposable
                 ApplyImmediateImageEdit(imageElement.Id, element => element.PreserveAspectRatio = preserveAspectRatio);
             }
 
+            ImGui.Spacing();
+            ImGui.TextDisabled("ROTATION");
+
+            // Precise, arbitrary rotation; the context menu's 90-degree steps are the quick
+            // version of the same underlying property. Same deferred-edit pattern as Opacity: a
+            // full slider drag is one history entry, not one per intermediate value. ImGui
+            // sliders already support Ctrl+Click to type an exact degree value.
+            var rotation = imageElement.RotationDegrees;
+            ImGui.SetNextItemWidth(-1);
+            if (ImGui.SliderFloat("Rotation", ref rotation, 0f, 359.9f, "%.1f deg"))
+            {
+                var normalized = RotationGeometry.NormalizeDegrees(rotation);
+                ContinueImageEdit(imageElement.Id, element => element.RotationDegrees = normalized);
+            }
+
+            if (ImGui.IsItemDeactivatedAfterEdit())
+            {
+                editorSession.CommitPendingEdit();
+            }
+
+            ImGui.Spacing();
+            ImGui.TextDisabled("VISIBILITY");
+
             var visible = imageElement.Visible;
             if (ImGui.Checkbox("Visible", ref visible))
             {
                 editorSession.ApplyImmediateEdit(imageElement.Id, element => element.Visible = visible);
             }
 
-            if (ImGui.SmallButton("Replace Image"))
+            ImGui.Spacing();
+            ImGui.TextDisabled("ACTIONS");
+
+            if (ImGui.Button("Replace Image", new Vector2(-1, 0f)))
             {
                 var elementId = imageElement.Id;
                 OpenImageFileDialog("Replace Image", path => editorSession.ReplaceImage(elementId, path));
             }
         }
-
-        ImGui.Unindent();
     }
 
     /// <summary>Routes a discrete (checkbox) <see cref="ImageProfileElement"/> edit.</summary>
@@ -358,46 +809,15 @@ internal sealed class ProfileEditorWindow : Window, IDisposable
     }
 
     /// <summary>
-    /// Bring Forward / Send Backward / Bring to Front / Send to Back / Duplicate, shared by
-    /// every element inspector. These operate on ZIndex under the hood, but that number itself
-    /// is never shown to the user.
+    /// Background configuration, kept out of the per-element inspector entirely (its own
+    /// Inspector tab) since it isn't a selectable canvas element.
     /// </summary>
-    private void DrawZOrderAndDuplicateControls(Guid elementId)
-    {
-        if (ImGui.SmallButton("Bring Forward"))
-        {
-            editorSession.BringForward(elementId);
-        }
-
-        ImGui.SameLine();
-        if (ImGui.SmallButton("Send Backward"))
-        {
-            editorSession.SendBackward(elementId);
-        }
-
-        ImGui.SameLine();
-        if (ImGui.SmallButton("Bring to Front"))
-        {
-            editorSession.BringToFront(elementId);
-        }
-
-        ImGui.SameLine();
-        if (ImGui.SmallButton("Send to Back"))
-        {
-            editorSession.SendToBack(elementId);
-        }
-
-        if (ImGui.SmallButton("Duplicate"))
-        {
-            editorSession.DuplicateElement(elementId);
-        }
-    }
-
     private void DrawBackgroundControls(ProfileDocument profile)
     {
-        ImGui.TextUnformatted("Background: " + (profile.BackgroundAssetId is null ? "(none)" : "set"));
+        ImGui.TextUnformatted("Background: " + (profile.BackgroundAssetId is null ? "None set" : "Set"));
+        ImGui.Spacing();
 
-        if (ImGui.SmallButton("Set Background"))
+        if (ImGui.Button("Set Background", new Vector2(-1, 0f)))
         {
             OpenImageFileDialog("Set Background", path => editorSession.SetBackground(path));
         }
@@ -407,14 +827,16 @@ internal sealed class ProfileEditorWindow : Window, IDisposable
             return;
         }
 
-        ImGui.SameLine();
-        if (ImGui.SmallButton("Remove Background"))
+        if (ImGui.Button("Remove Background", new Vector2(-1, 0f)))
         {
             editorSession.RemoveBackground();
         }
 
+        ImGui.Spacing();
+        ImGui.TextDisabled("FIT & OPACITY");
+
         var fitModeIndex = (int)profile.BackgroundFitMode;
-        ImGui.SetNextItemWidth(160);
+        ImGui.SetNextItemWidth(-1);
         if (ImGui.Combo("Fit", ref fitModeIndex, FitModeLabels, FitModeLabels.Length))
         {
             var newFitMode = (BackgroundFitMode)fitModeIndex;
@@ -422,8 +844,8 @@ internal sealed class ProfileEditorWindow : Window, IDisposable
         }
 
         var opacity = profile.BackgroundOpacity;
-        ImGui.SetNextItemWidth(160);
-        if (ImGui.SliderFloat("Background Opacity", ref opacity, 0f, 1f))
+        ImGui.SetNextItemWidth(-1);
+        if (ImGui.SliderFloat("Opacity", ref opacity, 0f, 1f))
         {
             editorSession.BeginOrContinueBackgroundEdit(document => document.BackgroundOpacity = opacity);
         }
@@ -502,24 +924,49 @@ internal sealed class ProfileEditorWindow : Window, IDisposable
         }
     }
 
-    private void DrawCanvas(ProfileDocument profile)
+    /// <summary>
+    /// Center panel: the pannable/zoomable canvas in its own scroll region so it never shifts
+    /// due to inspector or element list content.
+    /// </summary>
+    private void DrawCanvasPanel(ProfileDocument profile, Vector2 size)
     {
-        var zoom = editorSession.Zoom;
-        ImGui.SetNextItemWidth(160);
-        if (ImGui.SliderFloat("Zoom", ref zoom, EditorSession.MinZoom, EditorSession.MaxZoom))
-        {
-            editorSession.Zoom = zoom;
-        }
-
-        using var child = ImRaii.Child(
-            "##AetherFrameCanvasScroll", new Vector2(-1, CanvasChildHeight), true, ImGuiWindowFlags.HorizontalScrollbar);
+        using var child = ImRaii.Child("##AetherFrameCanvasScroll", size, true, ImGuiWindowFlags.HorizontalScrollbar);
         if (!child.Success)
         {
             return;
         }
 
-        var canvasOrigin = ImGui.GetCursorScreenPos();
+        // The interior content region (post-border/padding), not the outer `size` passed in —
+        // this is what the canvas actually has to fit inside.
+        var availablePanelSize = ImGui.GetContentRegionAvail();
+
+        if (editorSession.AutoFit && Vector2.DistanceSquared(availablePanelSize, lastCanvasPanelSize) > 0.25f)
+        {
+            // Covers both the initial Fit-to-Window on open (lastCanvasPanelSize starts at an
+            // impossible sentinel) and continuous re-fitting while the panel is being resized.
+            editorSession.ApplyFitZoom(availablePanelSize);
+            resetCanvasScrollPending = true;
+        }
+
+        lastCanvasPanelSize = availablePanelSize;
+
+        if (resetCanvasScrollPending)
+        {
+            ImGui.SetScrollX(0f);
+            ImGui.SetScrollY(0f);
+            resetCanvasScrollPending = false;
+        }
+
+        var zoom = editorSession.Zoom;
         var canvasScreenSize = new Vector2(ProfileDocument.CanvasWidth, ProfileDocument.CanvasHeight) * zoom;
+
+        // Centered when the canvas is smaller than the panel (the fitted/typical case); flush at
+        // the scroll origin — exactly the prior behavior — once zoomed in past the panel size,
+        // where the user pans via the ordinary scrollbars instead.
+        var centeringOffset = Vector2.Max(Vector2.Zero, (availablePanelSize - canvasScreenSize) / 2f);
+        var canvasOrigin = ImGui.GetCursorScreenPos() + centeringOffset;
+        ImGui.SetCursorScreenPos(canvasOrigin);
+
         var drawList = ImGui.GetWindowDrawList();
 
         ImGui.InvisibleButton("##AetherFrameCanvasArea", canvasScreenSize);
@@ -543,31 +990,86 @@ internal sealed class ProfileEditorWindow : Window, IDisposable
             ? profile.Elements.Find(e => e.Id == selectedId)
             : null;
 
-        Vector2 selectedScreenPos = default;
-        Vector2 selectedScreenSize = default;
+        Vector2[]? selectedScreenCorners = null;
 
         if (selectedElement is not null)
         {
-            selectedScreenPos = canvasOrigin + selectedElement.Position * zoom;
-            selectedScreenSize = selectedElement.Size * zoom;
+            // Rotated corners (identity for rotation 0), not the old axis-aligned rect, so the
+            // outline and handles always match what's actually drawn/hit-tested.
+            var rotationDegrees = RotationGeometry.GetRotationDegrees(selectedElement);
+            var logicalCorners = RotationGeometry.GetRotatedCorners(selectedElement.Position, selectedElement.Size, rotationDegrees);
+            selectedScreenCorners =
+            [
+                canvasOrigin + logicalCorners[0] * zoom,
+                canvasOrigin + logicalCorners[1] * zoom,
+                canvasOrigin + logicalCorners[2] * zoom,
+                canvasOrigin + logicalCorners[3] * zoom,
+            ];
 
-            drawList.AddRect(selectedScreenPos, selectedScreenPos + selectedScreenSize, ImGui.GetColorU32(new Vector4(1f, 0.85f, 0.2f, 1f)));
+            var outlineColor = ImGui.GetColorU32(new Vector4(1f, 0.85f, 0.2f, 1f));
+            drawList.AddQuad(selectedScreenCorners[0], selectedScreenCorners[1], selectedScreenCorners[2], selectedScreenCorners[3], outlineColor);
 
             if (!selectedElement.Locked)
             {
-                DrawResizeHandles(drawList, selectedScreenPos, selectedScreenSize);
+                DrawResizeHandles(drawList, selectedScreenCorners);
             }
         }
 
-        HandleCanvasInput(profile, visibleElements, selectedElement, selectedScreenPos, selectedScreenSize, canvasOrigin, canvasHovered, zoom);
+        HandleCanvasInput(profile, visibleElements, selectedElement, selectedScreenCorners, canvasOrigin, canvasHovered, zoom);
+    }
+
+    /// <summary>
+    /// Bottom status bar: zoom control plus compact, non-technical canvas/selection info. Never
+    /// exposes ZIndex, Revision, or other implementation details.
+    /// </summary>
+    private void DrawStatusBar(ProfileDocument profile)
+    {
+        var zoom = editorSession.Zoom;
+        ImGui.SetNextItemWidth(140);
+        if (ImGui.SliderFloat("Zoom", ref zoom, EditorSession.MinZoom, EditorSession.MaxZoom))
+        {
+            // A manual zoom change is an explicit override: keep it, and stop auto-recalculating
+            // on panel resize until the user asks for Fit again.
+            editorSession.Zoom = zoom;
+            editorSession.AutoFit = false;
+        }
+
+        ImGui.SameLine();
+        if (ImGui.SmallButton("Fit"))
+        {
+            // lastCanvasPanelSize was captured moments ago by this same frame's canvas draw, so
+            // this takes effect immediately (the canvas itself catches up next frame, same as
+            // any other immediate-mode zoom change).
+            editorSession.AutoFit = true;
+            editorSession.ApplyFitZoom(lastCanvasPanelSize);
+            resetCanvasScrollPending = true;
+        }
+
+        ImGui.SameLine();
+        ImGui.TextUnformatted($"Canvas: {ProfileDocument.CanvasWidth:0}x{ProfileDocument.CanvasHeight:0}");
+
+        var selectedElement = editorSession.SelectedElementId is { } selectedId
+            ? profile.Elements.Find(e => e.Id == selectedId)
+            : null;
+        var selectedLabel = selectedElement switch
+        {
+            TextProfileElement => "Text",
+            ImageProfileElement => "Image",
+            _ => "None",
+        };
+
+        ImGui.SameLine();
+        ImGui.TextUnformatted($"Selected: {selectedLabel}");
+
+        ImGui.SameLine();
+        ImGui.TextUnformatted($"Elements: {profile.Elements.Count}/{ProfileDocument.MaxElementCount}");
     }
 
     private void HandleCanvasInput(
         ProfileDocument profile,
         ProfileElement[] visibleElementsInPaintOrder,
         ProfileElement? selectedElement,
-        Vector2 selectedScreenPos,
-        Vector2 selectedScreenSize,
+        Vector2[]? selectedScreenCorners,
         Vector2 canvasOrigin,
         bool canvasHovered,
         float zoom)
@@ -576,6 +1078,7 @@ internal sealed class ProfileEditorWindow : Window, IDisposable
         var logicalMouse = (mouseScreen - canvasOrigin) / zoom;
         var leftClicked = ImGui.IsMouseClicked(ImGuiMouseButton.Left);
         var leftReleased = ImGui.IsMouseReleased(ImGuiMouseButton.Left);
+        var rightClicked = ImGui.IsMouseClicked(ImGuiMouseButton.Right);
 
         if (editorSession.ActiveInteraction != ElementInteractionKind.None)
         {
@@ -600,8 +1103,8 @@ internal sealed class ProfileEditorWindow : Window, IDisposable
             return;
         }
 
-        if (selectedElement is not null && !selectedElement.Locked
-            && TryGetHoveredHandle(mouseScreen, selectedScreenPos, selectedScreenSize, out var hoveredHandle))
+        if (selectedElement is not null && !selectedElement.Locked && selectedScreenCorners is not null
+            && TryGetHoveredHandle(mouseScreen, selectedScreenCorners, out var hoveredHandle))
         {
             ImGui.SetMouseCursor(hoveredHandle is ResizeHandle.TopLeft or ResizeHandle.BottomRight
                 ? ImGuiMouseCursor.ResizeNwse
@@ -612,6 +1115,17 @@ internal sealed class ProfileEditorWindow : Window, IDisposable
                 editorSession.BeginResize(selectedElement, hoveredHandle, logicalMouse);
                 return;
             }
+        }
+
+        if (rightClicked)
+        {
+            var rightHitElement = HitTestElement(visibleElementsInPaintOrder, logicalMouse);
+            if (rightHitElement is not null)
+            {
+                RequestElementContextMenu(rightHitElement.Id);
+            }
+
+            return;
         }
 
         if (!leftClicked)
@@ -628,30 +1142,38 @@ internal sealed class ProfileEditorWindow : Window, IDisposable
         }
     }
 
-    private static void DrawResizeHandles(ImDrawListPtr drawList, Vector2 elementScreenPos, Vector2 elementScreenSize)
+    private static void DrawResizeHandles(ImDrawListPtr drawList, Vector2[] screenCorners)
     {
         var color = ImGui.GetColorU32(new Vector4(1f, 0.85f, 0.2f, 1f));
         var half = HandleScreenSize / 2f;
 
-        foreach (var (center, _) in GetHandleCorners(elementScreenPos, elementScreenSize))
+        foreach (var corner in screenCorners)
         {
-            drawList.AddRectFilled(center - new Vector2(half, half), center + new Vector2(half, half), color);
+            drawList.AddRectFilled(corner - new Vector2(half, half), corner + new Vector2(half, half), color);
         }
     }
 
-    private static bool TryGetHoveredHandle(
-        Vector2 mouseScreen, Vector2 elementScreenPos, Vector2 elementScreenSize, out ResizeHandle handle)
+    /// <summary>
+    /// <paramref name="screenCorners"/> is in the same perimeter order as
+    /// <see cref="RotationGeometry.GetRotatedCorners"/> (TopLeft, TopRight, BottomRight,
+    /// BottomLeft) — <paramref name="handle"/> identifies which LOCAL corner of the element was
+    /// hit, not which corner it currently appears at on screen (rotation can move that visually).
+    /// </summary>
+    private static bool TryGetHoveredHandle(Vector2 mouseScreen, Vector2[] screenCorners, out ResizeHandle handle)
     {
         var half = HandleScreenSize;
 
-        foreach (var (center, candidate) in GetHandleCorners(elementScreenPos, elementScreenSize))
+        ResizeHandle[] handleForCornerIndex = [ResizeHandle.TopLeft, ResizeHandle.TopRight, ResizeHandle.BottomRight, ResizeHandle.BottomLeft];
+
+        for (var i = 0; i < screenCorners.Length; i++)
         {
+            var center = screenCorners[i];
             var min = center - new Vector2(half, half);
             var max = center + new Vector2(half, half);
 
             if (mouseScreen.X >= min.X && mouseScreen.X <= max.X && mouseScreen.Y >= min.Y && mouseScreen.Y <= max.Y)
             {
-                handle = candidate;
+                handle = handleForCornerIndex[i];
                 return true;
             }
         }
@@ -660,24 +1182,25 @@ internal sealed class ProfileEditorWindow : Window, IDisposable
         return false;
     }
 
-    private static (Vector2 Center, ResizeHandle Handle)[] GetHandleCorners(Vector2 pos, Vector2 size) =>
-    [
-        (pos, ResizeHandle.TopLeft),
-        (pos + new Vector2(size.X, 0f), ResizeHandle.TopRight),
-        (pos + new Vector2(0f, size.Y), ResizeHandle.BottomLeft),
-        (pos + size, ResizeHandle.BottomRight),
-    ];
-
-    /// <summary>Topmost-first hit test: walks the paint-ordered array backwards.</summary>
+    /// <summary>
+    /// Topmost-first hit test: walks the paint-ordered array backwards. For a rotated element,
+    /// the mouse point is inverse-rotated around the element's center into its local (unrotated)
+    /// coordinate space before testing against its plain local rectangle.
+    /// </summary>
     private static ProfileElement? HitTestElement(ProfileElement[] paintOrderElements, Vector2 logicalPoint)
     {
         for (var i = paintOrderElements.Length - 1; i >= 0; i--)
         {
             var element = paintOrderElements[i];
+            var rotationDegrees = RotationGeometry.GetRotationDegrees(element);
+            var testPoint = rotationDegrees == 0f
+                ? logicalPoint
+                : RotationGeometry.RotatePoint(logicalPoint, RotationGeometry.GetCenter(element.Position, element.Size), -rotationDegrees);
+
             var min = element.Position;
             var max = element.Position + element.Size;
 
-            if (logicalPoint.X >= min.X && logicalPoint.X <= max.X && logicalPoint.Y >= min.Y && logicalPoint.Y <= max.Y)
+            if (testPoint.X >= min.X && testPoint.X <= max.X && testPoint.Y >= min.Y && testPoint.Y <= max.Y)
             {
                 return element;
             }

@@ -35,6 +35,9 @@ internal sealed class EditorSession
     internal const float MinZoom = 0.25f;
     internal const float MaxZoom = 4f;
 
+    // Small visual margin around the fitted canvas so it doesn't touch the panel's edges.
+    private const float FitPaddingPixels = 16f;
+
     internal const float MinElementWidth = 20f;
     internal const float MinElementHeight = 20f;
 
@@ -107,6 +110,13 @@ internal sealed class EditorSession
 
     internal float Zoom { get; set; } = 1f;
 
+    /// <summary>
+    /// Runtime-only viewport preference — never persisted with the profile. While true, the
+    /// editor canvas recalculates <see cref="Zoom"/> to fit its available panel size; setting
+    /// <see cref="Zoom"/> manually (the Zoom slider) is expected to also set this false.
+    /// </summary>
+    internal bool AutoFit { get; set; } = true;
+
     internal Guid? SelectedElementId { get; private set; }
 
     internal ElementInteractionKind ActiveInteraction { get; private set; } = ElementInteractionKind.None;
@@ -116,6 +126,26 @@ internal sealed class EditorSession
     internal bool CanUndo => undoStack.Count > 0;
 
     internal bool CanRedo => redoStack.Count > 0;
+
+    /// <summary>
+    /// Sets <see cref="Zoom"/> so the full logical canvas fits inside a panel of
+    /// <paramref name="availablePanelSize"/> screen pixels, preserving aspect ratio, with a
+    /// small padding margin, clamped to [<see cref="MinZoom"/>, <see cref="MaxZoom"/>]. Does not
+    /// touch <see cref="AutoFit"/> — callers decide whether this was an auto or manual fit.
+    /// </summary>
+    internal void ApplyFitZoom(Vector2 availablePanelSize)
+    {
+        Zoom = ComputeFitZoom(availablePanelSize);
+    }
+
+    private static float ComputeFitZoom(Vector2 availablePanelSize)
+    {
+        var usableWidth = Math.Max(1f, availablePanelSize.X - (FitPaddingPixels * 2f));
+        var usableHeight = Math.Max(1f, availablePanelSize.Y - (FitPaddingPixels * 2f));
+
+        var fitZoom = Math.Min(usableWidth / ProfileDocument.CanvasWidth, usableHeight / ProfileDocument.CanvasHeight);
+        return Math.Clamp(fitZoom, MinZoom, MaxZoom);
+    }
 
     internal void AddTextElement()
     {
@@ -295,7 +325,7 @@ internal sealed class EditorSession
             return;
         }
 
-        var newPosition = ClampPosition(before.Position + delta, before.Size);
+        var newPosition = ClampPositionForRotation(before.Position + delta, before.Size, RotationGeometry.GetRotationDegrees(before));
         if (newPosition == before.Position)
         {
             return;
@@ -576,10 +606,18 @@ internal sealed class EditorSession
         ActiveInteraction = ElementInteractionKind.Resizing;
         ActiveResizeHandle = handle;
         interactingElementId = element.Id;
-        dragStartMousePosition = mouseCanvasPosition;
         dragOriginalPosition = element.Position;
         dragOriginalSize = element.Size;
         interactionBeforeSnapshot = element.Clone();
+
+        // For a rotated element, resizing has to happen in the element's own (unrotated) local
+        // frame — see UpdateInteraction. Pre-transform the start position into that frame here,
+        // using the fixed pivot/rotation captured above, so every later frame just transforms
+        // the live mouse position the same way and subtracts.
+        var rotationDegrees = RotationGeometry.GetRotationDegrees(element);
+        dragStartMousePosition = rotationDegrees == 0f
+            ? mouseCanvasPosition
+            : RotationGeometry.RotatePoint(mouseCanvasPosition, RotationGeometry.GetCenter(dragOriginalPosition, dragOriginalSize), -rotationDegrees);
     }
 
     /// <summary>
@@ -594,14 +632,17 @@ internal sealed class EditorSession
             return;
         }
 
-        var delta = mouseCanvasPosition - dragStartMousePosition;
         var elementId = interactingElementId;
+        var rotationDegrees = interactionBeforeSnapshot is null ? 0f : RotationGeometry.GetRotationDegrees(interactionBeforeSnapshot);
 
         try
         {
             if (ActiveInteraction == ElementInteractionKind.Dragging)
             {
-                var newPosition = ClampPosition(dragOriginalPosition + delta, dragOriginalSize);
+                // Translation is invariant under rotation: moving a rotated element just moves
+                // its (still unrotated) Position/Size by the same screen-space delta.
+                var delta = mouseCanvasPosition - dragStartMousePosition;
+                var newPosition = ClampPositionForRotation(dragOriginalPosition + delta, dragOriginalSize, rotationDegrees);
                 profileService.UpdateElement(elementId, element => element.Position = newPosition);
             }
             else
@@ -610,7 +651,17 @@ internal sealed class EditorSession
                     ? dragOriginalSize.X / dragOriginalSize.Y
                     : (float?)null;
 
-                var (newPosition, newSize) = ComputeResize(dragOriginalPosition, dragOriginalSize, ActiveResizeHandle, delta, lockedAspectRatio);
+                // Resizing has to happen in the element's own local (unrotated) frame: transform
+                // the live mouse position into that frame using the SAME fixed pivot/rotation
+                // BeginResize used for the start position, so the resulting delta is purely
+                // local — see BeginResize and ComputeResize.
+                var pivot = RotationGeometry.GetCenter(dragOriginalPosition, dragOriginalSize);
+                var localMouse = rotationDegrees == 0f
+                    ? mouseCanvasPosition
+                    : RotationGeometry.RotatePoint(mouseCanvasPosition, pivot, -rotationDegrees);
+                var delta = localMouse - dragStartMousePosition;
+
+                var (newPosition, newSize) = ComputeResize(dragOriginalPosition, dragOriginalSize, ActiveResizeHandle, delta, lockedAspectRatio, rotationDegrees);
                 profileService.UpdateElement(elementId, element =>
                 {
                     element.Position = newPosition;
@@ -838,7 +889,8 @@ internal sealed class EditorSession
         {
             return imageA.AssetId == imageB.AssetId
                 && imageA.Opacity.Equals(imageB.Opacity)
-                && imageA.PreserveAspectRatio == imageB.PreserveAspectRatio;
+                && imageA.PreserveAspectRatio == imageB.PreserveAspectRatio
+                && imageA.RotationDegrees.Equals(imageB.RotationDegrees);
         }
 
         return true;
@@ -851,8 +903,33 @@ internal sealed class EditorSession
         return new Vector2(Math.Clamp(position.X, 0f, maxX), Math.Clamp(position.Y, 0f, maxY));
     }
 
+    /// <summary>
+    /// Rotation-aware version of <see cref="ClampPosition"/>: keeps the element's full rotated
+    /// visual bounds (not just its unrotated Position/Size box) inside the canvas, by clamping
+    /// the rotated bounding box's center rather than the unrotated corner.
+    /// </summary>
+    private static Vector2 ClampPositionForRotation(Vector2 position, Vector2 size, float rotationDegrees)
+    {
+        if (rotationDegrees == 0f)
+        {
+            return ClampPosition(position, size);
+        }
+
+        var aabbSize = RotationGeometry.GetRotatedAabbSize(size, rotationDegrees);
+        var center = RotationGeometry.GetCenter(position, size);
+
+        var maxCenterX = Math.Max(aabbSize.X / 2f, ProfileDocument.CanvasWidth - (aabbSize.X / 2f));
+        var maxCenterY = Math.Max(aabbSize.Y / 2f, ProfileDocument.CanvasHeight - (aabbSize.Y / 2f));
+
+        var clampedCenter = new Vector2(
+            Math.Clamp(center.X, aabbSize.X / 2f, maxCenterX),
+            Math.Clamp(center.Y, aabbSize.Y / 2f, maxCenterY));
+
+        return clampedCenter - (size / 2f);
+    }
+
     private static (Vector2 Position, Vector2 Size) ComputeResize(
-        Vector2 originalPosition, Vector2 originalSize, ResizeHandle handle, Vector2 delta, float? lockedAspectRatio = null)
+        Vector2 originalPosition, Vector2 originalSize, ResizeHandle handle, Vector2 delta, float? lockedAspectRatio, float rotationDegrees)
     {
         var left = originalPosition.X;
         var top = originalPosition.Y;
@@ -879,11 +956,16 @@ internal sealed class EditorSession
                 break;
         }
 
-        // Keep every edge inside the canvas before enforcing minimum size.
-        left = Math.Clamp(left, 0f, ProfileDocument.CanvasWidth);
-        top = Math.Clamp(top, 0f, ProfileDocument.CanvasHeight);
-        right = Math.Clamp(right, 0f, ProfileDocument.CanvasWidth);
-        bottom = Math.Clamp(bottom, 0f, ProfileDocument.CanvasHeight);
+        if (rotationDegrees == 0f)
+        {
+            // Keep every edge inside the canvas before enforcing minimum size. Only meaningful
+            // for an axis-aligned element — a rotated one is clamped as a whole box at the end,
+            // since its individual "edges" (in this local frame) aren't the canvas edges.
+            left = Math.Clamp(left, 0f, ProfileDocument.CanvasWidth);
+            top = Math.Clamp(top, 0f, ProfileDocument.CanvasHeight);
+            right = Math.Clamp(right, 0f, ProfileDocument.CanvasWidth);
+            bottom = Math.Clamp(bottom, 0f, ProfileDocument.CanvasHeight);
+        }
 
         if (lockedAspectRatio is { } aspectRatio && aspectRatio > 0f)
         {
@@ -952,7 +1034,18 @@ internal sealed class EditorSession
             }
         }
 
-        return (new Vector2(left, top), new Vector2(right - left, bottom - top));
+        var newPosition = new Vector2(left, top);
+        var newSize = new Vector2(right - left, bottom - top);
+
+        if (rotationDegrees != 0f)
+        {
+            // The per-edge canvas clamp above was skipped for a rotated element; instead, pull
+            // the whole rotated box back inside the canvas now, without altering the size the
+            // user just chose.
+            newPosition = ClampPositionForRotation(newPosition, newSize, rotationDegrees);
+        }
+
+        return (newPosition, newSize);
     }
 
     private sealed record HistoryEntry(Action Undo, Action Redo);

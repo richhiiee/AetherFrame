@@ -62,21 +62,30 @@ internal static class ProfileRenderer
     internal static void DrawElement(
         ImDrawListPtr drawList, ProfileElement element, Vector2 canvasOrigin, float scale, ImageTextureCache imageTextureCache)
     {
-        var screenPos = canvasOrigin + element.Position * scale;
-        var screenSize = element.Size * scale;
-
         switch (element)
         {
             case TextProfileElement textElement:
+            {
+                var screenPos = canvasOrigin + textElement.Position * scale;
+                var screenSize = textElement.Size * scale;
                 DrawTextElement(drawList, textElement, screenPos, screenSize, scale);
                 break;
+            }
+
             case ImageProfileElement imageElement:
-                DrawImageElement(drawList, imageElement, screenPos, screenSize, imageTextureCache);
+                // Images may be rotated around their own center (text never is), so they're
+                // drawn from their rotated corners rather than a plain screenPos/screenSize rect.
+                DrawImageElement(drawList, imageElement, canvasOrigin, scale, imageTextureCache);
                 break;
+
             default:
+            {
+                var screenPos = canvasOrigin + element.Position * scale;
+                var screenSize = element.Size * scale;
                 drawList.AddRectFilled(screenPos, screenPos + screenSize, ImGui.GetColorU32(UnknownElementFillColor));
                 drawList.AddRect(screenPos, screenPos + screenSize, ImGui.GetColorU32(UnknownElementBorderColor));
                 break;
+            }
         }
     }
 
@@ -133,21 +142,37 @@ internal static class ProfileRenderer
         drawList.PopClipRect();
     }
 
-    private static void DrawImageElement(ImDrawListPtr drawList, ImageProfileElement imageElement, Vector2 screenPos, Vector2 screenSize, ImageTextureCache imageTextureCache)
+    private static readonly Vector2 QuadUvTopLeft = new(0f, 0f);
+    private static readonly Vector2 QuadUvTopRight = new(1f, 0f);
+    private static readonly Vector2 QuadUvBottomRight = new(1f, 1f);
+    private static readonly Vector2 QuadUvBottomLeft = new(0f, 1f);
+
+    private static void DrawImageElement(ImDrawListPtr drawList, ImageProfileElement imageElement, Vector2 canvasOrigin, float scale, ImageTextureCache imageTextureCache)
     {
+        // Corners are computed in logical space (respecting rotation around the element's own
+        // center) and only then projected to screen space, so rotation renders identically
+        // regardless of the caller's canvas origin/zoom — the editor canvas and the read-only
+        // presentation window both go through this exact path.
+        var corners = RotationGeometry.GetRotatedCorners(imageElement.Position, imageElement.Size, imageElement.RotationDegrees);
+        var topLeft = canvasOrigin + (corners[0] * scale);
+        var topRight = canvasOrigin + (corners[1] * scale);
+        var bottomRight = canvasOrigin + (corners[2] * scale);
+        var bottomLeft = canvasOrigin + (corners[3] * scale);
+
         var wrap = imageTextureCache.GetWrapOrNull(imageElement.AssetId);
 
         if (wrap is null)
         {
             // Missing, still loading, or failed to decode: a visible placeholder rather than
-            // nothing, so a broken image element is still identifiable.
-            drawList.AddRectFilled(screenPos, screenPos + screenSize, ImGui.GetColorU32(MissingAssetFillColor));
-            drawList.AddRect(screenPos, screenPos + screenSize, ImGui.GetColorU32(MissingAssetBorderColor));
+            // nothing, using the same rotated geometry so a broken element stays identifiable,
+            // selectable, movable, resizable, rotatable, and replaceable.
+            drawList.AddQuadFilled(topLeft, topRight, bottomRight, bottomLeft, ImGui.GetColorU32(MissingAssetFillColor));
+            drawList.AddQuad(topLeft, topRight, bottomRight, bottomLeft, ImGui.GetColorU32(MissingAssetBorderColor));
             return;
         }
 
         var tint = ImGui.GetColorU32(new Vector4(1f, 1f, 1f, Math.Clamp(imageElement.Opacity, 0f, 1f)));
-        drawList.AddImage(wrap.Handle, screenPos, screenPos + screenSize, Vector2.Zero, Vector2.One, tint);
+        drawList.AddImageQuad(wrap.Handle, topLeft, topRight, bottomRight, bottomLeft, QuadUvTopLeft, QuadUvTopRight, QuadUvBottomRight, QuadUvBottomLeft, tint);
     }
 
     /// <summary>

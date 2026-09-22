@@ -17,6 +17,13 @@ public sealed class ImageProfileElement : ProfileElement
 
     public bool PreserveAspectRatio { get; set; } = true;
 
+    /// <summary>
+    /// Clockwise rotation, in degrees, around the element's own center. Always normalized to
+    /// [0, 360). Absent from JSON written before this field existed, which deserializes it as
+    /// the default 0 — no migration needed. Text elements never rotate.
+    /// </summary>
+    public float RotationDegrees { get; set; }
+
     internal override ProfileElement Clone() => new ImageProfileElement
     {
         Id = Id,
@@ -28,6 +35,7 @@ public sealed class ImageProfileElement : ProfileElement
         AssetId = AssetId,
         Opacity = Opacity,
         PreserveAspectRatio = PreserveAspectRatio,
+        RotationDegrees = RotationDegrees,
     };
 
     internal override void CopyFrom(ProfileElement source)
@@ -39,6 +47,7 @@ public sealed class ImageProfileElement : ProfileElement
             AssetId = image.AssetId;
             Opacity = image.Opacity;
             PreserveAspectRatio = image.PreserveAspectRatio;
+            RotationDegrees = image.RotationDegrees;
         }
     }
 }

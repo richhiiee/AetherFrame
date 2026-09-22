@@ -60,7 +60,7 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
 
         mainWindow = new MainWindow(this, profileService);
         profileEditorWindow = new ProfileEditorWindow(
-            profileService, editorSession, keyboardShortcutService, imageTextureCache, fileDialogManager);
+            profileService, editorSession, keyboardShortcutService, imageTextureCache, fileDialogManager, ToggleProfileViewUi);
         profileViewWindow = new ProfileViewWindow(profileService, imageTextureCache);
 
         WindowSystem.AddWindow(mainWindow);
@@ -74,6 +74,7 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
 
         PluginInterface.UiBuilder.Draw += WindowSystem.Draw;
         PluginInterface.UiBuilder.OpenMainUi += ToggleMainUi;
+        PluginInterface.UiBuilder.OpenConfigUi += ToggleMainUi;
 
         Log.Information($"===AetherFrame loaded ({PluginInterface.Manifest.Name})===");
     }
@@ -87,6 +88,7 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
     {
         PluginInterface.UiBuilder.Draw -= WindowSystem.Draw;
         PluginInterface.UiBuilder.OpenMainUi -= ToggleMainUi;
+        PluginInterface.UiBuilder.OpenConfigUi -= ToggleMainUi;
 
         WindowSystem.RemoveAllWindows();
 
