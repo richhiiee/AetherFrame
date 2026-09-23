@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Pure-logic tests for AetherFrame, runnable without FFXIV or Dalamud.
+
+    Rather than referencing the plugin project (which would pull Dalamud assemblies into the test
+    process), this compiles the plugin's Dalamud-independent source files directly (linked, not
+    copied). Everything listed here must stay free of Dalamud/ImGui dependencies; Dalamud glue
+    lives elsewhere (Hosting/, UI/, Windows/, and the Dalamud-facing services).
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <RootNamespace>AetherFrame.Tests</RootNamespace>
+    <!-- The linked sources' XML docs reference Dalamud-side types that aren't compiled here. -->
+    <NoWarn>$(NoWarn);CS1574;CS1584;CS1580;CS1591</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\AetherFrame\Domain\**\*.cs" Link="Linked\Domain\%(RecursiveDir)%(Filename)%(Extension)" />
+    <Compile Include="..\AetherFrame\Persistence\**\*.cs" Link="Linked\Persistence\%(RecursiveDir)%(Filename)%(Extension)" />
+    <Compile Include="..\AetherFrame\Services\Plates\**\*.cs" Link="Linked\Services\Plates\%(RecursiveDir)%(Filename)%(Extension)" />
+    <Compile Include="..\AetherFrame\Services\Assets\**\*.cs" Link="Linked\Services\Assets\%(RecursiveDir)%(Filename)%(Extension)" />
+    <Compile Include="..\AetherFrame\Services\Caching\**\*.cs" Link="Linked\Services\Caching\%(RecursiveDir)%(Filename)%(Extension)" />
+    <Compile Include="..\AetherFrame\Services\Diagnostics\**\*.cs" Link="Linked\Services\Diagnostics\%(RecursiveDir)%(Filename)%(Extension)" />
+    <Compile Include="..\AetherFrame\Services\Thumbnails\**\*.cs" Link="Linked\Services\Thumbnails\%(RecursiveDir)%(Filename)%(Extension)" />
+    <Compile Include="..\AetherFrame\Services\AssetStorageService.cs" Link="Linked\Services\AssetStorageService.cs" />
+    <Compile Include="..\AetherFrame\Services\ImageDimensionReader.cs" Link="Linked\Services\ImageDimensionReader.cs" />
+    <Compile Include="..\AetherFrame\Services\ProfileService.cs" Link="Linked\Services\ProfileService.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+</Project>

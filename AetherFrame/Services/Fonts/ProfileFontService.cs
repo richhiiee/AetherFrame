@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using AetherFrame.Domain.Profiles;
 using Dalamud.Interface.ManagedFontAtlas;
 
@@ -87,9 +88,13 @@ internal sealed class ProfileFontService : IDisposable
     private readonly Dictionary<FontKey, LinkedListNode<FontKey>> accessNodes = new();
     private readonly Dictionary<string, byte[]> embeddedFontBytesCache = new();
 
-    // Reference marker only (never dereferenced): lets EnsurePrewarmed short-circuit to a no-op
-    // on every frame except the one where the profile instance actually changed.
-    private ProfileDocument? lastPrewarmedProfile;
+    private static readonly object PrewarmedMarker = new();
+
+    // Which document instances have been prewarmed (weakly held: never keeps a document alive).
+    // Per instance rather than "the last one seen", so two documents drawn in the same frame —
+    // the open Plate in an editor and a different Plate in the Plate Viewer — are each warmed
+    // once instead of alternating (and re-warming) every frame.
+    private readonly ConditionalWeakTable<ProfileDocument, object> prewarmedProfiles = new();
 
     internal ProfileFontService()
     {
@@ -177,22 +182,17 @@ internal sealed class ProfileFontService : IDisposable
     /// <summary>
     /// Ensures every distinct (family, bold, italic) combination actually used by
     /// <paramref name="profile"/>'s text elements has at least its own nominal size (and the
-    /// common-size baseline) warmed. Safe (and cheap — a single reference comparison) to call
+    /// common-size baseline) warmed. Safe (and cheap — a single weak-table lookup) to call
     /// every frame; does real work only the first time it sees a given profile instance.
     /// </summary>
     internal void EnsurePrewarmed(ProfileDocument? profile)
     {
-        if (ReferenceEquals(profile, lastPrewarmedProfile))
+        if (profile is null || prewarmedProfiles.TryGetValue(profile, out _))
         {
             return;
         }
 
-        lastPrewarmedProfile = profile;
-
-        if (profile is null)
-        {
-            return;
-        }
+        prewarmedProfiles.AddOrUpdate(profile, PrewarmedMarker);
 
         // One rebuild for the whole profile's worth of newly-needed handles, not one per handle.
         using var suppression = atlas.SuppressAutoRebuild();

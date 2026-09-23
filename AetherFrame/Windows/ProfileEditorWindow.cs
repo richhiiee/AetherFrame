@@ -47,6 +47,7 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable
     private readonly FileDialogManager fileDialogManager;
     private readonly Action openProfileView;
     private readonly Action openBasicEditor;
+    private readonly Action openLibrary;
 
     // Reused per frame (render thread only) for paint-order walks, so none of them allocate.
     private readonly List<ProfileElement> paintOrderBuffer = new(ProfileDocument.MaxElementCount);
@@ -86,8 +87,9 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable
         ProfileRenderResources renderResources,
         FileDialogManager fileDialogManager,
         Action openProfileView,
-        Action openBasicEditor)
-        : base("AetherFrame Profile Editor##ProfileEditorWindow")
+        Action openBasicEditor,
+        Action openLibrary)
+        : base("AetherFrame Advanced Editor##ProfileEditorWindow")
     {
         SizeConstraints = new WindowSizeConstraints
         {
@@ -102,6 +104,7 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable
         this.fileDialogManager = fileDialogManager;
         this.openProfileView = openProfileView;
         this.openBasicEditor = openBasicEditor;
+        this.openLibrary = openLibrary;
 
         // The native close button can't be intercepted, so it's replaced by one that goes through
         // the unsaved-changes prompt. (Other close paths are caught in OnClose.)
@@ -119,7 +122,6 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable
     private enum GuardedAction
     {
         Close,
-        LoadCurrentCharacter,
     }
 
     public void Dispose()
@@ -185,7 +187,13 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable
         var profile = profileService.CurrentProfile;
         if (profile is null)
         {
-            ImGui.TextUnformatted("No profile is currently loaded.");
+            ImGui.TextUnformatted("No Plate is open.");
+            ImGui.TextDisabled("Choose a Plate to edit in My Plates.");
+            if (ImGui.Button("Open My Plates"))
+            {
+                openLibrary();
+            }
+
             keyboardShortcutService.SetEditorFocusState(editorFocused: false, textInputActive: false);
             return;
         }
@@ -219,7 +227,6 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable
     private void DrawEditor(ProfileDocument profile)
     {
         DrawToolbar(profile);
-        DrawCharacterMismatchBanner();
         ImGui.Separator();
 
         var contentAvail = ImGui.GetContentRegionAvail();
@@ -247,9 +254,19 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable
     private void DrawToolbar(ProfileDocument profile)
     {
         var atCapacity = profile.Elements.Count >= ProfileDocument.MaxElementCount;
-        var editable = !profileService.IsLoadedForDifferentCharacter;
 
-        using (ImRaii.Disabled(atCapacity || !editable))
+        if (EditorWidgets.IconButton("MyPlates", FontAwesomeIcon.ThLarge, "My Plates"))
+        {
+            openLibrary();
+        }
+
+        ImGui.SameLine();
+        ImGui.AlignTextToFramePadding();
+        ImGui.TextUnformatted(profile.Name);
+
+        ToolbarGap();
+
+        using (ImRaii.Disabled(atCapacity))
         {
             if (ImGui.Button("+ Text"))
             {
@@ -327,10 +344,10 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable
             EnterPreview();
         }
 
-        EditorWidgets.Tooltip("Clean Preview: the finished profile only (Esc to exit)");
+        EditorWidgets.Tooltip("Clean Preview: the finished Plate only (Esc to exit)");
 
         ImGui.SameLine();
-        if (ImGui.Button("View Profile"))
+        if (ImGui.Button("Plate Viewer"))
         {
             openProfileView();
         }
@@ -378,29 +395,6 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable
         else
         {
             ImGui.TextColored(EditorWidgets.SuccessColor with { W = 0.75f }, "Saved");
-        }
-    }
-
-    /// <summary>
-    /// A character switch doesn't reload the profile on its own; the old character's profile then
-    /// can't be edited or saved. Says so plainly, and offers to load the current character's
-    /// profile (through the unsaved-changes prompt).
-    /// </summary>
-    private void DrawCharacterMismatchBanner()
-    {
-        if (!profileService.IsLoadedForDifferentCharacter)
-        {
-            return;
-        }
-
-        ImGui.TextColored(EditorWidgets.WarningColor, "This profile belongs to a different character and can't be edited or saved right now.");
-        ImGui.SameLine();
-        using (ImRaii.Disabled(profileService.IsBusy))
-        {
-            if (ImGui.SmallButton("Load This Character's Profile"))
-            {
-                RequestGuardedAction(GuardedAction.LoadCurrentCharacter);
-            }
         }
     }
 
@@ -505,7 +499,7 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable
             editorSession.SaveProfile();
         }
 
-        if (ImGui.MenuItem("Revert to Saved...", string.Empty, false, dirty && editorSession.CanRevert && !profileService.IsLoadedForDifferentCharacter))
+        if (ImGui.MenuItem("Revert to Saved...", string.Empty, false, dirty && editorSession.CanRevert))
         {
             pendingRevertPrompt = true;
         }
@@ -524,7 +518,7 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable
             return;
         }
 
-        ImGui.TextUnformatted("Revert this profile to its last saved version?");
+        ImGui.TextUnformatted("Revert this Plate to its last saved version?");
         EditorWidgets.Hint("All unsaved changes will be discarded. You can still undo the revert.");
         ImGui.Spacing();
 
@@ -552,8 +546,9 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable
 
     /// <summary>
     /// Runs <paramref name="action"/> right away when there's nothing unsaved; otherwise asks
-    /// Save / Discard / Cancel first. The single choke point for anything that would otherwise
-    /// silently lose unsaved work (closing the editor, loading another profile/character).
+    /// Save / Discard / Cancel first. The single choke point in this window for anything that would
+    /// otherwise silently lose unsaved work (closing the editor; switching Plates is guarded by My
+    /// Plates, which opens them).
     /// </summary>
     private void RequestGuardedAction(GuardedAction action)
     {
@@ -580,10 +575,6 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable
             case GuardedAction.Close:
                 closeConfirmed = true;
                 IsOpen = false;
-                break;
-
-            case GuardedAction.LoadCurrentCharacter:
-                _ = LoadCurrentCharacterSafelyAsync();
                 break;
         }
     }
@@ -630,16 +621,9 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable
             return;
         }
 
-        ImGui.TextUnformatted(action == GuardedAction.Close
-            ? "This profile has unsaved changes. Save them before closing?"
-            : "This profile has unsaved changes. Save them before loading another profile?");
+        ImGui.TextUnformatted("This Plate has unsaved changes. Save them before closing?");
 
         var canSave = CanSaveNow();
-        if (!canSave && profileService.IsLoadedForDifferentCharacter)
-        {
-            EditorWidgets.Hint("It can't be saved while a different character is logged in.");
-        }
-
         ImGui.Spacing();
 
         var buttonSize = new Vector2(110f, 0f);
@@ -655,11 +639,7 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable
         ImGui.SameLine();
         if (ImGui.Button("Discard", buttonSize))
         {
-            if (!profileService.IsLoadedForDifferentCharacter)
-            {
-                editorSession.DiscardChanges();
-            }
-
+            editorSession.DiscardChanges();
             ImGui.CloseCurrentPopup();
             RunGuardedAction(action);
         }
@@ -674,19 +654,7 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable
         ImGui.EndPopup();
     }
 
-    private bool CanSaveNow() => !profileService.IsBusy && !profileService.IsLoadedForDifferentCharacter;
-
-    private async Task LoadCurrentCharacterSafelyAsync()
-    {
-        try
-        {
-            await profileService.LoadForCurrentCharacterAsync().ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            DalamudServices.Log.Error(ex, "AetherFrame failed to load the current character's profile.");
-        }
-    }
+    private bool CanSaveNow() => !profileService.IsBusy;
 
     // ---------------------------------------------------------------- Clean Preview
 

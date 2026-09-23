@@ -424,7 +424,7 @@ internal sealed class BasicIdentitySession
     {
         // Validates that the profile is editable (character, busy state) before touching it.
         profileService.RequireEditableProfile();
-        var profile = profileService.CurrentProfile ?? throw new InvalidOperationException("No profile is currently loaded.");
+        var profile = profileService.CurrentProfile ?? throw new InvalidOperationException("No Plate is open.");
 
         var context = new EditContext(this, profile);
         change(context);

@@ -543,7 +543,7 @@ internal sealed partial class EditorSession
         var profile = profileService.CurrentProfile;
         if (profile is null)
         {
-            ErrorMessage = "No profile is currently loaded.";
+            ErrorMessage = "No Plate is open.";
             return false;
         }
 

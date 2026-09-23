@@ -2,4 +2,5 @@
   <Project Path="AetherFrame/AetherFrame.csproj">
     <Platform Project="x64" />
   </Project>
+  <Project Path="AetherFrame.Tests/AetherFrame.Tests.csproj" />
 </Solution>

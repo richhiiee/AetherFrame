@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace AetherFrame.Domain.Profiles;
@@ -21,12 +22,30 @@ public sealed class ProfileDocument
     public const float DefaultCanvasWidth = 1280f;
     public const float DefaultCanvasHeight = 720f;
 
+    /// <summary>
+    /// The document schema version this build writes. 1: the original single-profile documents
+    /// (implicit 1920x1080 canvas, legacy background fields); 2: explicit canvas size and the
+    /// <see cref="ProfileBackground"/> model — both of which older files still get through the
+    /// field-driven, in-memory legacy repairs below rather than by rewriting files. A file with a
+    /// HIGHER version was written by a newer AetherFrame and is never loaded for editing or
+    /// rewritten (see <c>ProfileDocumentSchema</c>).
+    /// </summary>
+    public const int CurrentSchemaVersion = 2;
+
     public int Version { get; set; } = 1;
 
+    /// <summary>The Plate's identity. Stable forever, including across rename and every save.</summary>
     public Guid ProfileId { get; set; }
 
+    /// <summary>
+    /// Legacy: the character a single-profile-era document was created for. Kept only so
+    /// migration can associate such a document with that character; never an identity or access
+    /// check, and never set for new Plates (0) — character associations live in
+    /// <c>CharacterBinding</c>, outside the document.
+    /// </summary>
     public ulong OwnerContentId { get; set; }
 
+    /// <summary>The Plate's display name (see <c>PlateNaming</c>).</summary>
     public string Name { get; set; } = string.Empty;
 
     public int Revision { get; set; }
@@ -78,6 +97,11 @@ public sealed class ProfileDocument
     [JsonPropertyName("BackgroundOpacity")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public float? LegacyBackgroundOpacity { get; set; }
+
+    /// <summary>Top-level properties this build doesn't know (e.g. written by a newer compatible
+    /// build), carried through load and save so saving never silently drops them.</summary>
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? ExtensionData { get; set; }
 
     /// <summary>
     /// Repairs a profile loaded with an invalid (non-positive) canvas size: a legacy profile

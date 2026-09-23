@@ -2,6 +2,7 @@ using System;
 using System.Numerics;
 using AetherFrame.Domain.Profiles;
 using AetherFrame.Services;
+using AetherFrame.Services.Plates;
 using AetherFrame.UI.Rendering;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Utility.Raii;
@@ -10,13 +11,13 @@ using Dalamud.Interface.Windowing;
 namespace AetherFrame.Windows;
 
 /// <summary>
-/// Read-only presentation view of the current character's profile: no inspector, no selection,
-/// no editing of any kind, no editor chrome of any kind — the finished profile is the entire
-/// point of this window. Renders the same in-memory <see cref="ProfileDocument"/> that
-/// <see cref="ProfileEditorWindow"/> edits, via the shared <see cref="ProfileRenderer"/> (with
-/// element-bounds chrome always off), so it always reflects the live (possibly unsaved) editor
-/// state without needing a reload, and never shows an editing box regardless of the editor's own
-/// Guides setting.
+/// The Plate Viewer: a read-only presentation of one Plate — no inspector, no selection, no
+/// editing of any kind, no editor chrome of any kind; the finished Plate is the entire point of
+/// this window. For the Plate open in the editors it renders that same live in-memory
+/// <see cref="ProfileDocument"/> (so it reflects unsaved edits without a reload); for any other
+/// Plate, the Library's saved copy. Either way via the shared <see cref="ProfileRenderer"/> with
+/// element-bounds chrome always off. Viewing never changes a Plate, its dirty state, its undo
+/// history, or which Plate is Active.
 /// </summary>
 internal sealed class ProfileViewWindow : Window, IDisposable
 {
@@ -32,10 +33,14 @@ internal sealed class ProfileViewWindow : Window, IDisposable
     private const float CloseButtonMargin = 6f;
 
     private readonly ProfileService profileService;
+    private readonly PlateLibraryService library;
     private readonly ProfileRenderResources renderResources;
 
-    internal ProfileViewWindow(ProfileService profileService, ProfileRenderResources renderResources)
-        : base("AetherFrame Profile View##ProfileViewWindow")
+    // The Plate being viewed; null means "whichever Plate is open in the editors".
+    private Guid? viewedPlateId;
+
+    internal ProfileViewWindow(ProfileService profileService, PlateLibraryService library, ProfileRenderResources renderResources)
+        : base("AetherFrame Plate Viewer##ProfileViewWindow")
     {
         SizeConstraints = new WindowSizeConstraints
         {
@@ -44,7 +49,41 @@ internal sealed class ProfileViewWindow : Window, IDisposable
         };
 
         this.profileService = profileService;
+        this.library = library;
         this.renderResources = renderResources;
+    }
+
+    /// <summary>Shows a specific Plate (its live copy if it's the one open in the editors).</summary>
+    internal void ShowPlate(Guid plateId)
+    {
+        viewedPlateId = plateId;
+        IsOpen = true;
+    }
+
+    /// <summary>Toggles the viewer on the Plate open in the editors.</summary>
+    internal void ToggleOpenPlate()
+    {
+        var showingOpenPlate = viewedPlateId is null || viewedPlateId == profileService.OpenPlateId;
+        if (IsOpen && showingOpenPlate)
+        {
+            IsOpen = false;
+            return;
+        }
+
+        viewedPlateId = null;
+        IsOpen = true;
+    }
+
+    /// <summary>What to draw: the live open document when it's the viewed Plate, else the saved one.</summary>
+    private ProfileDocument? ResolveDocument()
+    {
+        var live = profileService.CurrentProfile;
+        if (viewedPlateId is not { } plateId || live?.ProfileId == plateId)
+        {
+            return live;
+        }
+
+        return library.GetSavedDocument(plateId);
     }
 
     public void Dispose()
@@ -81,10 +120,10 @@ internal sealed class ProfileViewWindow : Window, IDisposable
 
     public override void Draw()
     {
-        var profile = profileService.CurrentProfile;
+        var profile = ResolveDocument();
         if (profile is null)
         {
-            ImGui.TextUnformatted("No profile is currently loaded.");
+            ImGui.TextUnformatted(viewedPlateId is null ? "No Plate is open." : "This Plate isn't available.");
             DrawCloseButton();
             return;
         }
@@ -150,7 +189,7 @@ internal sealed class ProfileViewWindow : Window, IDisposable
     /// </summary>
     private Vector2 ComputeDefaultOpenSize()
     {
-        var profile = profileService.CurrentProfile;
+        var profile = ResolveDocument();
         var canvasWidth = profile is { CanvasWidth: > 0f } ? profile.CanvasWidth : ProfileDocument.LegacyCanvasWidth;
         var canvasHeight = profile is { CanvasHeight: > 0f } ? profile.CanvasHeight : ProfileDocument.LegacyCanvasHeight;
 

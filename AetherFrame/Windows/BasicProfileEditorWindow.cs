@@ -6,6 +6,7 @@ using AetherFrame.Services;
 using AetherFrame.UI.Editor;
 using AetherFrame.UI.Rendering;
 using Dalamud.Bindings.ImGui;
+using Dalamud.Interface;
 using Dalamud.Interface.ImGuiFileDialog;
 using Dalamud.Interface.Utility.Raii;
 using Dalamud.Interface.Windowing;
@@ -36,6 +37,7 @@ internal sealed partial class BasicProfileEditorWindow : Window, IDisposable
     private readonly ProfileRenderResources renderResources;
     private readonly FileDialogManager fileDialogManager;
     private readonly Action openAdvancedEditor;
+    private readonly Action openLibrary;
 
     internal BasicProfileEditorWindow(
         ProfileService profileService,
@@ -44,7 +46,8 @@ internal sealed partial class BasicProfileEditorWindow : Window, IDisposable
         ImageTextureCache imageTextureCache,
         ProfileRenderResources renderResources,
         FileDialogManager fileDialogManager,
-        Action openAdvancedEditor)
+        Action openAdvancedEditor,
+        Action openLibrary)
         : base("AetherFrame Basic Editor##BasicProfileEditorWindow")
     {
         SizeConstraints = new WindowSizeConstraints
@@ -60,6 +63,7 @@ internal sealed partial class BasicProfileEditorWindow : Window, IDisposable
         this.renderResources = renderResources;
         this.fileDialogManager = fileDialogManager;
         this.openAdvancedEditor = openAdvancedEditor;
+        this.openLibrary = openLibrary;
     }
 
     public void Dispose()
@@ -73,27 +77,21 @@ internal sealed partial class BasicProfileEditorWindow : Window, IDisposable
 
     public override void Draw()
     {
-        // Drawn unconditionally so an in-progress file pick isn't stranded if the profile
-        // becomes unavailable (e.g. character logs out) while the dialog is open.
+        // Drawn unconditionally so an in-progress file pick isn't stranded if the Plate
+        // becomes unavailable (e.g. it's deleted from My Plates) while the dialog is open.
         fileDialogManager.Draw();
 
-        if (!DalamudServices.PlayerState.IsLoaded)
-        {
-            ImGui.TextUnformatted("No character is currently logged in.");
-            return;
-        }
+        // Before the null check, so closing or deleting the open Plate also resets the session.
+        editorSession.SyncWithCurrentProfile();
 
         var profile = profileService.CurrentProfile;
         if (profile is null)
         {
-            ImGui.TextUnformatted("No profile loaded.");
-
-            using (ImRaii.Disabled(profileService.IsBusy))
+            ImGui.TextUnformatted("No Plate is open.");
+            ImGui.TextDisabled("Choose a Plate to edit in My Plates.");
+            if (ImGui.Button("Open My Plates"))
             {
-                if (ImGui.Button("Load Profile"))
-                {
-                    _ = LoadSafelyAsync();
-                }
+                openLibrary();
             }
 
             return;
@@ -101,10 +99,16 @@ internal sealed partial class BasicProfileEditorWindow : Window, IDisposable
 
         // Opening Basic mode never creates or changes anything: reserved elements (and the
         // Identity settings) are only created by the first explicit edit that needs them.
-        editorSession.SyncWithCurrentProfile();
         basicEditorSession.Identity.RefineLayout();
 
-        ImGui.TextUnformatted($"Adventure Plate — {profile.Name}");
+        if (EditorWidgets.IconButton("MyPlates", FontAwesomeIcon.ThLarge, "My Plates"))
+        {
+            openLibrary();
+        }
+
+        ImGui.SameLine();
+        ImGui.AlignTextToFramePadding();
+        ImGui.TextUnformatted(profile.Name);
         ImGui.SameLine();
         if (ImGui.Button("Advanced Editor"))
         {
@@ -281,7 +285,7 @@ internal sealed partial class BasicProfileEditorWindow : Window, IDisposable
         }
 
         ImGui.SameLine();
-        if (ImGui.Button("Save Profile"))
+        if (ImGui.Button("Save Plate"))
         {
             editorSession.SaveProfile();
         }
@@ -358,17 +362,5 @@ internal sealed partial class BasicProfileEditorWindow : Window, IDisposable
                 onSelected(path);
             }
         });
-    }
-
-    private async Task LoadSafelyAsync()
-    {
-        try
-        {
-            await profileService.LoadForCurrentCharacterAsync().ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            DalamudServices.Log.Error(ex, "AetherFrame failed to load the current character's profile.");
-        }
     }
 }

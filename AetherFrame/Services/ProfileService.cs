@@ -3,46 +3,48 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
 using System.Threading.Tasks;
-using AetherFrame.Domain.Characters;
 using AetherFrame.Domain.Profiles;
-using AetherFrame.Persistence;
+using AetherFrame.Services.Plates;
 
 namespace AetherFrame.Services;
 
 /// <summary>
-/// Owns the currently loaded character binding and profile.
-/// Public members are safe to call from ImGui Draw (the render thread); any work that
-/// must run on the Dalamud framework thread is dispatched internally via IFramework.Run.
+/// Owns the Plate currently open in the editors: one live, editable <see cref="ProfileDocument"/>
+/// shared by the Basic and Advanced editors (and shown live by the Plate Viewer). Opening a
+/// Plate always produces a brand-new document instance, which is what tells the editors to
+/// start a fresh baseline and history. Which Plates exist, their saved state, and character
+/// associations belong to <see cref="PlateLibraryService"/>; opening, editing, or saving a Plate
+/// never changes which Plate is Active.
+///
+/// A Plate is a character-independent document, so editing needs no logged-in character.
+/// Public members are safe to call from ImGui Draw (the render thread); persistence runs
+/// through the library, which dispatches it to the framework thread.
 /// </summary>
 internal sealed class ProfileService
 {
     private readonly object gate = new();
-    private readonly CharacterBindingRepository bindingRepository;
-    private readonly ProfileRepository profileRepository;
-    private readonly CharacterIdentityService characterIdentity;
+    private readonly PlateLibraryService library;
 
-    private CharacterBinding? currentBinding;
     private ProfileDocument? currentProfile;
     private bool isBusy;
 
-    internal ProfileService(
-        CharacterBindingRepository bindingRepository,
-        ProfileRepository profileRepository,
-        CharacterIdentityService characterIdentity)
+    internal ProfileService(PlateLibraryService library)
     {
-        this.bindingRepository = bindingRepository;
-        this.profileRepository = profileRepository;
-        this.characterIdentity = characterIdentity;
+        this.library = library;
+        library.PlateRenamed += OnPlateRenamed;
+        library.PlateDeleted += OnPlateDeleted;
     }
 
-    internal CharacterBinding? CurrentBinding
-    {
-        get { lock (gate) return currentBinding; }
-    }
-
+    /// <summary>The live document of the open Plate, or null when no Plate is open.</summary>
     internal ProfileDocument? CurrentProfile
     {
         get { lock (gate) return currentProfile; }
+    }
+
+    /// <summary>The open Plate's id, or null when no Plate is open.</summary>
+    internal Guid? OpenPlateId
+    {
+        get { lock (gate) return currentProfile?.ProfileId; }
     }
 
     internal bool IsBusy
@@ -51,61 +53,51 @@ internal sealed class ProfileService
     }
 
     /// <summary>
-    /// True when a profile is loaded but a DIFFERENT character is now logged in (e.g. after a
-    /// character switch, which doesn't reload the profile on its own). The loaded profile can't
-    /// be edited or saved in that state — see <see cref="RequireEditableProfile"/>.
+    /// Opens a Plate's saved state for editing, replacing whatever was open (the caller is
+    /// responsible for asking about unsaved changes first). Reopening the already-open Plate is
+    /// a no-op, so it never discards edits. Throws <see cref="PlateLibraryException"/> when the
+    /// Plate can't be opened.
     /// </summary>
-    internal bool IsLoadedForDifferentCharacter
-    {
-        get
-        {
-            lock (gate)
-            {
-                return currentBinding is not null
-                    && characterIdentity.CurrentContentId is { } contentId
-                    && contentId != currentBinding.ContentId;
-            }
-        }
-    }
-
-    /// <summary>
-    /// Loads the character binding and active profile for the currently logged-in character.
-    /// Safe to call from ImGui Draw; the actual load runs on the framework thread.
-    /// </summary>
-    internal async Task LoadForCurrentCharacterAsync()
+    internal void OpenPlate(Guid plateId)
     {
         lock (gate)
         {
-            if (isBusy)
+            if (currentProfile?.ProfileId == plateId)
             {
                 return;
             }
 
-            isBusy = true;
+            if (isBusy)
+            {
+                throw new InvalidOperationException("A save is in progress.");
+            }
         }
 
-        try
+        var document = library.OpenDocumentForEditing(plateId);
+
+        lock (gate)
         {
-            await DalamudServices.Framework.Run(LoadForCurrentCharacterCoreAsync).ConfigureAwait(false);
+            currentProfile = document;
         }
-        finally
+    }
+
+    /// <summary>Closes the open Plate without saving (the caller has already asked).</summary>
+    internal void CloseDocument()
+    {
+        lock (gate)
         {
-            lock (gate)
-            {
-                isBusy = false;
-            }
+            currentProfile = null;
         }
     }
 
     /// <summary>
-    /// Saves the currently loaded profile. Safe to call from ImGui Draw; the actual write
-    /// runs on the framework thread.
+    /// Saves the open Plate. Safe to call from ImGui Draw; the write runs through the library on
+    /// the framework thread. Saving never changes which Plate is Active.
     /// </summary>
     internal async Task SaveCurrentProfileAsync()
     {
         ProfileDocument snapshot;
-        Guid profileId;
-        ulong ownerContentId;
+        ProfileDocument savedInstance;
         int newRevision;
         DateTime updatedAtUtc;
 
@@ -113,13 +105,12 @@ internal sealed class ProfileService
         {
             var profile = RequireEditableProfileLocked();
 
-            profileId = profile.ProfileId;
-            ownerContentId = currentBinding!.ContentId;
+            savedInstance = profile;
             newRevision = profile.Revision + 1;
             updatedAtUtc = DateTime.UtcNow;
 
-            // Capture ownership and content now, before dispatching to the framework thread,
-            // so a later character/profile switch can't be attributed to this save.
+            // Capture content now, before the write is dispatched, so edits made (or another
+            // Plate opened) while it's in flight can't leak into this save.
             snapshot = CloneForSave(profile, newRevision, updatedAtUtc);
 
             isBusy = true;
@@ -128,7 +119,7 @@ internal sealed class ProfileService
         var succeeded = false;
         try
         {
-            await DalamudServices.Framework.Run(() => SaveCurrentProfileCoreAsync(snapshot)).ConfigureAwait(false);
+            await library.SavePlateDocumentAsync(snapshot).ConfigureAwait(false);
             succeeded = true;
         }
         finally
@@ -137,18 +128,11 @@ internal sealed class ProfileService
             {
                 isBusy = false;
 
-                if (succeeded)
+                if (succeeded && ReferenceEquals(currentProfile, savedInstance))
                 {
-                    var stillSameProfile = currentProfile is not null && currentProfile.ProfileId == profileId;
-                    var stillSameCharacter = currentBinding is not null
-                        && currentBinding.ContentId == ownerContentId
-                        && characterIdentity.CurrentContentId == ownerContentId;
-
-                    if (stillSameProfile && stillSameCharacter)
-                    {
-                        currentProfile!.Revision = newRevision;
-                        currentProfile.UpdatedAtUtc = updatedAtUtc;
-                    }
+                    currentProfile.Revision = newRevision;
+                    currentProfile.UpdatedAtUtc = updatedAtUtc;
+                    currentProfile.Name = snapshot.Name;
                 }
             }
         }
@@ -545,10 +529,8 @@ internal sealed class ProfileService
     }
 
     /// <summary>
-    /// Verifies the current profile is safe to edit or save:
-    /// a profile and binding are loaded, no operation is busy, a character is logged in,
-    /// and the logged-in character matches the loaded binding's character.
-    /// Throws <see cref="InvalidOperationException"/> otherwise.
+    /// Verifies the open Plate is safe to edit or save: a Plate is open and no save is in
+    /// progress. Throws <see cref="InvalidOperationException"/> otherwise.
     /// </summary>
     internal void RequireEditableProfile()
     {
@@ -569,7 +551,7 @@ internal sealed class ProfileService
         if (profile.Elements.Count >= ProfileDocument.MaxElementCount)
         {
             throw new InvalidOperationException(
-                $"Profile already has the maximum of {ProfileDocument.MaxElementCount} elements.");
+                $"A Plate can have at most {ProfileDocument.MaxElementCount} elements.");
         }
     }
 
@@ -604,77 +586,6 @@ internal sealed class ProfileService
         }
     }
 
-    private async Task LoadForCurrentCharacterCoreAsync()
-    {
-        AssertFrameworkThread();
-
-        if (!characterIdentity.IsCharacterLoggedIn)
-        {
-            lock (gate)
-            {
-                currentBinding = null;
-                currentProfile = null;
-            }
-
-            return;
-        }
-
-        var contentId = characterIdentity.CurrentContentId!.Value;
-
-        var binding = await bindingRepository.LoadOrCreateAsync(contentId).ConfigureAwait(false);
-
-        ProfileDocument? profile = binding.ActiveProfileId is { } activeProfileId
-            ? await profileRepository.LoadAsync(activeProfileId).ConfigureAwait(false)
-            : null;
-
-        if (profile is not null)
-        {
-            // Repair an invalid (legacy) canvas size before repairing elements against it, so
-            // their own repair clamps against the correct bounds. Neither repair is persisted
-            // here; a subsequent manual save writes them back to disk.
-            profile.NormalizeLegacyCanvasSize();
-            profile.NormalizeLegacyBackground();
-
-            foreach (var element in profile.Elements)
-            {
-                element.NormalizeLegacyLayout(profile.CanvasWidth, profile.CanvasHeight);
-            }
-        }
-
-        if (profile is null)
-        {
-            profile = CreateDefaultProfile(contentId);
-            binding.ActiveProfileId = profile.ProfileId;
-
-            if (!binding.ProfileIds.Contains(profile.ProfileId))
-            {
-                binding.ProfileIds.Add(profile.ProfileId);
-            }
-
-            binding.UpdatedAtUtc = DateTime.UtcNow;
-
-            await profileRepository.SaveAsync(profile).ConfigureAwait(false);
-            await bindingRepository.SaveAsync(binding).ConfigureAwait(false);
-        }
-
-        lock (gate)
-        {
-            // Guard against a character switch that happened while this load was in flight.
-            if (characterIdentity.CurrentContentId == contentId)
-            {
-                currentBinding = binding;
-                currentProfile = profile;
-            }
-        }
-    }
-
-    private async Task SaveCurrentProfileCoreAsync(ProfileDocument snapshot)
-    {
-        AssertFrameworkThread();
-
-        await profileRepository.SaveAsync(snapshot).ConfigureAwait(false);
-    }
-
     /// <summary>
     /// Verifies the current profile is safe to mutate or save. Must be called while holding <see cref="gate"/>.
     /// </summary>
@@ -682,47 +593,16 @@ internal sealed class ProfileService
     {
         if (currentProfile is null)
         {
-            throw new InvalidOperationException("No profile is currently loaded.");
-        }
-
-        if (currentBinding is null)
-        {
-            throw new InvalidOperationException("No character binding is currently loaded.");
+            throw new InvalidOperationException("No Plate is open.");
         }
 
         if (isBusy)
         {
-            throw new InvalidOperationException("A profile operation is already in progress.");
-        }
-
-        if (!characterIdentity.IsCharacterLoggedIn)
-        {
-            throw new InvalidOperationException("No character is currently logged in.");
-        }
-
-        if (characterIdentity.CurrentContentId != currentBinding.ContentId)
-        {
-            throw new InvalidOperationException(
-                "The active character does not match the loaded profile's character binding.");
+            throw new InvalidOperationException("The Plate is being saved.");
         }
 
         return currentProfile;
     }
-
-    private static ProfileDocument CreateDefaultProfile(ulong ownerContentId) => new()
-    {
-        Version = 2,
-        ProfileId = Guid.NewGuid(),
-        OwnerContentId = ownerContentId,
-        Name = "Default",
-        Revision = 0,
-        CreatedAtUtc = DateTime.UtcNow,
-        UpdatedAtUtc = DateTime.UtcNow,
-        CanvasWidth = ProfileDocument.DefaultCanvasWidth,
-        CanvasHeight = ProfileDocument.DefaultCanvasHeight,
-        Background = new ProfileBackground(),
-        Elements = new List<ProfileElement>(),
-    };
 
     private static ProfileDocument CloneForSave(ProfileDocument source, int revision, DateTime updatedAtUtc) => new()
     {
@@ -741,7 +621,34 @@ internal sealed class ProfileService
         // Deep copies: the snapshot is serialized on the framework thread, so it must not share
         // element instances the render thread could still be mutating.
         Elements = source.Elements.Select(e => e.Clone()).ToList(),
+
+        // Unknown top-level properties ride along unchanged (JsonElement is immutable).
+        ExtensionData = source.ExtensionData is null ? null : new Dictionary<string, System.Text.Json.JsonElement>(source.ExtensionData),
     };
+
+    /// <summary>A rename in My Plates also relabels the open copy, so the next save keeps it.</summary>
+    private void OnPlateRenamed(Guid plateId, string name)
+    {
+        lock (gate)
+        {
+            if (currentProfile?.ProfileId == plateId)
+            {
+                currentProfile.Name = name;
+            }
+        }
+    }
+
+    /// <summary>A deleted Plate can't stay open: it could never be saved again.</summary>
+    private void OnPlateDeleted(Guid plateId)
+    {
+        lock (gate)
+        {
+            if (currentProfile?.ProfileId == plateId)
+            {
+                currentProfile = null;
+            }
+        }
+    }
 
     /// <summary>Must be called while holding <see cref="gate"/>. Resolves a missing background
     /// (a profile that somehow skipped load normalization) rather than failing an edit.</summary>
@@ -768,12 +675,4 @@ internal sealed class ProfileService
 
     /// <summary>Immutable snapshot of a profile's canvas size and every element's Position/Size, for undo/redo of a canvas resize.</summary>
     internal readonly record struct CanvasLayoutState(float CanvasWidth, float CanvasHeight, Dictionary<Guid, (Vector2 Position, Vector2 Size)> ElementLayouts);
-
-    private static void AssertFrameworkThread()
-    {
-        if (!DalamudServices.Framework.IsInFrameworkUpdateThread)
-        {
-            throw new InvalidOperationException("This operation must run on the Dalamud framework thread.");
-        }
-    }
 }
