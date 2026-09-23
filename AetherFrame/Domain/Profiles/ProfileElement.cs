@@ -137,15 +137,24 @@ public abstract class ProfileElement
 /// Semantic role of a reserved Basic-editor element within a <see cref="ProfileDocument"/>.
 /// Persisted so the Basic editor can find its own elements without relying on list position or
 /// hardcoded ids. Only roles Basic mode actually manages exist here; ordinary Advanced-editor
-/// elements are always <see cref="None"/>.
+/// elements are always <see cref="None"/>. Persisted as the numeric value, so values are explicit
+/// and new roles are only ever appended.
 /// </summary>
 public enum ProfileElementRole
 {
     /// <summary>Not owned by Basic mode. The default for every element, including all legacy
     /// elements deserialized from JSON written before this field existed.</summary>
     None = 0,
-    BasicPortrait,
-    BasicName,
-    BasicTitle,
-    BasicMessage,
+    BasicPortrait = 1,
+
+    /// <summary>Identity Header: the character name (its main identity element).</summary>
+    BasicName = 2,
+
+    /// <summary>Identity Header: the title (FFXIV title or custom text; never merged into the name).</summary>
+    BasicTitle = 3,
+
+    BasicMessage = 4,
+
+    /// <summary>Identity Header: an optional freeform tagline, separate from the title.</summary>
+    BasicTagline = 5,
 }

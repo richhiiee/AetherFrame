@@ -352,6 +352,26 @@ internal sealed partial class ProfileEditorWindow
         {
             editorSession.CommitPendingEdit();
         }
+
+        // Decorations drawn around the text (stored separately; the text itself never contains them).
+        var halfWidth = (ImGui.GetContentRegionAvail().X - EditorWidgets.LabelColumnWidth - ImGui.GetStyle().ItemSpacing.X) / 2f;
+        var prefix = text.Prefix;
+        EditorWidgets.PropertyLabel("Decoration", halfWidth);
+        if (ImGui.InputTextWithHint("##Prefix", "Prefix", ref prefix, TextProfileElement.MaxAffixLength))
+        {
+            ContinueTextEdit(text.Id, element => element.Prefix = prefix);
+        }
+
+        CommitOnRelease();
+        ImGui.SameLine();
+        ImGui.SetNextItemWidth(halfWidth);
+        var suffix = text.Suffix;
+        if (ImGui.InputTextWithHint("##Suffix", "Suffix", ref suffix, TextProfileElement.MaxAffixLength))
+        {
+            ContinueTextEdit(text.Id, element => element.Suffix = suffix);
+        }
+
+        CommitOnRelease();
     }
 
     private void DrawTypographySection(TextProfileElement text)

@@ -13,15 +13,16 @@ using Dalamud.Interface.Windowing;
 namespace AetherFrame.Windows;
 
 /// <summary>
-/// Primary, simplified editing experience modeled on the FFXIV Adventure Plate: a portrait,
-/// name, title, message, background, and an accent color — nothing about the freeform canvas
+/// Primary, simplified editing experience modeled on the FFXIV Adventure Plate: an Identity
+/// Header (name, title, tagline — see the .Identity.cs part), a portrait, a message, and a
+/// background — nothing about the freeform canvas
 /// (coordinates, Z order, element ids, rotation, layer ordering, asset management) is exposed
 /// here. Edits the same <see cref="ProfileDocument"/> as <see cref="ProfileEditorWindow"/>,
 /// through the same shared <see cref="EditorSession"/>, via <see cref="BasicEditorSession"/>'s
 /// role-based lookups — so undo/redo and dirty state always agree between the two windows, and
 /// switching modes never resets or duplicates profile data.
 /// </summary>
-internal sealed class BasicProfileEditorWindow : Window, IDisposable
+internal sealed partial class BasicProfileEditorWindow : Window, IDisposable
 {
     private const float PreviewHeight = 420f;
 
@@ -98,9 +99,10 @@ internal sealed class BasicProfileEditorWindow : Window, IDisposable
             return;
         }
 
-        // Idempotent: only creates whichever of Name/Title/Message don't already exist, and
-        // never touches one that does — see BasicEditorSession for why this is safe every frame.
-        basicEditorSession.EnsureBasicContentInitialized();
+        // Opening Basic mode never creates or changes anything: reserved elements (and the
+        // Identity settings) are only created by the first explicit edit that needs them.
+        editorSession.SyncWithCurrentProfile();
+        basicEditorSession.Identity.RefineLayout();
 
         ImGui.TextUnformatted($"Adventure Plate — {profile.Name}");
         ImGui.SameLine();
@@ -114,21 +116,22 @@ internal sealed class BasicProfileEditorWindow : Window, IDisposable
         DrawPreview(profile);
         ImGui.Separator();
 
+        DrawIdentitySection(profile);
+        ImGui.Separator();
+
         DrawPortraitControls(profile);
         ImGui.Separator();
 
-        DrawTextField("Character Name", ProfileElementRole.BasicName, multiline: false);
-        DrawTextField("Title", ProfileElementRole.BasicTitle, multiline: false);
         DrawTextField("Message", ProfileElementRole.BasicMessage, multiline: true);
-        ImGui.Separator();
-
-        DrawAccentControl();
         ImGui.Separator();
 
         DrawBackgroundControls(profile);
         ImGui.Separator();
 
         DrawFooter(profile);
+
+        // Commits a color/slider edit whose widget never reported "deactivated after edit".
+        editorSession.CommitPendingEditsIfIdle(ImGui.IsAnyItemActive());
     }
 
     private void DrawPreview(ProfileDocument profile)
@@ -200,14 +203,15 @@ internal sealed class BasicProfileEditorWindow : Window, IDisposable
     private void DrawTextField(string label, ProfileElementRole role, bool multiline)
     {
         var profile = profileService.CurrentProfile;
-        if (profile is null || BasicEditorSession.FindByRole(profile, role) is not TextProfileElement element)
+        if (profile is null)
         {
             return;
         }
 
         ImGui.TextUnformatted(label);
 
-        var buffer = element.Text;
+        // Shown even before the element exists: the first keystroke creates it (one undo step).
+        var buffer = (BasicEditorSession.FindByRole(profile, role) as TextProfileElement)?.Text ?? string.Empty;
         ImGui.SetNextItemWidth(-1);
 
         var changed = multiline
@@ -217,26 +221,6 @@ internal sealed class BasicProfileEditorWindow : Window, IDisposable
         if (changed)
         {
             basicEditorSession.SetText(role, buffer);
-        }
-
-        if (ImGui.IsItemDeactivatedAfterEdit())
-        {
-            basicEditorSession.CommitTextEdit();
-        }
-    }
-
-    private void DrawAccentControl()
-    {
-        if (basicEditorSession.CurrentAccentColor is not { } color)
-        {
-            return;
-        }
-
-        ImGui.TextUnformatted("Accent Color");
-        ImGui.SetNextItemWidth(200);
-        if (ImGui.ColorEdit4("##BasicAccentColor", ref color))
-        {
-            basicEditorSession.SetAccentColor(color);
         }
 
         if (ImGui.IsItemDeactivatedAfterEdit())
@@ -278,6 +262,25 @@ internal sealed class BasicProfileEditorWindow : Window, IDisposable
 
     private void DrawFooter(ProfileDocument profile)
     {
+        // The same shared history as the Advanced editor: undoing here or there is identical.
+        using (ImRaii.Disabled(!editorSession.CanUndo))
+        {
+            if (ImGui.Button("Undo"))
+            {
+                editorSession.Undo();
+            }
+        }
+
+        ImGui.SameLine();
+        using (ImRaii.Disabled(!editorSession.CanRedo))
+        {
+            if (ImGui.Button("Redo"))
+            {
+                editorSession.Redo();
+            }
+        }
+
+        ImGui.SameLine();
         if (ImGui.Button("Save Profile"))
         {
             editorSession.SaveProfile();

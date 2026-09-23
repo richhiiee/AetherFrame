@@ -23,6 +23,10 @@ internal static class DalamudServices
 
     internal static ITextureProvider TextureProvider { get; private set; } = null!;
 
+    internal static IDataManager DataManager { get; private set; } = null!;
+
+    internal static IUnlockState UnlockState { get; private set; } = null!;
+
     internal static void Initialize(
         IDalamudPluginInterface pluginInterface,
         ICommandManager commandManager,
@@ -32,7 +36,9 @@ internal static class DalamudServices
         IReliableFileStorage fileStorage,
         IPluginLog log,
         IKeyState keyState,
-        ITextureProvider textureProvider)
+        ITextureProvider textureProvider,
+        IDataManager dataManager,
+        IUnlockState unlockState)
     {
         PluginInterface = pluginInterface;
         CommandManager = commandManager;
@@ -43,5 +49,7 @@ internal static class DalamudServices
         Log = log;
         KeyState = keyState;
         TextureProvider = textureProvider;
+        DataManager = dataManager;
+        UnlockState = unlockState;
     }
 }

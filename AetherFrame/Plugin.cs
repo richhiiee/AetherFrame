@@ -28,6 +28,8 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
     [PluginService] internal static IPluginLog Log { get; private set; } = null!;
     [PluginService] internal static IKeyState KeyState { get; private set; } = null!;
     [PluginService] internal static ITextureProvider TextureProvider { get; private set; } = null!;
+    [PluginService] internal static IDataManager DataManager { get; private set; } = null!;
+    [PluginService] internal static IUnlockState UnlockState { get; private set; } = null!;
 
     private const string CommandName = "/aetherframe";
 
@@ -47,7 +49,7 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
 
     public Plugin()
     {
-        DalamudServices.Initialize(PluginInterface, CommandManager, ClientState, PlayerState, Framework, FileStorage, Log, KeyState, TextureProvider);
+        DalamudServices.Initialize(PluginInterface, CommandManager, ClientState, PlayerState, Framework, FileStorage, Log, KeyState, TextureProvider, DataManager, UnlockState);
 
         Configuration = PluginInterface.GetPluginConfig() as PluginConfiguration ?? new PluginConfiguration();
 
@@ -65,7 +67,9 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
         var basicFileDialogManager = new FileDialogManager();
 
         var editorSession = new EditorSession(profileService, assetStorageService, imageTextureCache);
-        var basicEditorSession = new BasicEditorSession(profileService, editorSession, assetStorageService, characterIdentityService);
+        var gameTitleCatalog = new GameTitleCatalog();
+        var basicIdentitySession = new BasicIdentitySession(profileService, editorSession, characterIdentityService, fontService, gameTitleCatalog);
+        var basicEditorSession = new BasicEditorSession(profileService, editorSession, assetStorageService, basicIdentitySession);
         keyboardShortcutService = new KeyboardShortcutService();
 
         mainWindow = new MainWindow(this, profileService);

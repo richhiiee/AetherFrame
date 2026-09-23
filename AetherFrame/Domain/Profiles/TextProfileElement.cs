@@ -27,6 +27,12 @@ public sealed class TextProfileElement : ProfileElement, IJsonOnDeserializing
     public const float MinLineSpacing = 0.5f;
     public const float MaxLineSpacing = 3f;
 
+    /// <summary>Inset between the element box and its text, in logical pixels (current layout).</summary>
+    public const float LayoutPadding = 4f;
+
+    /// <summary>Max length of <see cref="Prefix"/>/<see cref="Suffix"/> (a symbol or two, not text).</summary>
+    public const int MaxAffixLength = 8;
+
     /// <summary>Text laid out exactly as builds before text layout versions did: no wrapping
     /// (Wrap was stored but never applied), 4 SCREEN-pixel padding, and the whole text block
     /// aligned as one unit.</summary>
@@ -37,6 +43,16 @@ public sealed class TextProfileElement : ProfileElement, IJsonOnDeserializing
     public const int CurrentLayoutVersion = 1;
 
     public string Text { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Optional decoration drawn before <see cref="Text"/> (e.g. "✦"), stored as its own Unicode
+    /// text so the text itself is never rewritten. Separated from the text by one space when
+    /// both are present; not drawn at all while the text is empty. See <see cref="GetDisplayText"/>.
+    /// </summary>
+    public string Prefix { get; set; } = string.Empty;
+
+    /// <summary>Optional decoration drawn after <see cref="Text"/>; see <see cref="Prefix"/>.</summary>
+    public string Suffix { get; set; } = string.Empty;
 
     public float FontSize { get; set; } = 16f;
 
@@ -131,6 +147,40 @@ public sealed class TextProfileElement : ProfileElement, IJsonOnDeserializing
     /// </summary>
     void IJsonOnDeserializing.OnDeserializing() => LayoutVersion = LegacyLayoutVersion;
 
+    // Render-time cache of the composed display string (never persisted: private fields aren't
+    // serialized), rebuilt only when Text/Prefix/Suffix change, so drawing never allocates.
+    private string? displayTextSource;
+    private string? displayTextPrefix;
+    private string? displayTextSuffix;
+    private string displayText = string.Empty;
+
+    /// <summary>
+    /// What is actually drawn: <see cref="Prefix"/>, <see cref="Text"/>, and <see cref="Suffix"/>
+    /// joined by single spaces (decorations only when there is text). The stored fields stay
+    /// separate; this is purely presentation.
+    /// </summary>
+    internal string GetDisplayText()
+    {
+        var text = Text ?? string.Empty;
+        var prefix = Prefix ?? string.Empty;
+        var suffix = Suffix ?? string.Empty;
+
+        if (text.Length == 0 || (prefix.Length == 0 && suffix.Length == 0))
+        {
+            return text;
+        }
+
+        if (!ReferenceEquals(text, displayTextSource) || !ReferenceEquals(prefix, displayTextPrefix) || !ReferenceEquals(suffix, displayTextSuffix))
+        {
+            displayTextSource = text;
+            displayTextPrefix = prefix;
+            displayTextSuffix = suffix;
+            displayText = (prefix.Length > 0 ? prefix + " " : string.Empty) + text + (suffix.Length > 0 ? " " + suffix : string.Empty);
+        }
+
+        return displayText;
+    }
+
     internal override ProfileElement Clone()
     {
         var clone = CloneBaseInto(new TextProfileElement());
@@ -152,6 +202,8 @@ public sealed class TextProfileElement : ProfileElement, IJsonOnDeserializing
         base.ContentEquals(other)
         && other is TextProfileElement o
         && Text == o.Text
+        && Prefix == o.Prefix
+        && Suffix == o.Suffix
         && FontSize.Equals(o.FontSize)
         && Color == o.Color
         && Alignment == o.Alignment
@@ -180,6 +232,8 @@ public sealed class TextProfileElement : ProfileElement, IJsonOnDeserializing
     private void CopyTextPropertiesFrom(TextProfileElement text)
     {
         Text = text.Text;
+        Prefix = text.Prefix;
+        Suffix = text.Suffix;
         FontSize = text.FontSize;
         Color = text.Color;
         Alignment = text.Alignment;

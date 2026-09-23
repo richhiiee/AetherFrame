@@ -35,7 +35,13 @@ internal static class EditorPlaceholders
 
     internal static string? GetPlaceholder(ProfileElement element) => element switch
     {
-        TextProfileElement => ProfileElementNames.GetRoleLabel(element.Role) ?? "Empty text",
+        TextProfileElement => element.Role switch
+        {
+            ProfileElementRole.BasicName => "Character Name",
+            ProfileElementRole.BasicTitle => "Choose a title",
+            ProfileElementRole.BasicTagline => "Add a tagline",
+            _ => ProfileElementNames.GetRoleLabel(element.Role) ?? "Empty text",
+        },
         _ => null,
     };
 }

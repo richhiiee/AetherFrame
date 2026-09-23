@@ -56,6 +56,13 @@ public sealed class ProfileDocument
     /// </summary>
     public ProfileBackground? Background { get; set; }
 
+    /// <summary>
+    /// Basic mode's Identity Header settings (title source, layout, header region), or null when
+    /// they've never been configured — every older profile. Null is a valid, permanent state: it is
+    /// only created by an explicit Identity edit in the Basic editor, never by loading or opening.
+    /// </summary>
+    public BasicIdentityHeader? BasicIdentity { get; set; }
+
     // Legacy background fields (image + fit + opacity), from before ProfileBackground existed.
     // Read only so NormalizeLegacyBackground can migrate an old profile in memory; nulled once
     // migrated, so they are never written back (WhenWritingNull). JSON names are unchanged.

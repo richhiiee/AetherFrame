@@ -110,7 +110,7 @@ internal sealed partial class EditorSession
         {
             SyncWithCurrentProfile();
 
-            if (ActiveInteraction != ElementInteractionKind.None || pendingEditBefore is not null || pendingBackgroundBefore is not null)
+            if (ActiveInteraction != ElementInteractionKind.None || pendingEditBefore is not null || pendingBackgroundBefore is not null || pendingDocumentBefore is not null)
             {
                 return true;
             }
@@ -445,6 +445,7 @@ internal sealed partial class EditorSession
         if (pendingEditBefore is null)
         {
             CommitPendingBackgroundEdit();
+            CommitPendingDocumentEdit();
 
             try
             {
@@ -507,6 +508,7 @@ internal sealed partial class EditorSession
     {
         CommitPendingEdit();
         CommitPendingBackgroundEdit();
+        CommitPendingDocumentEdit();
     }
 
     /// <summary>
@@ -757,9 +759,10 @@ internal sealed partial class EditorSession
     }
 
     /// <summary>Records a new undoable action. Always clears the redo stack.</summary>
-    private void RecordHistory(Action undo, Action redo)
+    private HistoryEntry RecordHistory(Action undo, Action redo)
     {
-        undoStack.Add(new HistoryEntry(undo, redo));
+        var entry = new HistoryEntry(undo, redo);
+        undoStack.Add(entry);
         redoStack.Clear();
 
         if (undoStack.Count > MaxHistoryEntries)
@@ -768,6 +771,7 @@ internal sealed partial class EditorSession
         }
 
         InvalidateDirtyMemo();
+        return entry;
     }
 
     private void DropSelectionIfMissing()
@@ -783,6 +787,8 @@ internal sealed partial class EditorSession
         ClearHistory();
         pendingEditBefore = null;
         pendingBackgroundBefore = null;
+        pendingDocumentBefore = null;
+        lastDocumentEdit = null;
         SelectedElementId = null;
         CancelInteraction();
         ErrorMessage = null;
@@ -807,18 +813,32 @@ internal sealed partial class EditorSession
             return baseline is null && profile is null;
         }
 
-        if (!baseline.CanvasWidth.Equals(profile.CanvasWidth) || !baseline.CanvasHeight.Equals(profile.CanvasHeight))
+        return StateMatches(baseline, profile.CanvasWidth, profile.CanvasHeight, profile.Background, profile.BasicIdentity, profile.Elements);
+    }
+
+    private static bool StatesEqual(ProfileService.DocumentState a, ProfileService.DocumentState b) =>
+        StateMatches(a, b.CanvasWidth, b.CanvasHeight, b.Background, b.BasicIdentity, b.Elements);
+
+    /// <summary>Value equality of a captured state against another state's (or the live profile's) parts.</summary>
+    private static bool StateMatches(
+        ProfileService.DocumentState state, float canvasWidth, float canvasHeight, ProfileBackground? background, BasicIdentityHeader? identity, List<ProfileElement> live)
+    {
+        if (!state.CanvasWidth.Equals(canvasWidth) || !state.CanvasHeight.Equals(canvasHeight))
         {
             return false;
         }
 
-        if (baseline.Background is null ? profile.Background is not null : !baseline.Background.ContentEquals(profile.Background))
+        if (state.Background is null ? background is not null : !state.Background.ContentEquals(background))
         {
             return false;
         }
 
-        var saved = baseline.Elements;
-        var live = profile.Elements;
+        if (state.BasicIdentity is null ? identity is not null : !state.BasicIdentity.ContentEquals(identity))
+        {
+            return false;
+        }
+
+        var saved = state.Elements;
         if (saved.Count != live.Count)
         {
             return false;

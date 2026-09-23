@@ -38,7 +38,7 @@ namespace AetherFrame.UI.Rendering;
 internal static class ProfileTextRenderer
 {
     /// <summary>Inset between the element box and its text, in logical pixels.</summary>
-    internal const float PaddingLogical = 4f;
+    internal const float PaddingLogical = TextProfileElement.LayoutPadding;
 
     /// <summary>
     /// The legacy layout's inset, in SCREEN pixels at every zoom — what every text element used
@@ -64,7 +64,11 @@ internal static class ProfileTextRenderer
 
     private const float PlaceholderAlpha = 0.35f;
 
+    // Smallest size tier: measuring only needs normalized metrics, so any already-built tier works.
+    private const float MeasureRequestPixels = 1f;
+
     private static readonly Dictionary<Guid, LayoutEntry> Layouts = new();
+    private static readonly List<LineSpan> MeasureLines = new();
     private static readonly Dictionary<int, Vector2[]> OutlineOffsetsByThickness = new();
     private static readonly Vector2[] ZeroOffset = [Vector2.Zero];
 
@@ -82,8 +86,10 @@ internal static class ProfileTextRenderer
         ProfileFontService fonts,
         string? placeholder)
     {
+        // Prefix/Suffix decorations are composed here, at draw time (cached, no per-frame
+        // allocation); the stored Text itself never contains them.
         var isPlaceholder = string.IsNullOrEmpty(element.Text);
-        var content = isPlaceholder ? placeholder : element.Text;
+        var content = isPlaceholder ? placeholder : element.GetDisplayText();
         if (string.IsNullOrEmpty(content) || scale <= 0f)
         {
             return;
@@ -142,7 +148,46 @@ internal static class ProfileTextRenderer
     /// "fitted to N px" hint); never affects stored data.
     /// </summary>
     internal static float? GetCachedEffectiveFontSize(TextProfileElement element) =>
-        Layouts.TryGetValue(element.Id, out var entry) && ReferenceEquals(entry.Text, element.Text) ? entry.EffectiveFontSize : null;
+        Layouts.TryGetValue(element.Id, out var entry) && ReferenceEquals(entry.Text, element.GetDisplayText()) ? entry.EffectiveFontSize : null;
+
+    /// <summary>
+    /// Measures the natural (unwrapped) width of <paramref name="element"/>'s display text at its
+    /// own FontSize and letter spacing, in logical canvas pixels (the widest explicit line) — the
+    /// exact metrics the renderer itself lays text out with, so a layout built from this lines up
+    /// with what's drawn. Excludes padding. Returns false (width 0) if no built face of the
+    /// element's font is available yet, rather than measuring with a stand-in font.
+    /// </summary>
+    internal static bool TryMeasureNaturalWidth(TextProfileElement element, ProfileFontService fonts, out float width)
+    {
+        width = 0f;
+        var text = element.GetDisplayText();
+        if (text.Length == 0)
+        {
+            return true;
+        }
+
+        // Metrics are normalized to the face's baked size, so any built tier measures the same;
+        // asking for the smallest tier lets GetHandle hand back whichever tier is already built.
+        var handle = fonts.GetHandle(element.FontFamily, MeasureRequestPixels, element.Bold, element.Italic, out var isFallback);
+        if (!IsReady(handle, isFallback))
+        {
+            return false;
+        }
+
+        using (handle.Push())
+        {
+            var metrics = new FontMetrics(ImGui.GetFont(), ImGui.GetFontSize());
+            BuildLines(MeasureLines, text, metrics, Math.Max(1f, element.FontSize), element.LetterSpacing, float.PositiveInfinity, keepTrailingSpaces: false);
+        }
+
+        foreach (var line in MeasureLines)
+        {
+            width = Math.Max(width, line.Width);
+        }
+
+        MeasureLines.Clear();
+        return true;
+    }
 
     private static LayoutEntry GetOrBuildLayout(TextProfileElement element, string content)
     {

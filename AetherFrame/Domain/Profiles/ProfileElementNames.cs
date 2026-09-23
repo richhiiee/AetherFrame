@@ -35,6 +35,7 @@ public static class ProfileElementNames
         ProfileElementRole.BasicName => "Character Name",
         ProfileElementRole.BasicTitle => "Title",
         ProfileElementRole.BasicMessage => "Message",
+        ProfileElementRole.BasicTagline => "Tagline",
         _ => null,
     };
 

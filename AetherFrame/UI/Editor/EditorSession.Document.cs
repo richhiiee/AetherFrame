@@ -14,6 +14,15 @@ internal sealed partial class EditorSession
     // pendingEditBefore, just for the profile-level background.
     private ProfileBackground? pendingBackgroundBefore;
 
+    // A multi-part document edit in progress (Basic mode: several elements plus the Identity
+    // settings at once), coalesced into one history entry like the element/background pending
+    // edits; see BeginOrContinueDocumentEdit.
+    private ProfileService.DocumentState? pendingDocumentBefore;
+
+    // The most recent document edit's history record, while it's still the top of the undo stack,
+    // so a follow-up refinement can be folded into it (AmendLastDocumentEdit).
+    private DocumentEditRecord? lastDocumentEdit;
+
     /// <summary>
     /// Imports an image and makes it the background: sets the image and switches to Image mode.
     /// Every other background setting (colors, gradient, texture) is kept for switching back.
@@ -151,6 +160,147 @@ internal sealed partial class EditorSession
     }
 
     /// <summary>
+    /// Applies an edit spanning any number of elements and document settings (performed by
+    /// <paramref name="edit"/> directly through <see cref="ProfileService"/>, which records no
+    /// history itself) as ONE undoable history entry, via whole-document before/after snapshots.
+    /// Nothing is recorded if the edit changed nothing. Used by the Basic editor, whose single
+    /// actions (e.g. choosing a title layout) routinely touch several elements at once.
+    /// </summary>
+    internal bool ApplyDocumentEdit(Action edit)
+    {
+        ErrorMessage = null;
+        CommitPendingEdits();
+
+        ProfileService.DocumentState before;
+        try
+        {
+            before = profileService.CaptureDocumentState();
+            edit();
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = ex.Message;
+            return false;
+        }
+
+        RecordDocumentEdit(before, profileService.CaptureDocumentState());
+        return true;
+    }
+
+    /// <summary>
+    /// Continuous counterpart of <see cref="ApplyDocumentEdit"/> (slider drags, typing): applies
+    /// live, and records a single entry for the whole run once <see cref="CommitPendingDocumentEdit"/>
+    /// is called (e.g. when the widget is released).
+    /// </summary>
+    internal void BeginOrContinueDocumentEdit(Action edit)
+    {
+        ErrorMessage = null;
+
+        if (pendingDocumentBefore is null)
+        {
+            CommitPendingEdit();
+            CommitPendingBackgroundEdit();
+
+            try
+            {
+                pendingDocumentBefore = profileService.CaptureDocumentState();
+            }
+            catch (Exception ex)
+            {
+                ErrorMessage = ex.Message;
+                return;
+            }
+        }
+
+        try
+        {
+            edit();
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = ex.Message;
+        }
+    }
+
+    /// <summary>Finalizes a pending edit started by <see cref="BeginOrContinueDocumentEdit"/>.</summary>
+    internal void CommitPendingDocumentEdit()
+    {
+        if (pendingDocumentBefore is not { } before)
+        {
+            return;
+        }
+
+        pendingDocumentBefore = null;
+
+        ProfileService.DocumentState after;
+        try
+        {
+            after = profileService.CaptureDocumentState();
+        }
+        catch
+        {
+            // Profile no longer editable (e.g. character switch mid-edit); nothing to record.
+            return;
+        }
+
+        RecordDocumentEdit(before, after);
+    }
+
+    /// <summary>True while a continuous document edit (see <see cref="BeginOrContinueDocumentEdit"/>) is open.</summary>
+    internal bool HasPendingDocumentEdit => pendingDocumentBefore is not null;
+
+    /// <summary>
+    /// Folds a follow-up change into the most recent document edit instead of recording a new
+    /// history entry — for refinements that complete that edit (e.g. re-measuring an inline title
+    /// layout once its font finishes loading). Returns false, changing nothing, if that edit is no
+    /// longer the latest history entry (something else happened since, or it was undone).
+    /// </summary>
+    internal bool AmendLastDocumentEdit(Action edit)
+    {
+        if (lastDocumentEdit is not { } record || undoStack.Count == 0 || !ReferenceEquals(undoStack[^1], record.Entry)
+            || redoStack.Count > 0 || pendingEditBefore is not null || pendingBackgroundBefore is not null || pendingDocumentBefore is not null)
+        {
+            return false;
+        }
+
+        try
+        {
+            edit();
+            record.After = profileService.CaptureDocumentState();
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = ex.Message;
+            return false;
+        }
+
+        InvalidateDirtyMemo();
+        return true;
+    }
+
+    private void RecordDocumentEdit(ProfileService.DocumentState before, ProfileService.DocumentState after)
+    {
+        if (StatesEqual(before, after))
+        {
+            return;
+        }
+
+        var record = new DocumentEditRecord(before, after);
+        record.Entry = RecordHistory(
+            undo: () =>
+            {
+                profileService.RestoreDocumentState(record.Before);
+                DropSelectionIfMissing();
+            },
+            redo: () =>
+            {
+                profileService.RestoreDocumentState(record.After);
+                DropSelectionIfMissing();
+            });
+        lastDocumentEdit = record;
+    }
+
+    /// <summary>
     /// Resizes the current profile's canvas, optionally scaling every element's Position/Size
     /// proportionally to the new dimensions (rotation values are never touched either way — see
     /// <c>ProfileService.ResizeCanvas</c>), and records one undoable history entry. Surfaces
@@ -177,5 +327,21 @@ internal sealed partial class EditorSession
         RecordHistory(
             undo: () => profileService.RestoreCanvasLayoutState(before),
             redo: () => profileService.RestoreCanvasLayoutState(after));
+    }
+
+    /// <summary>Before/after snapshots of one document edit; After is replaced by an amendment.</summary>
+    private sealed class DocumentEditRecord
+    {
+        internal DocumentEditRecord(ProfileService.DocumentState before, ProfileService.DocumentState after)
+        {
+            Before = before;
+            After = after;
+        }
+
+        internal ProfileService.DocumentState Before { get; }
+
+        internal ProfileService.DocumentState After { get; set; }
+
+        internal HistoryEntry? Entry { get; set; }
     }
 }

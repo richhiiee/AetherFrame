@@ -455,6 +455,7 @@ internal sealed class ProfileService
             profile.CanvasWidth = state.CanvasWidth;
             profile.CanvasHeight = state.CanvasHeight;
             profile.Background = state.Background?.Clone();
+            profile.BasicIdentity = state.BasicIdentity?.Clone();
 
             profile.Elements.Clear();
             foreach (var element in state.Elements)
@@ -525,6 +526,21 @@ internal sealed class ProfileService
                     element.Size = layout.Size;
                 }
             }
+        }
+    }
+
+    /// <summary>
+    /// Mutates the current profile's Basic Identity Header settings, creating them first if the
+    /// profile has none yet (only ever from an explicit Basic edit — see
+    /// <see cref="ProfileDocument.BasicIdentity"/>).
+    /// </summary>
+    internal void UpdateBasicIdentity(Func<BasicIdentityHeader> create, Action<BasicIdentityHeader> update)
+    {
+        lock (gate)
+        {
+            var profile = RequireEditableProfileLocked();
+            profile.BasicIdentity ??= create();
+            update(profile.BasicIdentity);
         }
     }
 
@@ -720,6 +736,7 @@ internal sealed class ProfileService
         CanvasWidth = source.CanvasWidth,
         CanvasHeight = source.CanvasHeight,
         Background = source.Background?.Clone(),
+        BasicIdentity = source.BasicIdentity?.Clone(),
 
         // Deep copies: the snapshot is serialized on the framework thread, so it must not share
         // element instances the render thread could still be mutating.
@@ -738,12 +755,14 @@ internal sealed class ProfileService
     /// Immutable (by convention — never mutate the contained instances) snapshot of every
     /// editable part of a profile: canvas size, background, and independent element clones.
     /// </summary>
-    internal sealed record DocumentState(float CanvasWidth, float CanvasHeight, ProfileBackground? Background, List<ProfileElement> Elements)
+    internal sealed record DocumentState(
+        float CanvasWidth, float CanvasHeight, ProfileBackground? Background, BasicIdentityHeader? BasicIdentity, List<ProfileElement> Elements)
     {
         internal static DocumentState Capture(ProfileDocument profile) => new(
             profile.CanvasWidth,
             profile.CanvasHeight,
             profile.Background?.Clone(),
+            profile.BasicIdentity?.Clone(),
             profile.Elements.Select(e => e.Clone()).ToList());
     }
 

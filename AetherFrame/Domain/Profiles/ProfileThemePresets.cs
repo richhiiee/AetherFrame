@@ -14,8 +14,14 @@ public sealed record ProfileThemePreset(
     Vector4 SecondaryColor,
     float GradientAngle,
     ProfileBackgroundTexture Texture,
-    float TextureIntensity)
+    float TextureIntensity,
+    Vector4 TextColor,
+    Vector4 AccentTextColor,
+    Vector4 SoftTextColor)
 {
+    // TextColor: primary text (the character name). AccentTextColor: the title. SoftTextColor:
+    // quieter secondary text (the tagline). Chosen to read well over this theme's own background.
+
     /// <summary>
     /// Copies this preset's colors and suggested defaults into <paramref name="background"/>.
     /// Solid/gradient/texture modes keep their mode (so a preset recolors what the user already
@@ -42,13 +48,20 @@ public static class ProfileThemePresets
 {
     public static readonly ProfileThemePreset[] All =
     [
-        new("Royal", Rgb(0x1E, 0x1B, 0x4B), Rgb(0x7C, 0x3A, 0xED), 135f, ProfileBackgroundTexture.SubtlePaper, 0.25f),
-        new("Pastel", Rgb(0xF6, 0xD5, 0xE6), Rgb(0xC7, 0xE3, 0xF8), 120f, ProfileBackgroundTexture.FineNoise, 0.18f),
-        new("Dark", Rgb(0x0E, 0x10, 0x14), Rgb(0x2B, 0x30, 0x3A), 90f, ProfileBackgroundTexture.FineNoise, 0.30f),
-        new("Warm", Rgb(0x7A, 0x2A, 0x12), Rgb(0xF2, 0xA2, 0x3A), 45f, ProfileBackgroundTexture.SubtlePaper, 0.25f),
-        new("Cool", Rgb(0x0B, 0x2F, 0x4E), Rgb(0x3F, 0xB7, 0xE8), 110f, ProfileBackgroundTexture.DiagonalLines, 0.15f),
-        new("Forest", Rgb(0x0F, 0x2A, 0x1C), Rgb(0x4E, 0x8A, 0x5A), 100f, ProfileBackgroundTexture.SubtlePaper, 0.30f),
-        new("Monochrome", Rgb(0x16, 0x16, 0x16), Rgb(0x9A, 0x9A, 0x9A), 90f, ProfileBackgroundTexture.Grid, 0.20f),
+        new("Royal", Rgb(0x1E, 0x1B, 0x4B), Rgb(0x7C, 0x3A, 0xED), 135f, ProfileBackgroundTexture.SubtlePaper, 0.25f,
+            Rgb(0xF5, 0xF1, 0xFF), Rgb(0xE8, 0xC5, 0x6B), Rgb(0xC4, 0xB8, 0xE8)),
+        new("Pastel", Rgb(0xF6, 0xD5, 0xE6), Rgb(0xC7, 0xE3, 0xF8), 120f, ProfileBackgroundTexture.FineNoise, 0.18f,
+            Rgb(0x3B, 0x2F, 0x4A), Rgb(0xC0, 0x5A, 0x8C), Rgb(0x6E, 0x66, 0x80)),
+        new("Dark", Rgb(0x0E, 0x10, 0x14), Rgb(0x2B, 0x30, 0x3A), 90f, ProfileBackgroundTexture.FineNoise, 0.30f,
+            Rgb(0xEE, 0xF0, 0xF4), Rgb(0x8F, 0xB8, 0xFF), Rgb(0x9A, 0xA0, 0xAC)),
+        new("Warm", Rgb(0x7A, 0x2A, 0x12), Rgb(0xF2, 0xA2, 0x3A), 45f, ProfileBackgroundTexture.SubtlePaper, 0.25f,
+            Rgb(0xFF, 0xF6, 0xE8), Rgb(0xFF, 0xD2, 0x7A), Rgb(0xF0, 0xCF, 0xB0)),
+        new("Cool", Rgb(0x0B, 0x2F, 0x4E), Rgb(0x3F, 0xB7, 0xE8), 110f, ProfileBackgroundTexture.DiagonalLines, 0.15f,
+            Rgb(0xF0, 0xFA, 0xFF), Rgb(0x9C, 0xF0, 0xFF), Rgb(0xB8, 0xD4, 0xE6)),
+        new("Forest", Rgb(0x0F, 0x2A, 0x1C), Rgb(0x4E, 0x8A, 0x5A), 100f, ProfileBackgroundTexture.SubtlePaper, 0.30f,
+            Rgb(0xF2, 0xF5, 0xEC), Rgb(0xD9, 0xC2, 0x7A), Rgb(0xB5, 0xC9, 0xB0)),
+        new("Monochrome", Rgb(0x16, 0x16, 0x16), Rgb(0x9A, 0x9A, 0x9A), 90f, ProfileBackgroundTexture.Grid, 0.20f,
+            Rgb(0xFA, 0xFA, 0xFA), Rgb(0xD0, 0xD0, 0xD0), Rgb(0xA8, 0xA8, 0xA8)),
     ];
 
     /// <summary>Quick-pick swatches for solid colors: neutrals, then a hue wheel of muted and
