@@ -256,6 +256,10 @@ internal sealed partial class PlateLibraryWindow : Window, IDisposable
         {
             ImGui.SetTooltip(problem);
         }
+        else if (hovered && plate.HasUnsupportedElements)
+        {
+            ImGui.SetTooltip(EditorWidgets.UnsupportedElementsWarning);
+        }
 
         if (canReorder)
         {
@@ -276,6 +280,11 @@ internal sealed partial class PlateLibraryWindow : Window, IDisposable
         if (isActive)
         {
             DrawActiveBadge(drawList, thumbnailMin, thumbnailMax);
+        }
+
+        if (plate.HasUnsupportedElements)
+        {
+            DrawCompatibilityMarker(drawList, thumbnailMin, thumbnailMax);
         }
 
         // Name, clipped to the card.
@@ -379,6 +388,19 @@ internal sealed partial class PlateLibraryWindow : Window, IDisposable
         {
             var iconSize = ImGui.CalcTextSize(iconText);
             drawList.AddText((min + max - iconSize) / 2f, ImGui.GetColorU32(new Vector4(1f, 1f, 1f, 0.35f)), iconText);
+        }
+    }
+
+    /// <summary>A small warning glyph in the thumbnail's lower-left corner (the card's tooltip explains it).</summary>
+    private static void DrawCompatibilityMarker(ImDrawListPtr drawList, Vector2 thumbnailMin, Vector2 thumbnailMax)
+    {
+        var icon = EditorWidgets.GetIconString(FontAwesomeIcon.ExclamationTriangle);
+        using (DalamudServices.PluginInterface.UiBuilder.IconFontHandle.Push())
+        {
+            var size = ImGui.CalcTextSize(icon);
+            var pos = new Vector2(thumbnailMin.X + 5f, thumbnailMax.Y - size.Y - 5f);
+            drawList.AddRectFilled(pos - new Vector2(3f), pos + size + new Vector2(3f), ImGui.GetColorU32(new Vector4(0f, 0f, 0f, 0.55f)), 4f);
+            drawList.AddText(pos, ImGui.GetColorU32(EditorWidgets.WarningColor), icon);
         }
     }
 

@@ -1,4 +1,7 @@
+using System.Collections.Generic;
 using System.Numerics;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace AetherFrame.Domain.Profiles;
 
@@ -54,6 +57,10 @@ public sealed class BasicIdentityHeader
     /// </summary>
     public IdentityLayoutSnapshot? AppliedLayout { get; set; }
 
+    /// <summary>Properties this build doesn't know, kept through clone and save unchanged.</summary>
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? ExtensionData { get; set; }
+
     public BasicIdentityHeader Clone() => new()
     {
         TitleSource = TitleSource,
@@ -64,6 +71,7 @@ public sealed class BasicIdentityHeader
         RegionPosition = RegionPosition,
         RegionWidth = RegionWidth,
         AppliedLayout = AppliedLayout?.Clone(),
+        ExtensionData = ProfileElement.CopyExtensionData(ExtensionData),
     };
 
     public bool ContentEquals(BasicIdentityHeader? other) =>
@@ -87,7 +95,10 @@ public sealed class IdentityLayoutSnapshot
 
     public ElementRect? Tagline { get; set; }
 
-    public IdentityLayoutSnapshot Clone() => new() { Name = Name, Title = Title, Tagline = Tagline };
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? ExtensionData { get; set; }
+
+    public IdentityLayoutSnapshot Clone() => new() { Name = Name, Title = Title, Tagline = Tagline, ExtensionData = ProfileElement.CopyExtensionData(ExtensionData) };
 
     public bool ContentEquals(IdentityLayoutSnapshot? other) =>
         other is not null && Name == other.Name && Title == other.Title && Tagline == other.Tagline;

@@ -306,7 +306,7 @@ internal sealed class PlateLibraryService
     {
         try
         {
-            var result = await VersionedJson.ReadAsync<ProfileDocument>(store, path, PersistenceSchemas.ProfileDocument).ConfigureAwait(false);
+            var result = await VersionedJson.ReadAsync(store, path, PersistenceSchemas.ProfileDocument, PlateDocuments.Deserialize).ConfigureAwait(false);
 
             if (result.IsNewerVersion)
             {
@@ -551,10 +551,12 @@ internal sealed class PlateLibraryService
 
     /// <summary>
     /// Saves an independent copy of a Plate's SAVED state (unsaved editor changes are not part of
-    /// it) directly after the source, named "Name Copy". Same asset references, no image bytes
-    /// copied, never Active. With a character, the copy is associated with it (not Active).
+    /// it) directly after the source, named "Name Copy", as a brand-new Plate (new id, created and
+    /// modified now). Same asset references, no image bytes copied. The copy is associated with
+    /// exactly the characters the source is associated with — never with whoever happens to be
+    /// logged in — and is never Active; an unbound source gives an unbound copy.
     /// </summary>
-    internal Task<Guid> DuplicatePlateAsync(Guid sourcePlateId, CharacterContext? character) =>
+    internal Task<Guid> DuplicatePlateAsync(Guid sourcePlateId) =>
         RunExclusiveAsync(async () =>
         {
             RequireLoaded();
@@ -578,18 +580,45 @@ internal sealed class PlateLibraryService
                 Changed();
             }
 
-            if (character is { } who && PrepareBindingForWrite(who, now) is { } binding)
+            // The source's associations (Active counts as one), copied — Active status never is.
+            List<CharacterBinding> associated;
+            lock (gate)
             {
-                if (!binding.PlateIds.Contains(newId))
-                {
-                    binding.PlateIds.Add(newId);
-                }
+                associated = bindings.Values
+                    .Where(b => b.PlateIds.Contains(sourcePlateId) || b.ActivePlateId == sourcePlateId)
+                    .Select(b =>
+                    {
+                        var copy = b.Clone();
+                        copy.PlateIds.Add(newId);
+                        copy.UpdatedAtUtc = now;
+                        return copy;
+                    })
+                    .ToList();
+            }
 
-                await CommitBindingAsync(binding).ConfigureAwait(false);
+            var failedAssociations = 0;
+            foreach (var binding in associated)
+            {
+                try
+                {
+                    await CommitBindingAsync(binding).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    failedAssociations++;
+                    log.Error(ex, $"AetherFrame duplicated Plate {sourcePlateId} but could not associate the copy with a character.");
+                }
             }
 
             await WriteLibraryAsync().ConfigureAwait(false);
             log.Information($"AetherFrame duplicated Plate {sourcePlateId} as {newId}.");
+
+            if (failedAssociations > 0)
+            {
+                // The copy exists and is intact; only its character links are incomplete.
+                throw new PlateLibraryException("The copy was made, but it couldn't be linked to every character that uses the original.");
+            }
+
             return newId;
         });
 
@@ -848,7 +877,7 @@ internal sealed class PlateLibraryService
             {
                 try
                 {
-                    var result = await VersionedJson.ReadAsync<ProfileDocument>(store, path, PersistenceSchemas.ProfileDocument).ConfigureAwait(false);
+                    var result = await VersionedJson.ReadAsync(store, path, PersistenceSchemas.ProfileDocument, PlateDocuments.Deserialize).ConfigureAwait(false);
                     if (result.IsUsable)
                     {
                         AssetReferenceScanner.Collect(result.Value!, referenced);
@@ -1078,7 +1107,8 @@ internal sealed class PlateLibraryService
             var record = plates[id];
             return new PlateSummary(record.Id, record.Status, record.Name, record.CreatedUtc, record.ModifiedUtc, record.Revision, record.Problem,
                 namesByPlate.TryGetValue(id, out var names) ? names : [],
-                activeFor.TryGetValue(id, out var active) ? active : []);
+                activeFor.TryGetValue(id, out var active) ? active : [],
+                record.Preview?.HasUnsupportedElements ?? false);
         }).ToList();
     }
 

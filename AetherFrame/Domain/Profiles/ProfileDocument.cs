@@ -104,6 +104,26 @@ public sealed class ProfileDocument
     public Dictionary<string, JsonElement>? ExtensionData { get; set; }
 
     /// <summary>
+    /// Elements of a type this build doesn't know (see <see cref="ProfileElement.IsKnownTypeDiscriminator"/>),
+    /// kept verbatim as raw JSON: never rendered, edited, or deserialized into a guessed type, but
+    /// written back unchanged whenever the document is saved, so a newer build's content survives
+    /// an older build's edits. Filled and written by <c>PlateDocuments</c>, not by the serializer.
+    /// </summary>
+    [JsonIgnore]
+    public List<JsonElement>? UnrecognizedElements { get; set; }
+
+    /// <summary>How many elements this build can't display (see <see cref="UnrecognizedElements"/>).</summary>
+    [JsonIgnore]
+    public int UnsupportedElementCount => UnrecognizedElements?.Count ?? 0;
+
+    /// <summary>
+    /// True when the Plate holds elements this build can't display. Informational only: the Plate
+    /// stays fully readable and editable, and those elements are preserved on every save.
+    /// </summary>
+    [JsonIgnore]
+    public bool HasUnsupportedElements => UnsupportedElementCount > 0;
+
+    /// <summary>
     /// Repairs a profile loaded with an invalid (non-positive) canvas size: a legacy profile
     /// saved before CanvasWidth/CanvasHeight existed, which deserializes both to 0. Must run
     /// before <see cref="ProfileElement.NormalizeLegacyLayout"/> on this profile's elements, so

@@ -25,7 +25,8 @@ internal sealed record PlateSummary(
     int Revision,
     string? Problem,
     IReadOnlyList<string> CharacterNames,
-    IReadOnlyList<ulong> ActiveForContentIds)
+    IReadOnlyList<ulong> ActiveForContentIds,
+    bool HasUnsupportedElements)
 {
     internal bool IsReady => Status == PlateStatus.Ready;
 }

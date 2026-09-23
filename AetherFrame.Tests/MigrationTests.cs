@@ -407,7 +407,7 @@ public class FailureIsolationTests
         Assert.Equal("From the future", plate.DisplayName);
         Assert.Throws<PlateLibraryException>(() => library.OpenDocumentForEditing(future));
         await Assert.ThrowsAsync<PlateLibraryException>(() => library.RenamePlateAsync(future, "x"));
-        await Assert.ThrowsAsync<PlateLibraryException>(() => library.DuplicatePlateAsync(future, null));
+        await Assert.ThrowsAsync<PlateLibraryException>(() => library.DuplicatePlateAsync(future));
         await Assert.ThrowsAsync<PlateLibraryException>(() => library.SetActivePlateAsync(Characters.Alice, future));
         Assert.Null(library.GetSavedDocument(future));
         Assert.Equal(json, fixture.ReadPlateJson(future));

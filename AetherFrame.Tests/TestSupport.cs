@@ -104,6 +104,52 @@ internal sealed class BackupSimulatingStore : IPlateFileStore
     public void DeleteFile(string path) => files.DeleteFile(path);
 }
 
+/// <summary>Plain files with switchable failures, for fault injection.</summary>
+internal sealed class FaultInjectingStore : IPlateFileStore
+{
+    private readonly SystemFileStore files = new();
+
+    /// <summary>Writes whose path matches fail with an IOException (before anything is written).</summary>
+    internal Func<string, bool>? FailWrite { get; set; }
+
+    /// <summary>Moves whose source path matches fail with an IOException.</summary>
+    internal Func<string, bool>? FailMove { get; set; }
+
+    internal int FailedOperations { get; private set; }
+
+    public bool FileExists(string path) => files.FileExists(path);
+
+    public IReadOnlyList<string> ListFiles(string directory, string searchPattern) => files.ListFiles(directory, searchPattern);
+
+    public Task ReadTextAsync(string path, Action<string> reader) => files.ReadTextAsync(path, reader);
+
+    public Task WriteTextAsync(string path, string contents)
+    {
+        if (FailWrite?.Invoke(path) == true)
+        {
+            FailedOperations++;
+            throw new IOException($"Injected write failure: {System.IO.Path.GetFileName(path)}");
+        }
+
+        return files.WriteTextAsync(path, contents);
+    }
+
+    public void MoveFile(string sourcePath, string destinationPath)
+    {
+        if (FailMove?.Invoke(sourcePath) == true)
+        {
+            FailedOperations++;
+            throw new IOException($"Injected move failure: {System.IO.Path.GetFileName(sourcePath)}");
+        }
+
+        files.MoveFile(sourcePath, destinationPath);
+    }
+
+    public void CopyFile(string sourcePath, string destinationPath) => files.CopyFile(sourcePath, destinationPath);
+
+    public void DeleteFile(string path) => files.DeleteFile(path);
+}
+
 /// <summary>Builds a Plate Library over a temp directory, with helpers to seed legacy data.</summary>
 internal sealed class LibraryFixture : IDisposable
 {

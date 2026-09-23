@@ -47,6 +47,7 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
     private readonly ProceduralTextureCache proceduralTextureCache;
     private readonly PlateThumbnailService thumbnailService;
     private readonly PlateThumbnailTextures thumbnailTextures;
+    private readonly EditorSurfaceCoordinator editorSurfaces;
     private readonly PlateLibraryWindow plateLibraryWindow;
     private readonly BasicProfileEditorWindow basicProfileEditorWindow;
     private readonly ProfileEditorWindow profileEditorWindow;
@@ -83,15 +84,21 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
         plateLibrary.PlateDeleted += thumbnailService.Remove;
 
         var editorSession = new EditorSession(profileService, assetStorageService, imageTextureCache);
+        editorSurfaces = new EditorSurfaceCoordinator(() =>
+        {
+            editorSession.CommitPendingEdits();
+            editorSession.EndInteraction();
+        });
         var gameTitleCatalog = new GameTitleCatalog();
         var basicIdentitySession = new BasicIdentitySession(profileService, editorSession, characterIdentityService, fontService, gameTitleCatalog);
         var basicEditorSession = new BasicEditorSession(profileService, editorSession, assetStorageService, basicIdentitySession);
         keyboardShortcutService = new KeyboardShortcutService();
 
         basicProfileEditorWindow = new BasicProfileEditorWindow(
-            profileService, editorSession, basicEditorSession, imageTextureCache, renderResources, basicFileDialogManager, OpenAdvancedEditor, OpenMyPlates);
+            profileService, editorSession, basicEditorSession, imageTextureCache, renderResources, basicFileDialogManager, OpenAdvancedEditor, OpenMyPlates, editorSurfaces);
         profileEditorWindow = new ProfileEditorWindow(
-            profileService, editorSession, keyboardShortcutService, renderResources, fileDialogManager, ToggleOpenPlateInViewer, OpenBasicEditor, OpenMyPlates);
+            profileService, editorSession, keyboardShortcutService, renderResources, fileDialogManager, ToggleOpenPlateInViewer, OpenBasicEditor, OpenMyPlates, editorSurfaces);
+        editorSurfaces.Attach(basicProfileEditorWindow, profileEditorWindow);
         profileViewWindow = new ProfileViewWindow(profileService, plateLibrary, renderResources);
         plateLibraryWindow = new PlateLibraryWindow(
             plateLibrary, profileService, editorSession, characterIdentityService, thumbnailService, thumbnailTextures,
@@ -159,9 +166,10 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
 
     private void OpenMyPlates() => plateLibraryWindow.IsOpen = true;
 
-    private void OpenBasicEditor() => basicProfileEditorWindow.IsOpen = true;
+    /// <summary>Basic and Advanced are two surfaces over one editing session; only one is open at a time.</summary>
+    private void OpenBasicEditor() => editorSurfaces.Show(EditorSurfaceKind.Basic);
 
-    private void OpenAdvancedEditor() => profileEditorWindow.IsOpen = true;
+    private void OpenAdvancedEditor() => editorSurfaces.Show(EditorSurfaceKind.Advanced);
 
     private void ToggleOpenPlateInViewer() => profileViewWindow.ToggleOpenPlate();
 }

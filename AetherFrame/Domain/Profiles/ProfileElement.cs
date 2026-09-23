@@ -1,14 +1,28 @@
 using System;
+using System.Collections.Generic;
 using System.Numerics;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace AetherFrame.Domain.Profiles;
 
-[JsonPolymorphic(TypeDiscriminatorPropertyName = "elementType")]
-[JsonDerivedType(typeof(TextProfileElement), typeDiscriminator: "text")]
-[JsonDerivedType(typeof(ImageProfileElement), typeDiscriminator: "image")]
+[JsonPolymorphic(TypeDiscriminatorPropertyName = TypeDiscriminatorPropertyName)]
+[JsonDerivedType(typeof(TextProfileElement), typeDiscriminator: TextTypeDiscriminator)]
+[JsonDerivedType(typeof(ImageProfileElement), typeDiscriminator: ImageTypeDiscriminator)]
 public abstract class ProfileElement
 {
+    public const string TypeDiscriminatorPropertyName = "elementType";
+    public const string TextTypeDiscriminator = "text";
+    public const string ImageTypeDiscriminator = "image";
+
+    /// <summary>
+    /// The element types this build can load. An element of any other type (e.g. one added by a
+    /// newer AetherFrame) is never deserialized into a guessed CLR type: the document keeps it as
+    /// raw JSON instead (see <see cref="ProfileDocument.UnrecognizedElements"/>).
+    /// </summary>
+    public static bool IsKnownTypeDiscriminator(string? discriminator) =>
+        discriminator is TextTypeDiscriminator or ImageTypeDiscriminator;
+
     // Sensible default layout for an element with no (valid) canvas placement yet, e.g. one
     // freshly added, or one being repaired by NormalizeLegacyLayout.
     public const float DefaultPositionX = 40f;
@@ -48,6 +62,14 @@ public abstract class ProfileElement
     /// element is a free-form Advanced-editor element.
     /// </summary>
     public ProfileElementRole Role { get; set; } = ProfileElementRole.None;
+
+    /// <summary>
+    /// Properties of this element that this build doesn't know (e.g. written by a newer compatible
+    /// build), carried through clone, undo, and save unchanged so they're never silently dropped.
+    /// Not editable, so deliberately not part of <see cref="ContentEquals"/>.
+    /// </summary>
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? ExtensionData { get; set; }
 
     /// <summary>
     /// Repairs an element loaded with an invalid (non-positive) canvas size: most commonly a
@@ -99,6 +121,7 @@ public abstract class ProfileElement
         Size = source.Size;
         ZIndex = source.ZIndex;
         Role = source.Role;
+        ExtensionData = CopyExtensionData(source.ExtensionData);
     }
 
     /// <summary>
@@ -129,8 +152,13 @@ public abstract class ProfileElement
         clone.Size = Size;
         clone.ZIndex = ZIndex;
         clone.Role = Role;
+        clone.ExtensionData = CopyExtensionData(ExtensionData);
         return clone;
     }
+
+    /// <summary>An independent copy of an extension-data bag (its JsonElement values are immutable).</summary>
+    internal static Dictionary<string, JsonElement>? CopyExtensionData(Dictionary<string, JsonElement>? data) =>
+        data is null ? null : new Dictionary<string, JsonElement>(data);
 }
 
 /// <summary>

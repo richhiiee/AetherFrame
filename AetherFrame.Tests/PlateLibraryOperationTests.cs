@@ -122,7 +122,7 @@ public class PlateCreationTests
         var before = fixture.ReadBindingJson(Characters.Alice.ContentId);
 
         var unbound = await library.CreatePlateAsync(PlateStartingLayout.Blank, null);
-        var copy = await library.DuplicatePlateAsync(alices.PlateId, null);
+        var copy = await library.DuplicatePlateAsync(unbound.PlateId);
         await library.RenamePlateAsync(unbound.PlateId, "Renamed while logged out");
         await library.DeletePlateAsync(copy);
 
@@ -182,8 +182,8 @@ public class PlateDuplicateTests
         var (fixture, library, sourceId) = await SeedRichPlateAsync();
         using var _ = fixture;
 
-        var copyId = await library.DuplicatePlateAsync(sourceId, null);
-        var secondCopyId = await library.DuplicatePlateAsync(sourceId, null);
+        var copyId = await library.DuplicatePlateAsync(sourceId);
+        var secondCopyId = await library.DuplicatePlateAsync(sourceId);
 
         Assert.NotEqual(sourceId, copyId);
         Assert.Equal("Showcase Copy", library.FindPlate(copyId)!.DisplayName);
@@ -197,7 +197,7 @@ public class PlateDuplicateTests
         var (fixture, library, sourceId) = await SeedRichPlateAsync();
         using var _ = fixture;
 
-        var copyId = await library.DuplicatePlateAsync(sourceId, null);
+        var copyId = await library.DuplicatePlateAsync(sourceId);
 
         JsonAssert.EqualExcept(
             fixture.ReadPlateJson(sourceId),
@@ -223,7 +223,7 @@ public class PlateDuplicateTests
         Directory.CreateDirectory(fixture.Paths.AssetsDirectory);
         File.WriteAllBytes(Path.Combine(fixture.Paths.AssetsDirectory, SampleDocuments.ImageAsset.ToString("N") + ".png"), TestImages.Png(4, 4));
 
-        var copyId = await library.DuplicatePlateAsync(sourceId, null);
+        var copyId = await library.DuplicatePlateAsync(sourceId);
 
         var sourceAssets = AssetReferenceScanner.Collect([library.OpenDocumentForEditing(sourceId)]);
         var copyAssets = AssetReferenceScanner.Collect([library.OpenDocumentForEditing(copyId)]);
@@ -240,7 +240,7 @@ public class PlateDuplicateTests
         var library = await fixture.LoadAsync();
         var source = await library.CreatePlateAsync(PlateStartingLayout.AdventurePlateClassic, Characters.Alice);
 
-        var copyId = await library.DuplicatePlateAsync(source.PlateId, Characters.Alice);
+        var copyId = await library.DuplicatePlateAsync(source.PlateId);
 
         Assert.Equal(source.PlateId, library.GetActivePlateId(Characters.Alice.ContentId));
         Assert.Contains(copyId, library.GetBinding(Characters.Alice.ContentId)!.PlateIds);
@@ -257,7 +257,7 @@ public class PlateDuplicateTests
         var c = await library.CreatePlateAsync(PlateStartingLayout.Blank, null);
 
         // Order is c, b, a.
-        var copyOfB = await library.DuplicatePlateAsync(b.PlateId, null);
+        var copyOfB = await library.DuplicatePlateAsync(b.PlateId);
 
         Assert.Equal([c.PlateId, b.PlateId, copyOfB, a.PlateId], library.GetOrderedPlates().Select(p => p.PlateId));
         Assert.Equal([c.PlateId, b.PlateId, copyOfB, a.PlateId], fixture.ReadLibraryOrder());
@@ -268,7 +268,7 @@ public class PlateDuplicateTests
     {
         var (fixture, library, sourceId) = await SeedRichPlateAsync();
         using var _ = fixture;
-        var copyId = await library.DuplicatePlateAsync(sourceId, null);
+        var copyId = await library.DuplicatePlateAsync(sourceId);
         var sourceBefore = fixture.ReadPlateJson(sourceId);
 
         var copy = library.OpenDocumentForEditing(copyId);
@@ -290,7 +290,7 @@ public class PlateDuplicateTests
         var editing = library.OpenDocumentForEditing(sourceId);
         editing.Elements.Clear();
 
-        var copyId = await library.DuplicatePlateAsync(sourceId, null);
+        var copyId = await library.DuplicatePlateAsync(sourceId);
 
         Assert.Equal(2, library.OpenDocumentForEditing(copyId).Elements.Count);
     }
@@ -303,7 +303,7 @@ public class PlateDuplicateTests
         fixture.WritePlateJson(broken, "{ not json");
         var library = await fixture.LoadAsync();
 
-        await Assert.ThrowsAsync<PlateLibraryException>(() => library.DuplicatePlateAsync(broken, null));
+        await Assert.ThrowsAsync<PlateLibraryException>(() => library.DuplicatePlateAsync(broken));
         Assert.Single(library.GetOrderedPlates());
     }
 }

@@ -40,7 +40,7 @@ internal static class VersionedJson
     /// Parses <paramref name="json"/>, migrates it in memory, and deserializes it. Never throws for
     /// bad content — an unusable object comes back as <see cref="SchemaMigrationOutcome.Invalid"/>.
     /// </summary>
-    internal static VersionedReadResult<T> Parse<T>(string json, SchemaDefinition schema)
+    internal static VersionedReadResult<T> Parse<T>(string json, SchemaDefinition schema, Func<JsonObject, T?>? deserialize = null)
         where T : class
     {
         JsonObject raw;
@@ -71,7 +71,7 @@ internal static class VersionedJson
 
         try
         {
-            var value = raw.Deserialize<T>(JsonOptions.Default);
+            var value = deserialize is not null ? deserialize(raw) : raw.Deserialize<T>(JsonOptions.Default);
             return value is null
                 ? Invalid<T>($"{schema.Name} is empty.")
                 : new VersionedReadResult<T>(migration, raw, value);
@@ -89,14 +89,14 @@ internal static class VersionedJson
     /// back stale data that a later save could then write over the newer file. Throws
     /// <see cref="InvalidDataException"/> (or the IO error) when no usable copy exists.
     /// </summary>
-    internal static async Task<VersionedReadResult<T>> ReadAsync<T>(IPlateFileStore store, string path, SchemaDefinition schema)
+    internal static async Task<VersionedReadResult<T>> ReadAsync<T>(IPlateFileStore store, string path, SchemaDefinition schema, Func<JsonObject, T?>? deserialize = null)
         where T : class
     {
         VersionedReadResult<T>? result = null;
 
         await store.ReadTextAsync(path, text =>
         {
-            var parsed = Parse<T>(text, schema);
+            var parsed = Parse(text, schema, deserialize);
             if (!parsed.IsUsable && !parsed.IsNewerVersion)
             {
                 throw new InvalidDataException(parsed.Migration.Error ?? $"{schema.Name} is unreadable.");

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text.Json;
 using AetherFrame.Domain.Profiles;
 
 namespace AetherFrame.Domain.Assets;
@@ -27,6 +28,68 @@ public static class AssetReferenceScanner
         if (document.LegacyBackgroundAssetId is { } legacyAssetId && legacyAssetId != Guid.Empty)
         {
             into.Add(legacyAssetId);
+        }
+
+        // Data this build doesn't understand (a newer build's element types or properties) may
+        // reference assets in ways it can't know. Conservatively, every GUID anywhere in it counts
+        // as a reference: over-protecting an image costs a little disk, under-protecting loses it.
+        CollectGuids(document.ExtensionData, into);
+        CollectGuids(document.Background?.ExtensionData, into);
+        CollectGuids(document.BasicIdentity?.ExtensionData, into);
+        foreach (var element in document.Elements)
+        {
+            CollectGuids(element.ExtensionData, into);
+        }
+
+        if (document.UnrecognizedElements is { } unrecognized)
+        {
+            foreach (var element in unrecognized)
+            {
+                CollectGuids(element, into);
+            }
+        }
+    }
+
+    private static void CollectGuids(Dictionary<string, JsonElement>? data, ISet<Guid> into)
+    {
+        if (data is null)
+        {
+            return;
+        }
+
+        foreach (var value in data.Values)
+        {
+            CollectGuids(value, into);
+        }
+    }
+
+    private static void CollectGuids(JsonElement value, ISet<Guid> into)
+    {
+        switch (value.ValueKind)
+        {
+            case JsonValueKind.String:
+                if (Guid.TryParse(value.GetString(), out var id) && id != Guid.Empty)
+                {
+                    into.Add(id);
+                }
+
+                break;
+
+            case JsonValueKind.Object:
+                foreach (var property in value.EnumerateObject())
+                {
+                    CollectGuids(property.Value, into);
+                }
+
+                break;
+
+            case JsonValueKind.Array:
+                foreach (var item in value.EnumerateArray())
+                {
+                    CollectGuids(item, into);
+                }
+
+                break;
         }
     }
 

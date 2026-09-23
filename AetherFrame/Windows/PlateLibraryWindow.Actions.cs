@@ -117,7 +117,7 @@ internal sealed partial class PlateLibraryWindow
             if (ImGui.Button("Duplicate"))
             {
                 var sourceId = selected!.PlateId;
-                RunOperation<Guid>("duplicate the Plate", () => library.DuplicatePlateAsync(sourceId, characterIdentity.CurrentCharacter),
+                RunOperation<Guid>("duplicate the Plate", () => library.DuplicatePlateAsync(sourceId),
                     newId => selectedPlateId = newId);
             }
 

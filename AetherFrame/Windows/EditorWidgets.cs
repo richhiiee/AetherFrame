@@ -171,6 +171,29 @@ internal static class EditorWidgets
     }
 
     /// <summary>Dimmed helper text.</summary>
+    internal const string UnsupportedElementsWarning =
+        "This Plate contains elements this version of AetherFrame cannot display. They will be preserved when you save.";
+
+    /// <summary>
+    /// A one-line, non-blocking notice shown only for a Plate with elements this build can't
+    /// display (see <see cref="Domain.Profiles.ProfileDocument.HasUnsupportedElements"/>). Draws
+    /// nothing for every other Plate.
+    /// </summary>
+    internal static void UnsupportedElementsNotice(Domain.Profiles.ProfileDocument profile)
+    {
+        if (!profile.HasUnsupportedElements)
+        {
+            return;
+        }
+
+        IconText(FontAwesomeIcon.ExclamationTriangle, WarningColor);
+        ImGui.SameLine();
+        using (ImRaii.PushColor(ImGuiCol.Text, WarningColor))
+        {
+            ImGui.TextWrapped(UnsupportedElementsWarning);
+        }
+    }
+
     internal static void Hint(string text)
     {
         using (ImRaii.PushColor(ImGuiCol.Text, DimTextColor))

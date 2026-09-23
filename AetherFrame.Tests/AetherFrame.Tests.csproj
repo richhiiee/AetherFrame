@@ -31,6 +31,7 @@
     <Compile Include="..\AetherFrame\Services\AssetStorageService.cs" Link="Linked\Services\AssetStorageService.cs" />
     <Compile Include="..\AetherFrame\Services\ImageDimensionReader.cs" Link="Linked\Services\ImageDimensionReader.cs" />
     <Compile Include="..\AetherFrame\Services\ProfileService.cs" Link="Linked\Services\ProfileService.cs" />
+    <Compile Include="..\AetherFrame\UI\Editor\EditorSurfaceCoordinator.cs" Link="Linked\UI\Editor\EditorSurfaceCoordinator.cs" />
   </ItemGroup>
 
   <ItemGroup>

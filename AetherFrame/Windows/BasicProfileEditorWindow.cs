@@ -23,7 +23,7 @@ namespace AetherFrame.Windows;
 /// role-based lookups — so undo/redo and dirty state always agree between the two windows, and
 /// switching modes never resets or duplicates profile data.
 /// </summary>
-internal sealed partial class BasicProfileEditorWindow : Window, IDisposable
+internal sealed partial class BasicProfileEditorWindow : Window, IDisposable, IEditorSurface
 {
     private const float PreviewHeight = 420f;
 
@@ -38,6 +38,7 @@ internal sealed partial class BasicProfileEditorWindow : Window, IDisposable
     private readonly FileDialogManager fileDialogManager;
     private readonly Action openAdvancedEditor;
     private readonly Action openLibrary;
+    private readonly EditorSurfaceCoordinator surfaces;
 
     internal BasicProfileEditorWindow(
         ProfileService profileService,
@@ -47,7 +48,8 @@ internal sealed partial class BasicProfileEditorWindow : Window, IDisposable
         ProfileRenderResources renderResources,
         FileDialogManager fileDialogManager,
         Action openAdvancedEditor,
-        Action openLibrary)
+        Action openLibrary,
+        EditorSurfaceCoordinator surfaces)
         : base("AetherFrame Basic Editor##BasicProfileEditorWindow")
     {
         SizeConstraints = new WindowSizeConstraints
@@ -64,11 +66,25 @@ internal sealed partial class BasicProfileEditorWindow : Window, IDisposable
         this.fileDialogManager = fileDialogManager;
         this.openAdvancedEditor = openAdvancedEditor;
         this.openLibrary = openLibrary;
+        this.surfaces = surfaces;
     }
 
     public void Dispose()
     {
     }
+
+    /// <summary>One editing surface at a time: the Advanced editor hands over if it's open.</summary>
+    public override void OnOpen() => surfaces.NotifyOpened(EditorSurfaceKind.Basic);
+
+    /// <inheritdoc/>
+    public void Show()
+    {
+        IsOpen = true;
+        BringToFront();
+    }
+
+    /// <summary>Handing editing to the Advanced editor, which continues the same session.</summary>
+    public void CloseForHandoff() => IsOpen = false;
 
     public override void OnClose()
     {
@@ -115,6 +131,7 @@ internal sealed partial class BasicProfileEditorWindow : Window, IDisposable
             openAdvancedEditor();
         }
 
+        EditorWidgets.UnsupportedElementsNotice(profile);
         ImGui.Separator();
 
         DrawPreview(profile);

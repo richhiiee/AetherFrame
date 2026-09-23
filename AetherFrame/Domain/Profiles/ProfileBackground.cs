@@ -1,5 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Numerics;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace AetherFrame.Domain.Profiles;
 
@@ -59,6 +62,10 @@ public sealed class ProfileBackground
 
     public bool ImageFlipY { get; set; }
 
+    /// <summary>Properties this build doesn't know, kept through clone and save unchanged.</summary>
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? ExtensionData { get; set; }
+
     /// <summary>True when this style would actually draw an image (Image mode with an asset set).</summary>
     public bool HasImage => Mode == ProfileBackgroundMode.Image && ImageAssetId is not null;
 
@@ -82,6 +89,7 @@ public sealed class ProfileBackground
         ImageFit = ImageFit,
         ImageFlipX = ImageFlipX,
         ImageFlipY = ImageFlipY,
+        ExtensionData = ProfileElement.CopyExtensionData(ExtensionData),
     };
 
     public bool ContentEquals(ProfileBackground? other) =>

@@ -25,7 +25,7 @@ namespace AetherFrame.Windows;
 /// guides, placeholders) is editor chrome layered on top of <see cref="ProfileRenderer"/>'s
 /// output; Clean Preview and Profile View use the renderer alone, so they can never show it.
 /// </summary>
-internal sealed partial class ProfileEditorWindow : Window, IDisposable
+internal sealed partial class ProfileEditorWindow : Window, IDisposable, IEditorSurface
 {
     private const float LeftPanelWidth = 236f;
     private const float RightPanelWidth = 344f;
@@ -48,6 +48,7 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable
     private readonly Action openProfileView;
     private readonly Action openBasicEditor;
     private readonly Action openLibrary;
+    private readonly EditorSurfaceCoordinator surfaces;
 
     // Reused per frame (render thread only) for paint-order walks, so none of them allocate.
     private readonly List<ProfileElement> paintOrderBuffer = new(ProfileDocument.MaxElementCount);
@@ -88,7 +89,8 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable
         FileDialogManager fileDialogManager,
         Action openProfileView,
         Action openBasicEditor,
-        Action openLibrary)
+        Action openLibrary,
+        EditorSurfaceCoordinator surfaces)
         : base("AetherFrame Advanced Editor##ProfileEditorWindow")
     {
         SizeConstraints = new WindowSizeConstraints
@@ -105,6 +107,7 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable
         this.openProfileView = openProfileView;
         this.openBasicEditor = openBasicEditor;
         this.openLibrary = openLibrary;
+        this.surfaces = surfaces;
 
         // The native close button can't be intercepted, so it's replaced by one that goes through
         // the unsaved-changes prompt. (Other close paths are caught in OnClose.)
@@ -136,9 +139,29 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable
     /// </summary>
     public override void OnOpen()
     {
+        // One editing surface at a time: the Basic editor hands over if it's open.
+        surfaces.NotifyOpened(EditorSurfaceKind.Advanced);
+
         editorSession.AutoFit = true;
         editorSession.PreviewActive = false;
         lastCanvasPanelSize = new Vector2(-1f, -1f);
+    }
+
+    /// <inheritdoc/>
+    public void Show()
+    {
+        IsOpen = true;
+        BringToFront();
+    }
+
+    /// <summary>
+    /// Handing editing to the Basic editor: the same document, dirty state, and history continue
+    /// there, so the unsaved-changes question doesn't apply (see <see cref="EditorSurfaceCoordinator"/>).
+    /// </summary>
+    public void CloseForHandoff()
+    {
+        closeConfirmed = true;
+        IsOpen = false;
     }
 
     /// <summary>
@@ -227,6 +250,7 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable
     private void DrawEditor(ProfileDocument profile)
     {
         DrawToolbar(profile);
+        EditorWidgets.UnsupportedElementsNotice(profile);
         ImGui.Separator();
 
         var contentAvail = ImGui.GetContentRegionAvail();

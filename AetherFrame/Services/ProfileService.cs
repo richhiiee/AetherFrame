@@ -622,8 +622,10 @@ internal sealed class ProfileService
         // element instances the render thread could still be mutating.
         Elements = source.Elements.Select(e => e.Clone()).ToList(),
 
-        // Unknown top-level properties ride along unchanged (JsonElement is immutable).
+        // Unknown top-level properties and unknown-type elements ride along unchanged
+        // (JsonElement is immutable, so sharing the values is safe).
         ExtensionData = source.ExtensionData is null ? null : new Dictionary<string, System.Text.Json.JsonElement>(source.ExtensionData),
+        UnrecognizedElements = source.UnrecognizedElements?.ToList(),
     };
 
     /// <summary>A rename in My Plates also relabels the open copy, so the next save keeps it.</summary>
