@@ -3,6 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using AetherFrame.Persistence;
 using AetherFrame.Services;
+using AetherFrame.Services.Fonts;
 using AetherFrame.UI;
 using AetherFrame.UI.Editor;
 using AetherFrame.Windows;
@@ -36,7 +37,9 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
     private readonly ProfileService profileService;
     private readonly KeyboardShortcutService keyboardShortcutService;
     private readonly ImageTextureCache imageTextureCache;
+    private readonly ProfileFontService fontService;
     private readonly MainWindow mainWindow;
+    private readonly BasicProfileEditorWindow basicProfileEditorWindow;
     private readonly ProfileEditorWindow profileEditorWindow;
     private readonly ProfileViewWindow profileViewWindow;
 
@@ -53,17 +56,23 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
 
         var assetStorageService = new AssetStorageService();
         imageTextureCache = new ImageTextureCache(assetStorageService);
+        fontService = new ProfileFontService();
         var fileDialogManager = new FileDialogManager();
+        var basicFileDialogManager = new FileDialogManager();
 
         var editorSession = new EditorSession(profileService, assetStorageService, imageTextureCache);
+        var basicEditorSession = new BasicEditorSession(profileService, editorSession, assetStorageService, characterIdentityService);
         keyboardShortcutService = new KeyboardShortcutService();
 
         mainWindow = new MainWindow(this, profileService);
+        basicProfileEditorWindow = new BasicProfileEditorWindow(
+            profileService, editorSession, basicEditorSession, imageTextureCache, fontService, basicFileDialogManager, ToggleProfileEditorUi);
         profileEditorWindow = new ProfileEditorWindow(
-            profileService, editorSession, keyboardShortcutService, imageTextureCache, fileDialogManager, ToggleProfileViewUi);
-        profileViewWindow = new ProfileViewWindow(profileService, imageTextureCache);
+            profileService, editorSession, keyboardShortcutService, imageTextureCache, fontService, fileDialogManager, ToggleProfileViewUi, ToggleBasicProfileEditorUi);
+        profileViewWindow = new ProfileViewWindow(profileService, imageTextureCache, fontService);
 
         WindowSystem.AddWindow(mainWindow);
+        WindowSystem.AddWindow(basicProfileEditorWindow);
         WindowSystem.AddWindow(profileEditorWindow);
         WindowSystem.AddWindow(profileViewWindow);
 
@@ -93,10 +102,12 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
         WindowSystem.RemoveAllWindows();
 
         mainWindow.Dispose();
+        basicProfileEditorWindow.Dispose();
         profileEditorWindow.Dispose();
         profileViewWindow.Dispose();
         keyboardShortcutService.Dispose();
         imageTextureCache.Clear();
+        fontService.Dispose();
 
         CommandManager.RemoveHandler(CommandName);
 
@@ -106,6 +117,8 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
     private void OnCommand(string command, string args) => ToggleMainUi();
 
     public void ToggleMainUi() => mainWindow.Toggle();
+
+    public void ToggleBasicProfileEditorUi() => basicProfileEditorWindow.Toggle();
 
     public void ToggleProfileEditorUi() => profileEditorWindow.Toggle();
 

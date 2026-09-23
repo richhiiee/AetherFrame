@@ -3,6 +3,7 @@ using System.Linq;
 using System.Numerics;
 using AetherFrame.Domain.Profiles;
 using AetherFrame.Services;
+using AetherFrame.Services.Fonts;
 using Dalamud.Bindings.ImGui;
 
 namespace AetherFrame.UI.Rendering;
@@ -33,16 +34,26 @@ internal static class ProfileRenderer
     /// <summary>
     /// Draws the full logical canvas (backdrop, background image, every visible element in Z
     /// order) starting at <paramref name="canvasOrigin"/> in screen space, uniformly scaled by
-    /// <paramref name="scale"/> from the profile's logical 1920x1080 canvas.
+    /// <paramref name="scale"/> from the profile's own logical canvas size
+    /// (<see cref="ProfileDocument.CanvasWidth"/>/<see cref="ProfileDocument.CanvasHeight"/>).
+    /// <paramref name="showElementBounds"/> is purely editor chrome (the translucent box/border
+    /// drawn behind each text element as a placement guide) — the read-only presentation window
+    /// always passes false, since a finished profile must never show editing boxes.
     /// </summary>
     internal static void Draw(
         ImDrawListPtr drawList,
         ProfileDocument profile,
         Vector2 canvasOrigin,
         float scale,
-        ImageTextureCache imageTextureCache)
+        ImageTextureCache imageTextureCache,
+        ProfileFontService fontService,
+        bool showElementBounds)
     {
-        var canvasScreenSize = new Vector2(ProfileDocument.CanvasWidth, ProfileDocument.CanvasHeight) * scale;
+        // Cheap after the first call for a given profile instance (a single reference check) —
+        // see ProfileFontService for why this keeps large text crisp instead of blurry-then-sharp.
+        fontService.EnsurePrewarmed(profile);
+
+        var canvasScreenSize = new Vector2(profile.CanvasWidth, profile.CanvasHeight) * scale;
 
         drawList.AddRectFilled(canvasOrigin, canvasOrigin + canvasScreenSize, ImGui.GetColorU32(CanvasBackdropColor));
 
@@ -54,13 +65,13 @@ internal static class ProfileRenderer
 
         foreach (var element in visibleElements)
         {
-            DrawElement(drawList, element, canvasOrigin, scale, imageTextureCache);
+            DrawElement(drawList, element, canvasOrigin, scale, imageTextureCache, fontService, showElementBounds);
         }
     }
 
     /// <summary>Draws a single element at its logical Position/Size, scaled from canvasOrigin.</summary>
     internal static void DrawElement(
-        ImDrawListPtr drawList, ProfileElement element, Vector2 canvasOrigin, float scale, ImageTextureCache imageTextureCache)
+        ImDrawListPtr drawList, ProfileElement element, Vector2 canvasOrigin, float scale, ImageTextureCache imageTextureCache, ProfileFontService fontService, bool showElementBounds)
     {
         switch (element)
         {
@@ -68,7 +79,7 @@ internal static class ProfileRenderer
             {
                 var screenPos = canvasOrigin + textElement.Position * scale;
                 var screenSize = textElement.Size * scale;
-                DrawTextElement(drawList, textElement, screenPos, screenSize, scale);
+                DrawTextElement(drawList, textElement, screenPos, screenSize, scale, fontService, showElementBounds);
                 break;
             }
 
@@ -111,35 +122,95 @@ internal static class ProfileRenderer
         drawList.AddImage(wrap.Handle, drawPos, drawPos + drawSize, uvMin, uvMax, tint);
     }
 
-    private static void DrawTextElement(ImDrawListPtr drawList, TextProfileElement textElement, Vector2 screenPos, Vector2 screenSize, float scale)
+    // Underline/strikethrough are drawn as plain lines rather than read from real font metrics
+    // (this ImGui binding doesn't expose per-font ascent/descent), positioned as a fraction of
+    // the rendered font size down from the text's top edge — the usual approximation for this
+    // when exact metrics aren't available, close enough to sit convincingly under/through glyphs
+    // at any size.
+    private const float UnderlineOffsetRatio = 0.88f;
+    private const float StrikethroughOffsetRatio = 0.5f;
+    private const float DecorationThicknessRatio = 0.06f;
+    private const float MinDecorationThickness = 1f;
+
+    private static void DrawTextElement(ImDrawListPtr drawList, TextProfileElement textElement, Vector2 screenPos, Vector2 screenSize, float scale, ProfileFontService fontService, bool showElementBounds)
     {
-        drawList.AddRectFilled(screenPos, screenPos + screenSize, ImGui.GetColorU32(TextElementFillColor));
-        drawList.AddRect(screenPos, screenPos + screenSize, ImGui.GetColorU32(TextElementBorderColor));
+        if (showElementBounds)
+        {
+            // Editor-only placement guide — never part of the finished profile's visual content,
+            // so the presentation window and Basic Editor's preview always pass showElementBounds
+            // false and never see it.
+            drawList.AddRectFilled(screenPos, screenPos + screenSize, ImGui.GetColorU32(TextElementFillColor));
+            drawList.AddRect(screenPos, screenPos + screenSize, ImGui.GetColorU32(TextElementBorderColor));
+        }
 
         var text = string.IsNullOrEmpty(textElement.Text) ? "(empty)" : textElement.Text;
 
-        // Render at the element's own FontSize (scaled), not the current default ImGui font
-        // size, so the Font Size control actually changes what's drawn. There's no
-        // CalcTextSizeA(font, size, ...) in this binding, so approximate the rendered extent by
-        // scaling the default-size measurement — glyph metrics scale linearly.
-        var font = ImGui.GetFont();
+        // The element's own FontSize, scaled to actual screen pixels. Requesting a font handle
+        // baked at (approximately) this exact pixel size — rather than always using ImGui's
+        // small default UI font and stretching its glyphs up via the AddText size parameter — is
+        // what keeps large profile text crisp instead of blurry.
         var renderedFontSize = Math.Max(1f, textElement.FontSize * scale);
-        var sizeScale = renderedFontSize / ImGui.GetFontSize();
-        var textSize = ImGui.CalcTextSize(text) * sizeScale;
-        var textPos = screenPos + new Vector2(4f, 4f);
+        var fontHandle = fontService.GetHandle(textElement.FontFamily, renderedFontSize, textElement.Bold, textElement.Italic);
 
-        if (textElement.Alignment == TextAlignment.Center)
+        using (fontHandle.Push())
         {
-            textPos.X = screenPos.X + Math.Max(0f, (screenSize.X - textSize.X) / 2f);
+            var font = ImGui.GetFont();
+
+            // The handle's font was baked at the nearest whole pixel to renderedFontSize (see
+            // ProfileFontService), not necessarily that exact value, so CalcTextSize (which
+            // measures at the pushed font's own baked size) needs the same tiny correction
+            // AddText's explicit size parameter gets automatically. The correction is always
+            // well under a pixel of visual difference.
+            var bakedFontSize = ImGui.GetFontSize();
+            var sizeScale = bakedFontSize > 0f ? renderedFontSize / bakedFontSize : 1f;
+            var textSize = ImGui.CalcTextSize(text) * sizeScale;
+            var textPos = screenPos + new Vector2(4f, 4f);
+
+            if (textElement.Alignment == TextAlignment.Center)
+            {
+                textPos.X = screenPos.X + Math.Max(0f, (screenSize.X - textSize.X) / 2f);
+            }
+            else if (textElement.Alignment == TextAlignment.Right)
+            {
+                textPos.X = screenPos.X + Math.Max(0f, screenSize.X - textSize.X - 4f);
+            }
+
+            drawList.PushClipRect(screenPos, screenPos + screenSize, true);
+            drawList.AddText(font, renderedFontSize, textPos, ImGui.GetColorU32(textElement.Color), text);
+            DrawTextDecorations(drawList, textElement, textPos, textSize, renderedFontSize);
+            drawList.PopClipRect();
         }
-        else if (textElement.Alignment == TextAlignment.Right)
+    }
+
+    /// <summary>
+    /// Underline/strikethrough for the single line of text just drawn at <paramref name="textPos"/>
+    /// with measured extent <paramref name="textSize"/>. Uses the same color, and spans exactly
+    /// the rendered text's width — nothing to draw for empty text, since <paramref name="textSize"/>
+    /// is then ~0.
+    /// </summary>
+    private static void DrawTextDecorations(ImDrawListPtr drawList, TextProfileElement textElement, Vector2 textPos, Vector2 textSize, float renderedFontSize)
+    {
+        if ((!textElement.Underline && !textElement.Strikethrough) || textSize.X <= 0f)
         {
-            textPos.X = screenPos.X + Math.Max(0f, screenSize.X - textSize.X - 4f);
+            return;
         }
 
-        drawList.PushClipRect(screenPos, screenPos + screenSize, true);
-        drawList.AddText(font, renderedFontSize, textPos, ImGui.GetColorU32(textElement.Color), text);
-        drawList.PopClipRect();
+        var color = ImGui.GetColorU32(textElement.Color);
+        var thickness = Math.Max(MinDecorationThickness, renderedFontSize * DecorationThicknessRatio);
+        var left = textPos.X;
+        var right = textPos.X + textSize.X;
+
+        if (textElement.Underline)
+        {
+            var y = textPos.Y + (renderedFontSize * UnderlineOffsetRatio);
+            drawList.AddLine(new Vector2(left, y), new Vector2(right, y), color, thickness);
+        }
+
+        if (textElement.Strikethrough)
+        {
+            var y = textPos.Y + (renderedFontSize * StrikethroughOffsetRatio);
+            drawList.AddLine(new Vector2(left, y), new Vector2(right, y), color, thickness);
+        }
     }
 
     private static readonly Vector2 QuadUvTopLeft = new(0f, 0f);

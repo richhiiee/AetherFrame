@@ -15,4 +15,15 @@
          to be able to fetch unauthenticated. -->
     <IconUrl>https://raw.githubusercontent.com/richhiiee/AetherFrameAssets/master/images/icon.png</IconUrl>
   </PropertyGroup>
+
+  <!-- Curated portable fonts (PT Sans, PT Serif, Cousine — SIL Open Font License 1.1, see
+       Fonts/THIRD-PARTY-FONT-LICENSES.txt), embedded so profile text renders identically on
+       every machine without depending on locally-installed Windows fonts. Loaded at runtime via
+       ProfileFontService through the logical resource names set here. -->
+  <ItemGroup>
+    <None Remove="Fonts\*.ttf" />
+    <EmbeddedResource Include="Fonts\*.ttf">
+      <LogicalName>AetherFrame.Fonts.%(Filename)%(Extension)</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
 </Project>

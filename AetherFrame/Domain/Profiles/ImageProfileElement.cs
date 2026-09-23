@@ -32,6 +32,7 @@ public sealed class ImageProfileElement : ProfileElement
         Position = Position,
         Size = Size,
         ZIndex = ZIndex,
+        Role = Role,
         AssetId = AssetId,
         Opacity = Opacity,
         PreserveAspectRatio = PreserveAspectRatio,

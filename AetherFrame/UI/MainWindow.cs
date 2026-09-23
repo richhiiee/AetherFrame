@@ -60,7 +60,13 @@ internal sealed class MainWindow : Window, IDisposable
         ImGui.TextUnformatted($"Profile: {profile.Name}");
         ImGui.TextUnformatted($"Elements: {profile.Elements.Count}/{ProfileDocument.MaxElementCount}");
 
-        if (ImGui.Button("Open Editor"))
+        if (ImGui.Button("Basic Editor"))
+        {
+            plugin.ToggleBasicProfileEditorUi();
+        }
+
+        ImGui.SameLine();
+        if (ImGui.Button("Advanced Editor"))
         {
             plugin.ToggleProfileEditorUi();
         }

@@ -32,14 +32,24 @@ public abstract class ProfileElement
     public int ZIndex { get; set; }
 
     /// <summary>
+    /// Identifies an element as a reserved slot owned by the Basic editor (e.g. its portrait or
+    /// name field), rather than by list position or a hardcoded id. <see cref="ProfileElementRole.None"/>
+    /// (the default, including for every legacy element with no persisted role) means the
+    /// element is a free-form Advanced-editor element.
+    /// </summary>
+    public ProfileElementRole Role { get; set; } = ProfileElementRole.None;
+
+    /// <summary>
     /// Repairs an element loaded with an invalid (non-positive) canvas size: most commonly a
     /// legacy element saved before Position/Size existed (which then default-deserialize to
     /// <see cref="Vector2.Zero"/>), or one whose zero size was itself already persisted by an
     /// earlier build. Elements that already have a valid size — including any user-set
     /// Visible/Locked/Position — are left completely untouched.
     /// </summary>
+    /// <param name="canvasWidth">The owning profile's (already-resolved) canvas width.</param>
+    /// <param name="canvasHeight">The owning profile's (already-resolved) canvas height.</param>
     /// <returns>True if a repair was applied.</returns>
-    internal bool NormalizeLegacyLayout()
+    internal bool NormalizeLegacyLayout(float canvasWidth, float canvasHeight)
     {
         if (Size.X > 0f && Size.Y > 0f)
         {
@@ -48,8 +58,8 @@ public abstract class ProfileElement
 
         Size = new Vector2(DefaultWidth, DefaultHeight);
 
-        var maxX = Math.Max(0f, ProfileDocument.CanvasWidth - Size.X);
-        var maxY = Math.Max(0f, ProfileDocument.CanvasHeight - Size.Y);
+        var maxX = Math.Max(0f, canvasWidth - Size.X);
+        var maxY = Math.Max(0f, canvasHeight - Size.Y);
         Position = new Vector2(Math.Clamp(Position.X, 0f, maxX), Math.Clamp(Position.Y, 0f, maxY));
 
         // An element that never had a renderable size could not have been seen, or
@@ -77,5 +87,23 @@ public abstract class ProfileElement
         Position = source.Position;
         Size = source.Size;
         ZIndex = source.ZIndex;
+        Role = source.Role;
     }
+}
+
+/// <summary>
+/// Semantic role of a reserved Basic-editor element within a <see cref="ProfileDocument"/>.
+/// Persisted so the Basic editor can find its own elements without relying on list position or
+/// hardcoded ids. Only roles Basic mode actually manages exist here; ordinary Advanced-editor
+/// elements are always <see cref="None"/>.
+/// </summary>
+public enum ProfileElementRole
+{
+    /// <summary>Not owned by Basic mode. The default for every element, including all legacy
+    /// elements deserialized from JSON written before this field existed.</summary>
+    None = 0,
+    BasicPortrait,
+    BasicName,
+    BasicTitle,
+    BasicMessage,
 }

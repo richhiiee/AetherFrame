@@ -3,6 +3,7 @@ using System.Linq;
 using System.Numerics;
 using AetherFrame.Domain.Profiles;
 using AetherFrame.Services;
+using AetherFrame.Services.Fonts;
 using AetherFrame.UI.Editor;
 using AetherFrame.UI.Rendering;
 using Dalamud.Bindings.ImGui;
@@ -22,16 +23,21 @@ internal sealed class ProfileEditorWindow : Window, IDisposable
     private const float NewElementTextBoxHeight = 48f;
 
     private const string ElementContextMenuId = "##AetherFrameElementContextMenu";
+    private const string CanvasResizePopupId = "##AetherFrameCanvasResizePopup";
+    private const float MinCanvasDimension = 100f;
 
     private static readonly string[] AlignmentLabels = ["Left", "Center", "Right"];
     private static readonly string[] FitModeLabels = ["Cover", "Contain", "Stretch"];
+    private static readonly string[] FontFamilyLabels = ProfileFontCatalog.All.Select(f => f.DisplayName).ToArray();
 
     private readonly ProfileService profileService;
     private readonly EditorSession editorSession;
     private readonly KeyboardShortcutService keyboardShortcutService;
     private readonly ImageTextureCache imageTextureCache;
+    private readonly ProfileFontService fontService;
     private readonly FileDialogManager fileDialogManager;
     private readonly Action openProfileView;
+    private readonly Action openBasicEditor;
 
     // Which element the currently-open context menu targets (read back when drawing the popup's
     // body). Right-click can be detected from two different places with two different ImGui ID
@@ -41,6 +47,21 @@ internal sealed class ProfileEditorWindow : Window, IDisposable
     // from the same (outermost) scope.
     private Guid contextMenuElementId;
     private Guid? pendingContextMenuOpenElementId;
+
+    // Same deferred-open pattern as the element context menu above (see
+    // pendingContextMenuOpenElementId): the resize-choice popup is only ever requested from
+    // DrawCanvasControls, but is opened/drawn once from Draw()'s outer scope so it keeps
+    // rendering across frames even if the Inspector's active tab changes while it's up.
+    private (float Width, float Height) canvasResizePromptTarget;
+    private (float Width, float Height)? pendingCanvasResizeOpenRequest;
+
+    // Runtime-only scratch buffers for the Canvas tab's custom width/height fields — resynced
+    // from the profile's actual canvas size (see lastSyncedCustomCanvasSize) only when it
+    // changes from outside the fields themselves (preset click, undo/redo, profile switch), so
+    // in-progress typing is never clobbered by the per-frame redraw.
+    private float customCanvasWidthInput = ProfileDocument.DefaultCanvasWidth;
+    private float customCanvasHeightInput = ProfileDocument.DefaultCanvasHeight;
+    private Vector2 lastSyncedCustomCanvasSize = new(-1f, -1f);
 
     // Fit-to-window viewport state — all runtime only, never persisted with the profile.
     // lastCanvasPanelSize starts at a sentinel that can never match a real panel size, so Auto
@@ -53,8 +74,10 @@ internal sealed class ProfileEditorWindow : Window, IDisposable
         EditorSession editorSession,
         KeyboardShortcutService keyboardShortcutService,
         ImageTextureCache imageTextureCache,
+        ProfileFontService fontService,
         FileDialogManager fileDialogManager,
-        Action openProfileView)
+        Action openProfileView,
+        Action openBasicEditor)
         : base("AetherFrame Profile Editor##ProfileEditorWindow")
     {
         SizeConstraints = new WindowSizeConstraints
@@ -67,8 +90,10 @@ internal sealed class ProfileEditorWindow : Window, IDisposable
         this.editorSession = editorSession;
         this.keyboardShortcutService = keyboardShortcutService;
         this.imageTextureCache = imageTextureCache;
+        this.fontService = fontService;
         this.fileDialogManager = fileDialogManager;
         this.openProfileView = openProfileView;
+        this.openBasicEditor = openBasicEditor;
     }
 
     public void Dispose()
@@ -136,6 +161,7 @@ internal sealed class ProfileEditorWindow : Window, IDisposable
         // canvas and the Elements panel's right-click can safely target — see
         // DrawElementContextMenuPopup.
         DrawElementContextMenuPopup(profile);
+        DrawCanvasResizePromptPopup();
     }
 
     /// <summary>
@@ -146,6 +172,16 @@ internal sealed class ProfileEditorWindow : Window, IDisposable
     private void DrawToolbar(ProfileDocument profile)
     {
         ImGui.TextUnformatted($"Editing: {profile.Name}");
+
+        ImGui.SameLine();
+        if (ImGui.Button("Basic Editor"))
+        {
+            openBasicEditor();
+        }
+
+        ImGui.SameLine();
+        ImGui.Dummy(new Vector2(12f, 0f));
+        ImGui.SameLine();
 
         using (ImRaii.Disabled(!editorSession.CanUndo))
         {
@@ -181,6 +217,18 @@ internal sealed class ProfileEditorWindow : Window, IDisposable
         if (ImGui.Button("View Profile"))
         {
             openProfileView();
+        }
+
+        ImGui.SameLine();
+        ImGui.Dummy(new Vector2(12f, 0f));
+        ImGui.SameLine();
+
+        // Purely a canvas display preference — see EditorSession.ShowGuides for why it's never
+        // persisted and never affects selection itself, only the chrome drawn for it.
+        var showGuides = editorSession.ShowGuides;
+        if (ImGui.Checkbox("Guides", ref showGuides))
+        {
+            editorSession.ShowGuides = showGuides;
         }
 
         ImGui.SameLine();
@@ -569,6 +617,15 @@ internal sealed class ProfileEditorWindow : Window, IDisposable
                 DrawBackgroundControls(profile);
             }
         }
+
+        using (var canvasTab = ImRaii.TabItem("Canvas"))
+        {
+            if (canvasTab.Success)
+            {
+                ImGui.Spacing();
+                DrawCanvasControls(profile);
+            }
+        }
     }
 
     private void DrawSelectedElementInspector(ProfileDocument profile)
@@ -634,11 +691,28 @@ internal sealed class ProfileEditorWindow : Window, IDisposable
             }
 
             ImGui.Spacing();
-            ImGui.TextDisabled("APPEARANCE");
+            ImGui.TextDisabled("FONT");
+
+            var familyIndex = 0;
+            for (var i = 0; i < ProfileFontCatalog.All.Count; i++)
+            {
+                if (ProfileFontCatalog.All[i].Id == textElement.FontFamily)
+                {
+                    familyIndex = i;
+                    break;
+                }
+            }
+
+            ImGui.SetNextItemWidth(-1);
+            if (ImGui.Combo("Family", ref familyIndex, FontFamilyLabels, FontFamilyLabels.Length))
+            {
+                var newFamily = ProfileFontCatalog.All[familyIndex].Id;
+                ApplyImmediateTextEdit(textElement.Id, element => element.FontFamily = newFamily);
+            }
 
             var fontSize = textElement.FontSize;
             ImGui.SetNextItemWidth(-1);
-            if (ImGui.SliderFloat("Font Size", ref fontSize, TextProfileElement.MinFontSize, TextProfileElement.MaxFontSize))
+            if (ImGui.SliderFloat("Size", ref fontSize, TextProfileElement.MinFontSize, TextProfileElement.MaxFontSize))
             {
                 ContinueTextEdit(textElement.Id, element => element.FontSize = fontSize);
             }
@@ -648,16 +722,52 @@ internal sealed class ProfileEditorWindow : Window, IDisposable
                 editorSession.CommitPendingEdit();
             }
 
-            var color = textElement.Color;
-            if (ImGui.ColorEdit4("Color", ref color))
+            ImGui.Spacing();
+            ImGui.TextDisabled("STYLE");
+
+            // Bold/Italic are only ever shown for a family with the real face to back them —
+            // see ProfileFontCatalog. Underline/Strikethrough are plain line-draws, unrelated to
+            // the font face, so they're always available regardless of family.
+            var fontDescriptor = ProfileFontCatalog.Resolve(textElement.FontFamily);
+
+            if (fontDescriptor.SupportsBold)
             {
-                ContinueTextEdit(textElement.Id, element => element.Color = color);
+                var bold = textElement.Bold;
+                if (ImGui.Checkbox("Bold", ref bold))
+                {
+                    ApplyImmediateTextEdit(textElement.Id, element => element.Bold = bold);
+                }
+
+                if (fontDescriptor.SupportsItalic)
+                {
+                    ImGui.SameLine();
+                }
             }
 
-            if (ImGui.IsItemDeactivatedAfterEdit())
+            if (fontDescriptor.SupportsItalic)
             {
-                editorSession.CommitPendingEdit();
+                var italic = textElement.Italic;
+                if (ImGui.Checkbox("Italic", ref italic))
+                {
+                    ApplyImmediateTextEdit(textElement.Id, element => element.Italic = italic);
+                }
             }
+
+            var underline = textElement.Underline;
+            if (ImGui.Checkbox("Underline", ref underline))
+            {
+                ApplyImmediateTextEdit(textElement.Id, element => element.Underline = underline);
+            }
+
+            ImGui.SameLine();
+            var strikethrough = textElement.Strikethrough;
+            if (ImGui.Checkbox("Strikethrough", ref strikethrough))
+            {
+                ApplyImmediateTextEdit(textElement.Id, element => element.Strikethrough = strikethrough);
+            }
+
+            ImGui.Spacing();
+            ImGui.TextDisabled("LAYOUT");
 
             var alignmentIndex = (int)textElement.Alignment;
             ImGui.SetNextItemWidth(-1);
@@ -671,6 +781,20 @@ internal sealed class ProfileEditorWindow : Window, IDisposable
             if (ImGui.Checkbox("Wrap", ref wrap))
             {
                 ApplyImmediateTextEdit(textElement.Id, element => element.Wrap = wrap);
+            }
+
+            ImGui.Spacing();
+            ImGui.TextDisabled("COLOR");
+
+            var color = textElement.Color;
+            if (ImGui.ColorEdit4("##TextColor", ref color))
+            {
+                ContinueTextEdit(textElement.Id, element => element.Color = color);
+            }
+
+            if (ImGui.IsItemDeactivatedAfterEdit())
+            {
+                editorSession.CommitPendingEdit();
             }
 
             ImGui.Spacing();
@@ -857,6 +981,122 @@ internal sealed class ProfileEditorWindow : Window, IDisposable
     }
 
     /// <summary>
+    /// Canvas tab: preset/custom canvas size controls. Never resizes on its own — every action
+    /// here just requests the resize-choice popup (see <see cref="DrawCanvasResizePromptPopup"/>),
+    /// which is what actually calls <see cref="EditorSession.ApplyCanvasResize"/> once the user
+    /// picks Resize Canvas Only or Scale Contents Proportionally.
+    /// </summary>
+    private void DrawCanvasControls(ProfileDocument profile)
+    {
+        var currentSize = new Vector2(profile.CanvasWidth, profile.CanvasHeight);
+        if (currentSize != lastSyncedCustomCanvasSize)
+        {
+            customCanvasWidthInput = profile.CanvasWidth;
+            customCanvasHeightInput = profile.CanvasHeight;
+            lastSyncedCustomCanvasSize = currentSize;
+        }
+
+        var matchedPreset = ProfileCanvasPreset.Match(profile.CanvasWidth, profile.CanvasHeight);
+        ImGui.TextUnformatted($"Current: {profile.CanvasWidth:0} x {profile.CanvasHeight:0}");
+        ImGui.TextDisabled(matchedPreset is null ? "Custom size" : matchedPreset.Name);
+
+        ImGui.Spacing();
+        ImGui.TextDisabled("PRESET");
+
+        foreach (var preset in ProfileCanvasPreset.All)
+        {
+            using (ImRaii.Disabled(preset == matchedPreset))
+            {
+                if (ImGui.Button($"{preset.Name} ({preset.Width:0}x{preset.Height:0})", new Vector2(-1, 0f)))
+                {
+                    pendingCanvasResizeOpenRequest = (preset.Width, preset.Height);
+                }
+            }
+        }
+
+        ImGui.Spacing();
+        ImGui.TextDisabled("CUSTOM");
+
+        var halfWidth = (ImGui.GetContentRegionAvail().X - ImGui.GetStyle().ItemSpacing.X) / 2f;
+        ImGui.SetNextItemWidth(halfWidth);
+        ImGui.InputFloat("##CustomCanvasWidth", ref customCanvasWidthInput, 0f, 0f, "%.0f W");
+        ImGui.SameLine();
+        ImGui.SetNextItemWidth(halfWidth);
+        ImGui.InputFloat("##CustomCanvasHeight", ref customCanvasHeightInput, 0f, 0f, "%.0f H");
+
+        var validCustomSize = customCanvasWidthInput >= MinCanvasDimension && customCanvasHeightInput >= MinCanvasDimension;
+        using (ImRaii.Disabled(!validCustomSize))
+        {
+            if (ImGui.Button("Apply Custom Size", new Vector2(-1, 0f)))
+            {
+                pendingCanvasResizeOpenRequest = (customCanvasWidthInput, customCanvasHeightInput);
+            }
+        }
+
+        if (!validCustomSize)
+        {
+            ImGui.TextWrapped($"Width and height must each be at least {MinCanvasDimension:0}.");
+        }
+    }
+
+    /// <summary>
+    /// Opens (if requested this frame) and draws the "how should the canvas resize?" popup,
+    /// mirroring <see cref="DrawElementContextMenuPopup"/>'s deferred-open pattern so it keeps
+    /// rendering across frames regardless of which Inspector tab is active.
+    /// </summary>
+    private void DrawCanvasResizePromptPopup()
+    {
+        if (pendingCanvasResizeOpenRequest is { } requested)
+        {
+            canvasResizePromptTarget = requested;
+            ImGui.OpenPopup(CanvasResizePopupId);
+            pendingCanvasResizeOpenRequest = null;
+        }
+
+        using var popup = ImRaii.Popup(CanvasResizePopupId);
+        if (!popup.Success)
+        {
+            return;
+        }
+
+        var target = canvasResizePromptTarget;
+        const float popupContentWidth = 280f;
+
+        ImGui.TextUnformatted($"Resize canvas to {target.Width:0} x {target.Height:0}?");
+        ImGui.Spacing();
+
+        if (ImGui.Button("Resize Canvas Only", new Vector2(popupContentWidth, 0f)))
+        {
+            editorSession.ApplyCanvasResize(target.Width, target.Height, scaleContentsProportionally: false);
+            ImGui.CloseCurrentPopup();
+        }
+
+        ImGui.PushTextWrapPos(ImGui.GetCursorPosX() + popupContentWidth);
+        ImGui.TextDisabled("Keeps every element's position and size exactly as-is; only the canvas bounds change.");
+        ImGui.PopTextWrapPos();
+
+        ImGui.Spacing();
+
+        if (ImGui.Button("Scale Contents Proportionally", new Vector2(popupContentWidth, 0f)))
+        {
+            editorSession.ApplyCanvasResize(target.Width, target.Height, scaleContentsProportionally: true);
+            ImGui.CloseCurrentPopup();
+        }
+
+        ImGui.PushTextWrapPos(ImGui.GetCursorPosX() + popupContentWidth);
+        ImGui.TextDisabled("Scales every element's position and size to match the new canvas proportions.");
+        ImGui.PopTextWrapPos();
+
+        ImGui.Spacing();
+        ImGui.Separator();
+
+        if (ImGui.Button("Cancel", new Vector2(popupContentWidth, 0f)))
+        {
+            ImGui.CloseCurrentPopup();
+        }
+    }
+
+    /// <summary>
     /// Opens a single-file picker restricted to the image formats AetherFrame currently
     /// supports, invoking <paramref name="onSelected"/> with the chosen path on success.
     /// </summary>
@@ -958,7 +1198,7 @@ internal sealed class ProfileEditorWindow : Window, IDisposable
         }
 
         var zoom = editorSession.Zoom;
-        var canvasScreenSize = new Vector2(ProfileDocument.CanvasWidth, ProfileDocument.CanvasHeight) * zoom;
+        var canvasScreenSize = new Vector2(profile.CanvasWidth, profile.CanvasHeight) * zoom;
 
         // Centered when the canvas is smaller than the panel (the fitted/typical case); flush at
         // the scroll origin — exactly the prior behavior — once zoomed in past the panel size,
@@ -972,15 +1212,20 @@ internal sealed class ProfileEditorWindow : Window, IDisposable
         ImGui.InvisibleButton("##AetherFrameCanvasArea", canvasScreenSize);
         var canvasHovered = ImGui.IsItemHovered();
 
+        var showGuides = editorSession.ShowGuides;
+
         // The background isn't a ProfileElement: it's always painted first (beneath every
         // element) and is deliberately excluded from hit testing below, so it can never be
         // selected, dragged, resized, or reordered like an ordinary element.
-        ProfileRenderer.Draw(drawList, profile, canvasOrigin, zoom, imageTextureCache);
+        ProfileRenderer.Draw(drawList, profile, canvasOrigin, zoom, imageTextureCache, fontService, showGuides);
 
-        // Editor-only chrome: outlines the logical canvas bounds. Not part of the finished
-        // profile's visual content, so ProfileRenderer (shared with presentation mode) doesn't
-        // draw it.
-        drawList.AddRect(canvasOrigin, canvasOrigin + canvasScreenSize, ImGui.GetColorU32(new Vector4(0.4f, 0.4f, 0.4f, 1f)));
+        if (showGuides)
+        {
+            // Editor-only chrome: outlines the logical canvas bounds. Not part of the finished
+            // profile's visual content, so ProfileRenderer (shared with presentation mode) doesn't
+            // draw it.
+            drawList.AddRect(canvasOrigin, canvasOrigin + canvasScreenSize, ImGui.GetColorU32(new Vector4(0.4f, 0.4f, 0.4f, 1f)));
+        }
 
         // Hit testing below walks this array in reverse, so the visually topmost element (paint
         // order: ascending ZIndex, ties broken by list order) is always tested/selected first.
@@ -1006,16 +1251,22 @@ internal sealed class ProfileEditorWindow : Window, IDisposable
                 canvasOrigin + logicalCorners[3] * zoom,
             ];
 
-            var outlineColor = ImGui.GetColorU32(new Vector4(1f, 0.85f, 0.2f, 1f));
-            drawList.AddQuad(selectedScreenCorners[0], selectedScreenCorners[1], selectedScreenCorners[2], selectedScreenCorners[3], outlineColor);
-
-            if (!selectedElement.Locked)
+            if (showGuides)
             {
-                DrawResizeHandles(drawList, selectedScreenCorners);
+                var outlineColor = ImGui.GetColorU32(new Vector4(1f, 0.85f, 0.2f, 1f));
+                drawList.AddQuad(selectedScreenCorners[0], selectedScreenCorners[1], selectedScreenCorners[2], selectedScreenCorners[3], outlineColor);
+
+                if (!selectedElement.Locked)
+                {
+                    DrawResizeHandles(drawList, selectedScreenCorners);
+                }
             }
         }
 
-        HandleCanvasInput(profile, visibleElements, selectedElement, selectedScreenCorners, canvasOrigin, canvasHovered, zoom);
+        // Guides off also disables resize-handle interaction (nothing is drawn to grab) by
+        // simply not handing HandleCanvasInput any corners to hit-test against; plain click-to-
+        // select and drag-to-move on the canvas stay fully functional either way.
+        HandleCanvasInput(profile, visibleElements, selectedElement, showGuides ? selectedScreenCorners : null, canvasOrigin, canvasHovered, zoom);
     }
 
     /// <summary>
@@ -1046,7 +1297,7 @@ internal sealed class ProfileEditorWindow : Window, IDisposable
         }
 
         ImGui.SameLine();
-        ImGui.TextUnformatted($"Canvas: {ProfileDocument.CanvasWidth:0}x{ProfileDocument.CanvasHeight:0}");
+        ImGui.TextUnformatted($"Canvas: {profile.CanvasWidth:0}x{profile.CanvasHeight:0}");
 
         var selectedElement = editorSession.SelectedElementId is { } selectedId
             ? profile.Elements.Find(e => e.Id == selectedId)

@@ -153,7 +153,16 @@ internal sealed class ProfileService
                 content = content[..TextProfileElement.MaxTextLength];
             }
 
-            var element = new TextProfileElement { Text = content, ZIndex = NextZIndexLocked(profile) };
+            var element = new TextProfileElement
+            {
+                Text = content,
+                ZIndex = NextZIndexLocked(profile),
+                // Explicit, not the property's own default: new text should use AetherFrame's
+                // fully-styled default family, while legacy/unset elements must keep resolving
+                // to TextProfileElement.FontFamily's own default (Dalamud Default) — see that
+                // property's doc comment for why those two defaults must stay independent.
+                FontFamily = ProfileFontFamilies.AetherFrameSans,
+            };
             profile.Elements.Add(element);
             return element.Id;
         }
@@ -251,8 +260,8 @@ internal sealed class ProfileService
             var duplicate = source.Clone();
             duplicate.Id = Guid.NewGuid();
 
-            var maxX = Math.Max(0f, ProfileDocument.CanvasWidth - duplicate.Size.X);
-            var maxY = Math.Max(0f, ProfileDocument.CanvasHeight - duplicate.Size.Y);
+            var maxX = Math.Max(0f, profile.CanvasWidth - duplicate.Size.X);
+            var maxY = Math.Max(0f, profile.CanvasHeight - duplicate.Size.Y);
             duplicate.Position = new Vector2(
                 Math.Clamp(duplicate.Position.X + offset, 0f, maxX),
                 Math.Clamp(duplicate.Position.Y + offset, 0f, maxY));
@@ -362,6 +371,70 @@ internal sealed class ProfileService
     }
 
     /// <summary>
+    /// Resizes the current profile's canvas. When <paramref name="scaleContentsProportionally"/>
+    /// is true, every element's Position/Size is scaled by the same width/height ratio the
+    /// canvas itself changes by, so layouts stay proportioned to the new canvas; otherwise every
+    /// element's Position/Size is left exactly as-is (only the canvas bounds change). Rotation
+    /// values are never touched by either mode. A profile with an unresolved (zero) canvas size
+    /// scales as if it were the legacy 1920x1080 size, matching what it would already be
+    /// rendered/edited against.
+    /// </summary>
+    internal void ResizeCanvas(float newWidth, float newHeight, bool scaleContentsProportionally)
+    {
+        lock (gate)
+        {
+            var profile = RequireEditableProfileLocked();
+
+            if (scaleContentsProportionally)
+            {
+                var oldWidth = profile.CanvasWidth > 0f ? profile.CanvasWidth : ProfileDocument.LegacyCanvasWidth;
+                var oldHeight = profile.CanvasHeight > 0f ? profile.CanvasHeight : ProfileDocument.LegacyCanvasHeight;
+                var scale = new Vector2(newWidth / oldWidth, newHeight / oldHeight);
+
+                foreach (var element in profile.Elements)
+                {
+                    element.Position *= scale;
+                    element.Size *= scale;
+                }
+            }
+
+            profile.CanvasWidth = newWidth;
+            profile.CanvasHeight = newHeight;
+        }
+    }
+
+    /// <summary>Captures the current profile's canvas size and every element's Position/Size, e.g. for an undo/redo snapshot of a canvas resize.</summary>
+    internal CanvasLayoutState CaptureCanvasLayoutState()
+    {
+        lock (gate)
+        {
+            var profile = RequireEditableProfileLocked();
+            var elementLayouts = profile.Elements.ToDictionary(e => e.Id, e => (e.Position, e.Size));
+            return new CanvasLayoutState(profile.CanvasWidth, profile.CanvasHeight, elementLayouts);
+        }
+    }
+
+    /// <summary>Restores a previously captured canvas layout snapshot (see <see cref="CaptureCanvasLayoutState"/>).</summary>
+    internal void RestoreCanvasLayoutState(CanvasLayoutState state)
+    {
+        lock (gate)
+        {
+            var profile = RequireEditableProfileLocked();
+            profile.CanvasWidth = state.CanvasWidth;
+            profile.CanvasHeight = state.CanvasHeight;
+
+            foreach (var element in profile.Elements)
+            {
+                if (state.ElementLayouts.TryGetValue(element.Id, out var layout))
+                {
+                    element.Position = layout.Position;
+                    element.Size = layout.Size;
+                }
+            }
+        }
+    }
+
+    /// <summary>
     /// Verifies the current profile is safe to edit or save:
     /// a profile and binding are loaded, no operation is busy, a character is logged in,
     /// and the logged-in character matches the loaded binding's character.
@@ -446,11 +519,14 @@ internal sealed class ProfileService
 
         if (profile is not null)
         {
-            // Repair any elements with an invalid (legacy or corrupt) canvas size in memory.
-            // Not persisted here; a subsequent manual save writes the repair back to disk.
+            // Repair an invalid (legacy) canvas size before repairing elements against it, so
+            // their own repair clamps against the correct bounds. Neither repair is persisted
+            // here; a subsequent manual save writes them back to disk.
+            profile.NormalizeLegacyCanvasSize();
+
             foreach (var element in profile.Elements)
             {
-                element.NormalizeLegacyLayout();
+                element.NormalizeLegacyLayout(profile.CanvasWidth, profile.CanvasHeight);
             }
         }
 
@@ -524,12 +600,15 @@ internal sealed class ProfileService
 
     private static ProfileDocument CreateDefaultProfile(ulong ownerContentId) => new()
     {
+        Version = 2,
         ProfileId = Guid.NewGuid(),
         OwnerContentId = ownerContentId,
         Name = "Default",
         Revision = 0,
         CreatedAtUtc = DateTime.UtcNow,
         UpdatedAtUtc = DateTime.UtcNow,
+        CanvasWidth = ProfileDocument.DefaultCanvasWidth,
+        CanvasHeight = ProfileDocument.DefaultCanvasHeight,
         Elements = new List<ProfileElement>(),
     };
 
@@ -542,6 +621,8 @@ internal sealed class ProfileService
         Revision = revision,
         CreatedAtUtc = source.CreatedAtUtc,
         UpdatedAtUtc = updatedAtUtc,
+        CanvasWidth = source.CanvasWidth,
+        CanvasHeight = source.CanvasHeight,
         BackgroundAssetId = source.BackgroundAssetId,
         BackgroundFitMode = source.BackgroundFitMode,
         BackgroundOpacity = source.BackgroundOpacity,
@@ -550,6 +631,9 @@ internal sealed class ProfileService
 
     /// <summary>Immutable snapshot of a profile's background fields, for undo/redo.</summary>
     internal readonly record struct BackgroundState(Guid? AssetId, BackgroundFitMode FitMode, float Opacity);
+
+    /// <summary>Immutable snapshot of a profile's canvas size and every element's Position/Size, for undo/redo of a canvas resize.</summary>
+    internal readonly record struct CanvasLayoutState(float CanvasWidth, float CanvasHeight, Dictionary<Guid, (Vector2 Position, Vector2 Size)> ElementLayouts);
 
     private static void AssertFrameworkThread()
     {

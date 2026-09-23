@@ -7,10 +7,18 @@ public sealed class ProfileDocument
 {
     public const int MaxElementCount = 256;
 
-    // Logical canvas size; element Position/Size are expressed in this space, independent of
-    // the edit window's actual pixel size or the editor's current zoom level.
-    public const float CanvasWidth = 1920f;
-    public const float CanvasHeight = 1080f;
+    // The canvas size every profile saved before per-profile canvas dimensions existed was
+    // implicitly fixed at. A profile whose JSON predates CanvasWidth/CanvasHeight deserializes
+    // those fields to 0 (the unset float default), which NormalizeLegacyCanvasSize below treats
+    // as "repair to this size" — the same zero-sentinel convention ProfileElement.Size already
+    // uses for legacy layout repair.
+    public const float LegacyCanvasWidth = 1920f;
+    public const float LegacyCanvasHeight = 1080f;
+
+    // Default for newly created profiles: the AetherFrame Adventure Plate canvas, matching the
+    // real FFXIV Adventurer Plate's proportions (16:9, not the old fixed 1920x1080 canvas' scale).
+    public const float DefaultCanvasWidth = 1280f;
+    public const float DefaultCanvasHeight = 720f;
 
     public int Version { get; set; } = 1;
 
@@ -26,6 +34,17 @@ public sealed class ProfileDocument
 
     public DateTime UpdatedAtUtc { get; set; } = DateTime.UtcNow;
 
+    /// <summary>
+    /// Logical canvas size; element Position/Size are expressed in this space, independent of
+    /// the edit window's actual pixel size or the editor's current zoom level. 0 (the unset
+    /// float default) means "not yet resolved" — see <see cref="NormalizeLegacyCanvasSize"/>.
+    /// Never mutate directly to resize an existing profile; that must also decide whether
+    /// element layouts scale along with it, which is an editor (EditorSession) concern.
+    /// </summary>
+    public float CanvasWidth { get; set; }
+
+    public float CanvasHeight { get; set; }
+
     public List<ProfileElement> Elements { get; set; } = new();
 
     /// <summary>
@@ -38,6 +57,27 @@ public sealed class ProfileDocument
     public BackgroundFitMode BackgroundFitMode { get; set; } = BackgroundFitMode.Cover;
 
     public float BackgroundOpacity { get; set; } = 1f;
+
+    /// <summary>
+    /// Repairs a profile loaded with an invalid (non-positive) canvas size: a legacy profile
+    /// saved before CanvasWidth/CanvasHeight existed, which deserializes both to 0. Must run
+    /// before <see cref="ProfileElement.NormalizeLegacyLayout"/> on this profile's elements, so
+    /// their own repair clamps against the correct (now-resolved) canvas bounds. A profile that
+    /// already has a valid size — including one explicitly saved at 1920x1080 — is left
+    /// untouched, so opening a profile never changes its dimensions on its own.
+    /// </summary>
+    /// <returns>True if a repair was applied.</returns>
+    internal bool NormalizeLegacyCanvasSize()
+    {
+        if (CanvasWidth > 0f && CanvasHeight > 0f)
+        {
+            return false;
+        }
+
+        CanvasWidth = LegacyCanvasWidth;
+        CanvasHeight = LegacyCanvasHeight;
+        return true;
+    }
 }
 
 public enum BackgroundFitMode

@@ -18,6 +18,23 @@ public sealed class TextProfileElement : ProfileElement
 
     public bool Wrap { get; set; } = true;
 
+    /// <summary>
+    /// One of the ids in <see cref="ProfileFontFamilies"/>. Absent from JSON written before this
+    /// field existed, which deserializes it as the default <see cref="ProfileFontFamilies.Default"/>
+    /// — Dalamud's own default font, matching every legacy element's prior appearance exactly.
+    /// An unrecognized id (e.g. a family removed in a later build) falls back to the default at
+    /// render time rather than failing to load.
+    /// </summary>
+    public string FontFamily { get; set; } = ProfileFontFamilies.DalamudDefault;
+
+    public bool Bold { get; set; }
+
+    public bool Italic { get; set; }
+
+    public bool Underline { get; set; }
+
+    public bool Strikethrough { get; set; }
+
     internal override ProfileElement Clone() => new TextProfileElement
     {
         Id = Id,
@@ -26,11 +43,17 @@ public sealed class TextProfileElement : ProfileElement
         Position = Position,
         Size = Size,
         ZIndex = ZIndex,
+        Role = Role,
         Text = Text,
         FontSize = FontSize,
         Color = Color,
         Alignment = Alignment,
         Wrap = Wrap,
+        FontFamily = FontFamily,
+        Bold = Bold,
+        Italic = Italic,
+        Underline = Underline,
+        Strikethrough = Strikethrough,
     };
 
     internal override void CopyFrom(ProfileElement source)
@@ -44,6 +67,11 @@ public sealed class TextProfileElement : ProfileElement
             Color = text.Color;
             Alignment = text.Alignment;
             Wrap = text.Wrap;
+            FontFamily = text.FontFamily;
+            Bold = text.Bold;
+            Italic = text.Italic;
+            Underline = text.Underline;
+            Strikethrough = text.Strikethrough;
         }
     }
 }
