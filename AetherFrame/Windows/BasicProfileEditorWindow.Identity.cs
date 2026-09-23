@@ -8,6 +8,7 @@ using AetherFrame.Services.Fonts;
 using AetherFrame.UI.Editor;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
+using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
 
 namespace AetherFrame.Windows;
@@ -21,6 +22,11 @@ namespace AetherFrame.Windows;
 internal sealed partial class BasicProfileEditorWindow
 {
     private const string TitlePickerPopupId = "##AetherFrameTitlePicker";
+
+    // BeginPopup always auto-resizes to its content, so every size inside the picker is fixed:
+    // a -1 / fill size there would be derived from the popup's own size and feed back into it.
+    private const float TitlePickerWidth = 380f;
+    private const float TitlePickerListHeight = 320f;
 
     private static readonly string[] TitleSourceLabels = ["None", "FFXIV Title", "Custom"];
     private static readonly string[] AlignmentLabels = ["Left", "Center", "Right"];
@@ -535,7 +541,6 @@ internal sealed partial class BasicProfileEditorWindow
             ImGui.OpenPopup(TitlePickerPopupId);
         }
 
-        ImGui.SetNextWindowSize(new Vector2(380f, 420f), ImGuiCond.Appearing);
         using var popup = ImRaii.Popup(TitlePickerPopupId);
         if (!popup.Success)
         {
@@ -553,23 +558,27 @@ internal sealed partial class BasicProfileEditorWindow
             ImGui.SetKeyboardFocusHere();
         }
 
-        ImGui.SetNextItemWidth(-1);
+        var pickerWidth = TitlePickerWidth * ImGuiHelpers.GlobalScale;
+        ImGui.SetNextItemWidth(pickerWidth);
         ImGui.InputTextWithHint("##TitleSearch", "Search titles...", ref titleSearch, 64);
 
-        if (titlePickerUnlockKnown)
+        using (ImRaii.TextWrapPos(ImGui.GetCursorPosX() + pickerWidth))
         {
-            Hint("Your unlocked titles are listed first.");
-        }
-        else
-        {
-            Hint("Unlocked titles aren't known yet: open Character > Titles in game once this session\nto load them. Until then every title is listed, unlocked or not.");
+            if (titlePickerUnlockKnown)
+            {
+                Hint("Your unlocked titles are listed first.");
+            }
+            else
+            {
+                Hint("Unlocked titles aren't known yet: open Character > Titles in game once this session\nto load them. Until then every title is listed, unlocked or not.");
+            }
         }
 
         var feminine = GameTitleCatalog.UseFeminineForms;
         var selectedId = profile.BasicIdentity is { TitleSource: IdentityTitleSource.GameTitle } settings ? settings.GameTitleId : 0u;
         var search = titleSearch.Trim();
 
-        using (var list = ImRaii.Child("##TitleList", new Vector2(-1, -1), true))
+        using (var list = ImRaii.Child("##TitleList", new Vector2(pickerWidth, TitlePickerListHeight * ImGuiHelpers.GlobalScale), true))
         {
             if (list.Success)
             {
