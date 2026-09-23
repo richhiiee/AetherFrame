@@ -12,6 +12,10 @@ internal enum EditorShortcutActionKind
     Delete,
     Undo,
     Redo,
+    Save,
+    Duplicate,
+    FitCanvas,
+    ExitPreview,
 }
 
 internal readonly record struct EditorShortcutAction(EditorShortcutActionKind Kind, Vector2 NudgeDelta = default);
@@ -43,6 +47,10 @@ internal sealed class KeyboardShortcutService : IDisposable
     private bool previousZDown;
     private bool previousYDown;
     private bool previousDeleteDown;
+    private bool previousSDown;
+    private bool previousDDown;
+    private bool previousFDown;
+    private bool previousEscapeDown;
 
     private DateTime lastUpdateUtc = DateTime.UtcNow;
 
@@ -51,6 +59,8 @@ internal sealed class KeyboardShortcutService : IDisposable
     // thread.
     private volatile bool editorFocused;
     private volatile bool textInputActive;
+    private volatile bool previewActive;
+    private volatile bool canvasInteractionActive;
 
     internal KeyboardShortcutService()
     {
@@ -67,10 +77,21 @@ internal sealed class KeyboardShortcutService : IDisposable
     /// <see cref="IFramework.Update"/> tick. Call once per Draw — and with both flags false as
     /// soon as the editor window closes or loses focus — so interception stops immediately.
     /// </summary>
-    internal void SetEditorFocusState(bool editorFocused, bool textInputActive)
+    internal void SetEditorFocusState(bool editorFocused, bool textInputActive) =>
+        SetEditorFocusState(editorFocused, textInputActive, previewActive: false, canvasInteractionActive: false);
+
+    /// <summary>
+    /// Full form of <see cref="SetEditorFocusState(bool, bool)"/>. <paramref name="previewActive"/>
+    /// limits shortcuts to leaving Clean Preview (Escape) and saving; editing keys are left alone.
+    /// <paramref name="canvasInteractionActive"/> (a drag/resize the editor owns) is the only time
+    /// Alt — which the editor reads to bypass snapping — is kept from the game.
+    /// </summary>
+    internal void SetEditorFocusState(bool editorFocused, bool textInputActive, bool previewActive, bool canvasInteractionActive)
     {
         this.editorFocused = editorFocused;
         this.textInputActive = textInputActive;
+        this.previewActive = previewActive;
+        this.canvasInteractionActive = canvasInteractionActive;
     }
 
     /// <summary>Drains and returns any shortcut actions queued since the last call.</summary>
@@ -95,17 +116,9 @@ internal sealed class KeyboardShortcutService : IDisposable
         var deltaSeconds = (float)(now - lastUpdateUtc).TotalSeconds;
         lastUpdateUtc = now;
 
-        if (!editorFocused || textInputActive)
+        if (!editorFocused)
         {
-            // Not our turn: release held-key state so a later focus regain starts clean rather
-            // than treating an already-held key as a fresh press or resuming mid-repeat.
-            leftRepeat.Reset();
-            rightRepeat.Reset();
-            upRepeat.Reset();
-            downRepeat.Reset();
-            previousZDown = false;
-            previousYDown = false;
-            previousDeleteDown = false;
+            ResetHeldKeys();
             return;
         }
 
@@ -113,6 +126,72 @@ internal sealed class KeyboardShortcutService : IDisposable
 
         var ctrlDown = keyState[VirtualKey.CONTROL];
         var shiftDown = keyState[VirtualKey.SHIFT];
+        var altDown = keyState[VirtualKey.MENU];
+
+        var sDown = keyState[VirtualKey.S];
+        var sPressed = sDown && !previousSDown;
+        previousSDown = sDown;
+
+        // Ctrl+S saves even mid-typing: it has no meaning inside a text field, and saving is
+        // exactly what someone pressing it while editing text expects.
+        if (ctrlDown && sPressed)
+        {
+            Enqueue(EditorShortcutActionKind.Save);
+            SuppressGameKey(keyState, VirtualKey.S);
+        }
+
+        if (textInputActive)
+        {
+            // A text field owns every other key: release held-key state so a later return to the
+            // canvas starts clean rather than treating a held key as a fresh press.
+            ResetHeldKeys(keepSaveKey: true);
+            return;
+        }
+
+        var escapeDown = keyState[VirtualKey.ESCAPE];
+        var escapePressed = escapeDown && !previousEscapeDown;
+        previousEscapeDown = escapeDown;
+
+        if (previewActive)
+        {
+            // Clean Preview is view-only: Escape leaves it (and must not also reach the game,
+            // where it would open the system menu or clear the target); nothing else is claimed.
+            if (escapePressed)
+            {
+                Enqueue(EditorShortcutActionKind.ExitPreview);
+                SuppressGameKey(keyState, VirtualKey.ESCAPE);
+            }
+
+            ResetHeldKeys(keepSaveKey: true, keepEscapeKey: true);
+            return;
+        }
+
+        if (canvasInteractionActive && altDown)
+        {
+            // The editor reads Alt (via ImGui) to bypass snapping during this drag; keep the game
+            // from also treating it as a held modifier. Never claimed outside such a drag.
+            SuppressGameKey(keyState, VirtualKey.MENU);
+        }
+
+        var dDown = keyState[VirtualKey.D];
+        var dPressed = dDown && !previousDDown;
+        previousDDown = dDown;
+
+        var fDown = keyState[VirtualKey.F];
+        var fPressed = fDown && !previousFDown;
+        previousFDown = fDown;
+
+        if (ctrlDown && dPressed)
+        {
+            Enqueue(EditorShortcutActionKind.Duplicate);
+            SuppressGameKey(keyState, VirtualKey.D);
+        }
+
+        if (fPressed && !ctrlDown && !altDown && !shiftDown)
+        {
+            Enqueue(EditorShortcutActionKind.FitCanvas);
+            SuppressGameKey(keyState, VirtualKey.F);
+        }
 
         var zDown = keyState[VirtualKey.Z];
         var zPressed = zDown && !previousZDown;
@@ -169,6 +248,33 @@ internal sealed class KeyboardShortcutService : IDisposable
         {
             Enqueue(new Vector2(0f, step));
             SuppressGameKey(keyState, VirtualKey.DOWN);
+        }
+    }
+
+    /// <summary>
+    /// Releases held-key state so a later focus regain starts clean rather than treating an
+    /// already-held key as a fresh press or resuming mid-repeat.
+    /// </summary>
+    private void ResetHeldKeys(bool keepSaveKey = false, bool keepEscapeKey = false)
+    {
+        leftRepeat.Reset();
+        rightRepeat.Reset();
+        upRepeat.Reset();
+        downRepeat.Reset();
+        previousZDown = false;
+        previousYDown = false;
+        previousDeleteDown = false;
+        previousDDown = false;
+        previousFDown = false;
+
+        if (!keepSaveKey)
+        {
+            previousSDown = false;
+        }
+
+        if (!keepEscapeKey)
+        {
+            previousEscapeDown = false;
         }
     }
 

@@ -3,46 +3,48 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
 using System.Threading.Tasks;
-using AetherFrame.Domain.Characters;
 using AetherFrame.Domain.Profiles;
-using AetherFrame.Persistence;
+using AetherFrame.Services.Plates;
 
 namespace AetherFrame.Services;
 
 /// <summary>
-/// Owns the currently loaded character binding and profile.
-/// Public members are safe to call from ImGui Draw (the render thread); any work that
-/// must run on the Dalamud framework thread is dispatched internally via IFramework.Run.
+/// Owns the Plate currently open in the editors: one live, editable <see cref="ProfileDocument"/>
+/// shared by the Basic and Advanced editors (and shown live by the Plate Viewer). Opening a
+/// Plate always produces a brand-new document instance, which is what tells the editors to
+/// start a fresh baseline and history. Which Plates exist, their saved state, and character
+/// associations belong to <see cref="PlateLibraryService"/>; opening, editing, or saving a Plate
+/// never changes which Plate is Active.
+///
+/// A Plate is a character-independent document, so editing needs no logged-in character.
+/// Public members are safe to call from ImGui Draw (the render thread); persistence runs
+/// through the library, which dispatches it to the framework thread.
 /// </summary>
 internal sealed class ProfileService
 {
     private readonly object gate = new();
-    private readonly CharacterBindingRepository bindingRepository;
-    private readonly ProfileRepository profileRepository;
-    private readonly CharacterIdentityService characterIdentity;
+    private readonly PlateLibraryService library;
 
-    private CharacterBinding? currentBinding;
     private ProfileDocument? currentProfile;
     private bool isBusy;
 
-    internal ProfileService(
-        CharacterBindingRepository bindingRepository,
-        ProfileRepository profileRepository,
-        CharacterIdentityService characterIdentity)
+    internal ProfileService(PlateLibraryService library)
     {
-        this.bindingRepository = bindingRepository;
-        this.profileRepository = profileRepository;
-        this.characterIdentity = characterIdentity;
+        this.library = library;
+        library.PlateRenamed += OnPlateRenamed;
+        library.PlateDeleted += OnPlateDeleted;
     }
 
-    internal CharacterBinding? CurrentBinding
-    {
-        get { lock (gate) return currentBinding; }
-    }
-
+    /// <summary>The live document of the open Plate, or null when no Plate is open.</summary>
     internal ProfileDocument? CurrentProfile
     {
         get { lock (gate) return currentProfile; }
+    }
+
+    /// <summary>The open Plate's id, or null when no Plate is open.</summary>
+    internal Guid? OpenPlateId
+    {
+        get { lock (gate) return currentProfile?.ProfileId; }
     }
 
     internal bool IsBusy
@@ -51,43 +53,51 @@ internal sealed class ProfileService
     }
 
     /// <summary>
-    /// Loads the character binding and active profile for the currently logged-in character.
-    /// Safe to call from ImGui Draw; the actual load runs on the framework thread.
+    /// Opens a Plate's saved state for editing, replacing whatever was open (the caller is
+    /// responsible for asking about unsaved changes first). Reopening the already-open Plate is
+    /// a no-op, so it never discards edits. Throws <see cref="PlateLibraryException"/> when the
+    /// Plate can't be opened.
     /// </summary>
-    internal async Task LoadForCurrentCharacterAsync()
+    internal void OpenPlate(Guid plateId)
     {
         lock (gate)
         {
-            if (isBusy)
+            if (currentProfile?.ProfileId == plateId)
             {
                 return;
             }
 
-            isBusy = true;
+            if (isBusy)
+            {
+                throw new InvalidOperationException("A save is in progress.");
+            }
         }
 
-        try
+        var document = library.OpenDocumentForEditing(plateId);
+
+        lock (gate)
         {
-            await DalamudServices.Framework.Run(LoadForCurrentCharacterCoreAsync).ConfigureAwait(false);
+            currentProfile = document;
         }
-        finally
+    }
+
+    /// <summary>Closes the open Plate without saving (the caller has already asked).</summary>
+    internal void CloseDocument()
+    {
+        lock (gate)
         {
-            lock (gate)
-            {
-                isBusy = false;
-            }
+            currentProfile = null;
         }
     }
 
     /// <summary>
-    /// Saves the currently loaded profile. Safe to call from ImGui Draw; the actual write
-    /// runs on the framework thread.
+    /// Saves the open Plate. Safe to call from ImGui Draw; the write runs through the library on
+    /// the framework thread. Saving never changes which Plate is Active.
     /// </summary>
     internal async Task SaveCurrentProfileAsync()
     {
         ProfileDocument snapshot;
-        Guid profileId;
-        ulong ownerContentId;
+        ProfileDocument savedInstance;
         int newRevision;
         DateTime updatedAtUtc;
 
@@ -95,13 +105,12 @@ internal sealed class ProfileService
         {
             var profile = RequireEditableProfileLocked();
 
-            profileId = profile.ProfileId;
-            ownerContentId = currentBinding!.ContentId;
+            savedInstance = profile;
             newRevision = profile.Revision + 1;
             updatedAtUtc = DateTime.UtcNow;
 
-            // Capture ownership and content now, before dispatching to the framework thread,
-            // so a later character/profile switch can't be attributed to this save.
+            // Capture content now, before the write is dispatched, so edits made (or another
+            // Plate opened) while it's in flight can't leak into this save.
             snapshot = CloneForSave(profile, newRevision, updatedAtUtc);
 
             isBusy = true;
@@ -110,7 +119,7 @@ internal sealed class ProfileService
         var succeeded = false;
         try
         {
-            await DalamudServices.Framework.Run(() => SaveCurrentProfileCoreAsync(snapshot)).ConfigureAwait(false);
+            await library.SavePlateDocumentAsync(snapshot).ConfigureAwait(false);
             succeeded = true;
         }
         finally
@@ -119,18 +128,11 @@ internal sealed class ProfileService
             {
                 isBusy = false;
 
-                if (succeeded)
+                if (succeeded && ReferenceEquals(currentProfile, savedInstance))
                 {
-                    var stillSameProfile = currentProfile is not null && currentProfile.ProfileId == profileId;
-                    var stillSameCharacter = currentBinding is not null
-                        && currentBinding.ContentId == ownerContentId
-                        && characterIdentity.CurrentContentId == ownerContentId;
-
-                    if (stillSameProfile && stillSameCharacter)
-                    {
-                        currentProfile!.Revision = newRevision;
-                        currentProfile.UpdatedAtUtc = updatedAtUtc;
-                    }
+                    currentProfile.Revision = newRevision;
+                    currentProfile.UpdatedAtUtc = updatedAtUtc;
+                    currentProfile.Name = snapshot.Name;
                 }
             }
         }
@@ -153,38 +155,46 @@ internal sealed class ProfileService
                 content = content[..TextProfileElement.MaxTextLength];
             }
 
-            var element = new TextProfileElement { Text = content, ZIndex = NextZIndexLocked(profile) };
+            var element = new TextProfileElement
+            {
+                Text = content,
+                ZIndex = NextZIndexLocked(profile),
+                // Explicit, not the property's own default: new text should use AetherFrame's
+                // fully-styled default family, while legacy/unset elements must keep resolving
+                // to TextProfileElement.FontFamily's own default (Dalamud Default) — see that
+                // property's doc comment for why those two defaults must stay independent.
+                FontFamily = ProfileFontFamilies.AetherFrameSans,
+            };
+            element.Name = ProfileElementNames.NextSequentialName(profile.Elements, element);
             profile.Elements.Add(element);
             return element.Id;
         }
     }
 
     /// <summary>
-    /// Adds an image element referencing an already-imported asset to the currently loaded
-    /// profile. Synchronous UI mutation; safe to call directly from ImGui Draw. Returns the new
-    /// element's id.
+    /// Adds a fully-formed element (id, role, position, styling, etc. already set by the
+    /// caller) to the currently loaded profile, assigning it the next Z-index. Unlike
+    /// <see cref="AddTextElement"/>, which applies its own defaults, this lets a caller (the
+    /// Advanced editor's image import, or the Basic editor's role-tagged elements) fully control
+    /// the new element's initial layout and styling. Synchronous UI mutation; safe to call
+    /// directly from ImGui Draw.
     /// </summary>
-    internal Guid AddImageElement(Guid assetId)
+    internal Guid AddElement(ProfileElement element)
     {
         lock (gate)
         {
             var profile = RequireEditableProfileLocked();
             EnsureCapacityLocked(profile);
 
-            var size = new Vector2(ImageProfileElement.DefaultSize, ImageProfileElement.DefaultSize);
-            var maxX = Math.Max(0f, ProfileDocument.CanvasWidth - size.X);
-            var maxY = Math.Max(0f, ProfileDocument.CanvasHeight - size.Y);
-            var position = new Vector2(
-                Math.Clamp(ProfileElement.DefaultPositionX, 0f, maxX),
-                Math.Clamp(ProfileElement.DefaultPositionY, 0f, maxY));
+            element.ZIndex = NextZIndexLocked(profile);
 
-            var element = new ImageProfileElement
+            // Free-form elements get a sequential automatic name ("Image 3"); Basic role elements
+            // deliberately stay unnamed so their display name follows their role label.
+            if (string.IsNullOrWhiteSpace(element.Name) && element.Role == ProfileElementRole.None)
             {
-                AssetId = assetId,
-                Position = position,
-                Size = size,
-                ZIndex = NextZIndexLocked(profile),
-            };
+                element.Name = ProfileElementNames.NextSequentialName(profile.Elements, element);
+            }
+
             profile.Elements.Add(element);
             return element.Id;
         }
@@ -245,8 +255,9 @@ internal sealed class ProfileService
     }
 
     /// <summary>
-    /// Duplicates an existing element: new id, same editable properties, offset and clamped
-    /// position, placed above the source in z-order. Returns the duplicate's id.
+    /// Duplicates an existing element: new id, same styling and visual settings, a "Copy" layer
+    /// name, offset and clamped position so it's visibly distinct, placed above everything in
+    /// z-order. Returns the duplicate's id.
     /// </summary>
     internal Guid DuplicateElement(Guid elementId)
     {
@@ -260,9 +271,15 @@ internal sealed class ProfileService
 
             var duplicate = source.Clone();
             duplicate.Id = Guid.NewGuid();
+            duplicate.Name = ProfileElementNames.MakeCopyName(profile.Elements, source);
 
-            var maxX = Math.Max(0f, ProfileDocument.CanvasWidth - duplicate.Size.X);
-            var maxY = Math.Max(0f, ProfileDocument.CanvasHeight - duplicate.Size.Y);
+            // A copy of a Basic-owned element (e.g. the portrait) is an ordinary free-form element:
+            // cloning the role too would give the profile two "portrait" slots, and Basic mode's
+            // role lookup would then silently pick whichever happens to come first.
+            duplicate.Role = ProfileElementRole.None;
+
+            var maxX = Math.Max(0f, profile.CanvasWidth - duplicate.Size.X);
+            var maxY = Math.Max(0f, profile.CanvasHeight - duplicate.Size.Y);
             duplicate.Position = new Vector2(
                 Math.Clamp(duplicate.Position.X + offset, 0f, maxX),
                 Math.Clamp(duplicate.Position.Y + offset, 0f, maxY));
@@ -308,6 +325,33 @@ internal sealed class ProfileService
         ordered.Insert(0, element);
     });
 
+    /// <summary>
+    /// Moves an element directly next to another one in the visual stacking order — just above
+    /// <paramref name="targetElementId"/> when <paramref name="placeAbove"/>, otherwise just below
+    /// it. Used by the Layers panel's drag reordering.
+    /// </summary>
+    internal void MoveNextTo(Guid elementId, Guid targetElementId, bool placeAbove) => ReorderZIndex(elementId, (ordered, index) =>
+    {
+        if (elementId == targetElementId)
+        {
+            return;
+        }
+
+        var element = ordered[index];
+        ordered.RemoveAt(index);
+
+        var targetIndex = ordered.FindIndex(e => e.Id == targetElementId);
+        if (targetIndex < 0)
+        {
+            // Target vanished mid-drag: leave the order exactly as it was.
+            ordered.Insert(index, element);
+            return;
+        }
+
+        // Ascending paint order: "above" means later in the list.
+        ordered.Insert(placeAbove ? targetIndex + 1 : targetIndex, element);
+    });
+
     /// <summary>Captures every element's current ZIndex, e.g. for an undo/redo snapshot.</summary>
     internal Dictionary<Guid, int> SnapshotZOrder()
     {
@@ -336,46 +380,157 @@ internal sealed class ProfileService
     }
 
     /// <summary>
-    /// Mutates the current profile's background fields (asset, fit mode, opacity). Kept
-    /// separate from <see cref="Elements"/> since the background isn't itself a
-    /// <see cref="ProfileElement"/> (no Z order, not hit-testable).
+    /// Mutates the current profile's <see cref="ProfileBackground"/>. Kept separate from element
+    /// mutation since the background isn't itself a <see cref="ProfileElement"/> (no Z order, not
+    /// hit-testable).
     /// </summary>
-    internal void UpdateBackground(Action<ProfileDocument> update)
+    internal void UpdateBackground(Action<ProfileBackground> update)
     {
         lock (gate)
         {
             var profile = RequireEditableProfileLocked();
-            update(profile);
+            update(GetOrCreateBackgroundLocked(profile));
         }
     }
 
-    /// <summary>Captures the current profile's background fields, e.g. for an undo/redo snapshot.</summary>
-    internal BackgroundState CaptureBackgroundState()
+    /// <summary>Captures an independent copy of the current background, e.g. for an undo/redo snapshot.</summary>
+    internal ProfileBackground CaptureBackgroundState()
     {
         lock (gate)
         {
             var profile = RequireEditableProfileLocked();
-            return new BackgroundState(profile.BackgroundAssetId, profile.BackgroundFitMode, profile.BackgroundOpacity);
+            return GetOrCreateBackgroundLocked(profile).Clone();
         }
     }
 
     /// <summary>Restores a previously captured background snapshot (see <see cref="CaptureBackgroundState"/>).</summary>
-    internal void RestoreBackgroundState(BackgroundState state)
+    internal void RestoreBackgroundState(ProfileBackground state)
     {
         lock (gate)
         {
             var profile = RequireEditableProfileLocked();
-            profile.BackgroundAssetId = state.AssetId;
-            profile.BackgroundFitMode = state.FitMode;
-            profile.BackgroundOpacity = state.Opacity;
+            profile.Background = state.Clone();
         }
     }
 
     /// <summary>
-    /// Verifies the current profile is safe to edit or save:
-    /// a profile and binding are loaded, no operation is busy, a character is logged in,
-    /// and the logged-in character matches the loaded binding's character.
-    /// Throws <see cref="InvalidOperationException"/> otherwise.
+    /// Captures an independent copy of everything the editor can change about the current
+    /// profile (canvas size, background, every element), e.g. as the "last saved" baseline or for
+    /// an undoable Revert to Saved.
+    /// </summary>
+    internal DocumentState CaptureDocumentState()
+    {
+        lock (gate)
+        {
+            return DocumentState.Capture(RequireEditableProfileLocked());
+        }
+    }
+
+    /// <summary>
+    /// Restores a previously captured <see cref="DocumentState"/> onto the live profile. The
+    /// element list instance itself is kept (only its contents are replaced), so nothing holding
+    /// a reference to it observes a different list.
+    /// </summary>
+    internal void RestoreDocumentState(DocumentState state)
+    {
+        lock (gate)
+        {
+            var profile = RequireEditableProfileLocked();
+            profile.CanvasWidth = state.CanvasWidth;
+            profile.CanvasHeight = state.CanvasHeight;
+            profile.Background = state.Background?.Clone();
+            profile.BasicIdentity = state.BasicIdentity?.Clone();
+
+            profile.Elements.Clear();
+            foreach (var element in state.Elements)
+            {
+                profile.Elements.Add(element.Clone());
+            }
+        }
+    }
+
+    /// <summary>
+    /// Resizes the current profile's canvas. When <paramref name="scaleContentsProportionally"/>
+    /// is true, every element's Position/Size is scaled by the same width/height ratio the
+    /// canvas itself changes by, so layouts stay proportioned to the new canvas; otherwise every
+    /// element's Position/Size is left exactly as-is (only the canvas bounds change). Rotation
+    /// values are never touched by either mode. A profile with an unresolved (zero) canvas size
+    /// scales as if it were the legacy 1920x1080 size, matching what it would already be
+    /// rendered/edited against.
+    /// </summary>
+    internal void ResizeCanvas(float newWidth, float newHeight, bool scaleContentsProportionally)
+    {
+        lock (gate)
+        {
+            var profile = RequireEditableProfileLocked();
+
+            if (scaleContentsProportionally)
+            {
+                var oldWidth = profile.CanvasWidth > 0f ? profile.CanvasWidth : ProfileDocument.LegacyCanvasWidth;
+                var oldHeight = profile.CanvasHeight > 0f ? profile.CanvasHeight : ProfileDocument.LegacyCanvasHeight;
+                var scale = new Vector2(newWidth / oldWidth, newHeight / oldHeight);
+
+                foreach (var element in profile.Elements)
+                {
+                    element.Position *= scale;
+                    element.Size *= scale;
+                }
+            }
+
+            profile.CanvasWidth = newWidth;
+            profile.CanvasHeight = newHeight;
+        }
+    }
+
+    /// <summary>Captures the current profile's canvas size and every element's Position/Size, e.g. for an undo/redo snapshot of a canvas resize.</summary>
+    internal CanvasLayoutState CaptureCanvasLayoutState()
+    {
+        lock (gate)
+        {
+            var profile = RequireEditableProfileLocked();
+            var elementLayouts = profile.Elements.ToDictionary(e => e.Id, e => (e.Position, e.Size));
+            return new CanvasLayoutState(profile.CanvasWidth, profile.CanvasHeight, elementLayouts);
+        }
+    }
+
+    /// <summary>Restores a previously captured canvas layout snapshot (see <see cref="CaptureCanvasLayoutState"/>).</summary>
+    internal void RestoreCanvasLayoutState(CanvasLayoutState state)
+    {
+        lock (gate)
+        {
+            var profile = RequireEditableProfileLocked();
+            profile.CanvasWidth = state.CanvasWidth;
+            profile.CanvasHeight = state.CanvasHeight;
+
+            foreach (var element in profile.Elements)
+            {
+                if (state.ElementLayouts.TryGetValue(element.Id, out var layout))
+                {
+                    element.Position = layout.Position;
+                    element.Size = layout.Size;
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Mutates the current profile's Basic Identity Header settings, creating them first if the
+    /// profile has none yet (only ever from an explicit Basic edit — see
+    /// <see cref="ProfileDocument.BasicIdentity"/>).
+    /// </summary>
+    internal void UpdateBasicIdentity(Func<BasicIdentityHeader> create, Action<BasicIdentityHeader> update)
+    {
+        lock (gate)
+        {
+            var profile = RequireEditableProfileLocked();
+            profile.BasicIdentity ??= create();
+            update(profile.BasicIdentity);
+        }
+    }
+
+    /// <summary>
+    /// Verifies the open Plate is safe to edit or save: a Plate is open and no save is in
+    /// progress. Throws <see cref="InvalidOperationException"/> otherwise.
     /// </summary>
     internal void RequireEditableProfile()
     {
@@ -396,7 +551,7 @@ internal sealed class ProfileService
         if (profile.Elements.Count >= ProfileDocument.MaxElementCount)
         {
             throw new InvalidOperationException(
-                $"Profile already has the maximum of {ProfileDocument.MaxElementCount} elements.");
+                $"A Plate can have at most {ProfileDocument.MaxElementCount} elements.");
         }
     }
 
@@ -431,73 +586,6 @@ internal sealed class ProfileService
         }
     }
 
-    private async Task LoadForCurrentCharacterCoreAsync()
-    {
-        AssertFrameworkThread();
-
-        if (!characterIdentity.IsCharacterLoggedIn)
-        {
-            lock (gate)
-            {
-                currentBinding = null;
-                currentProfile = null;
-            }
-
-            return;
-        }
-
-        var contentId = characterIdentity.CurrentContentId!.Value;
-
-        var binding = await bindingRepository.LoadOrCreateAsync(contentId).ConfigureAwait(false);
-
-        ProfileDocument? profile = binding.ActiveProfileId is { } activeProfileId
-            ? await profileRepository.LoadAsync(activeProfileId).ConfigureAwait(false)
-            : null;
-
-        if (profile is not null)
-        {
-            // Repair any elements with an invalid (legacy or corrupt) canvas size in memory.
-            // Not persisted here; a subsequent manual save writes the repair back to disk.
-            foreach (var element in profile.Elements)
-            {
-                element.NormalizeLegacyLayout();
-            }
-        }
-
-        if (profile is null)
-        {
-            profile = CreateDefaultProfile(contentId);
-            binding.ActiveProfileId = profile.ProfileId;
-
-            if (!binding.ProfileIds.Contains(profile.ProfileId))
-            {
-                binding.ProfileIds.Add(profile.ProfileId);
-            }
-
-            binding.UpdatedAtUtc = DateTime.UtcNow;
-
-            await profileRepository.SaveAsync(profile).ConfigureAwait(false);
-            await bindingRepository.SaveAsync(binding).ConfigureAwait(false);
-        }
-
-        lock (gate)
-        {
-            // Guard against a character switch that happened while this load was in flight.
-            if (characterIdentity.CurrentContentId == contentId)
-            {
-                currentBinding = binding;
-                currentProfile = profile;
-            }
-        }
-    }
-
-    private async Task SaveCurrentProfileCoreAsync(ProfileDocument snapshot)
-    {
-        AssertFrameworkThread();
-
-        await profileRepository.SaveAsync(snapshot).ConfigureAwait(false);
-    }
-
     /// <summary>
     /// Verifies the current profile is safe to mutate or save. Must be called while holding <see cref="gate"/>.
     /// </summary>
@@ -505,43 +593,16 @@ internal sealed class ProfileService
     {
         if (currentProfile is null)
         {
-            throw new InvalidOperationException("No profile is currently loaded.");
-        }
-
-        if (currentBinding is null)
-        {
-            throw new InvalidOperationException("No character binding is currently loaded.");
+            throw new InvalidOperationException("No Plate is open.");
         }
 
         if (isBusy)
         {
-            throw new InvalidOperationException("A profile operation is already in progress.");
-        }
-
-        if (!characterIdentity.IsCharacterLoggedIn)
-        {
-            throw new InvalidOperationException("No character is currently logged in.");
-        }
-
-        if (characterIdentity.CurrentContentId != currentBinding.ContentId)
-        {
-            throw new InvalidOperationException(
-                "The active character does not match the loaded profile's character binding.");
+            throw new InvalidOperationException("The Plate is being saved.");
         }
 
         return currentProfile;
     }
-
-    private static ProfileDocument CreateDefaultProfile(ulong ownerContentId) => new()
-    {
-        ProfileId = Guid.NewGuid(),
-        OwnerContentId = ownerContentId,
-        Name = "Default",
-        Revision = 0,
-        CreatedAtUtc = DateTime.UtcNow,
-        UpdatedAtUtc = DateTime.UtcNow,
-        Elements = new List<ProfileElement>(),
-    };
 
     private static ProfileDocument CloneForSave(ProfileDocument source, int revision, DateTime updatedAtUtc) => new()
     {
@@ -552,20 +613,68 @@ internal sealed class ProfileService
         Revision = revision,
         CreatedAtUtc = source.CreatedAtUtc,
         UpdatedAtUtc = updatedAtUtc,
-        BackgroundAssetId = source.BackgroundAssetId,
-        BackgroundFitMode = source.BackgroundFitMode,
-        BackgroundOpacity = source.BackgroundOpacity,
-        Elements = new List<ProfileElement>(source.Elements),
+        CanvasWidth = source.CanvasWidth,
+        CanvasHeight = source.CanvasHeight,
+        Background = source.Background?.Clone(),
+        BasicIdentity = source.BasicIdentity?.Clone(),
+
+        // Deep copies: the snapshot is serialized on the framework thread, so it must not share
+        // element instances the render thread could still be mutating.
+        Elements = source.Elements.Select(e => e.Clone()).ToList(),
+
+        // Unknown top-level properties and unknown-type elements ride along unchanged
+        // (JsonElement is immutable, so sharing the values is safe).
+        ExtensionData = source.ExtensionData is null ? null : new Dictionary<string, System.Text.Json.JsonElement>(source.ExtensionData),
+        UnrecognizedElements = source.UnrecognizedElements?.ToList(),
     };
 
-    /// <summary>Immutable snapshot of a profile's background fields, for undo/redo.</summary>
-    internal readonly record struct BackgroundState(Guid? AssetId, BackgroundFitMode FitMode, float Opacity);
-
-    private static void AssertFrameworkThread()
+    /// <summary>A rename in My Plates also relabels the open copy, so the next save keeps it.</summary>
+    private void OnPlateRenamed(Guid plateId, string name)
     {
-        if (!DalamudServices.Framework.IsInFrameworkUpdateThread)
+        lock (gate)
         {
-            throw new InvalidOperationException("This operation must run on the Dalamud framework thread.");
+            if (currentProfile?.ProfileId == plateId)
+            {
+                currentProfile.Name = name;
+            }
         }
     }
+
+    /// <summary>A deleted Plate can't stay open: it could never be saved again.</summary>
+    private void OnPlateDeleted(Guid plateId)
+    {
+        lock (gate)
+        {
+            if (currentProfile?.ProfileId == plateId)
+            {
+                currentProfile = null;
+            }
+        }
+    }
+
+    /// <summary>Must be called while holding <see cref="gate"/>. Resolves a missing background
+    /// (a profile that somehow skipped load normalization) rather than failing an edit.</summary>
+    private static ProfileBackground GetOrCreateBackgroundLocked(ProfileDocument profile)
+    {
+        profile.NormalizeLegacyBackground();
+        return profile.Background!;
+    }
+
+    /// <summary>
+    /// Immutable (by convention — never mutate the contained instances) snapshot of every
+    /// editable part of a profile: canvas size, background, and independent element clones.
+    /// </summary>
+    internal sealed record DocumentState(
+        float CanvasWidth, float CanvasHeight, ProfileBackground? Background, BasicIdentityHeader? BasicIdentity, List<ProfileElement> Elements)
+    {
+        internal static DocumentState Capture(ProfileDocument profile) => new(
+            profile.CanvasWidth,
+            profile.CanvasHeight,
+            profile.Background?.Clone(),
+            profile.BasicIdentity?.Clone(),
+            profile.Elements.Select(e => e.Clone()).ToList());
+    }
+
+    /// <summary>Immutable snapshot of a profile's canvas size and every element's Position/Size, for undo/redo of a canvas resize.</summary>
+    internal readonly record struct CanvasLayoutState(float CanvasWidth, float CanvasHeight, Dictionary<Guid, (Vector2 Position, Vector2 Size)> ElementLayouts);
 }

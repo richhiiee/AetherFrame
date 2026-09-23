@@ -1,5 +1,5 @@
 using System;
-using System.Collections.Generic;
+using AetherFrame.Services.Caching;
 using Dalamud.Interface.Textures;
 using Dalamud.Interface.Textures.TextureWraps;
 
@@ -12,12 +12,25 @@ namespace AetherFrame.Services;
 /// switch or plugin unload) and lets Dalamud's own shared-texture lifetime take it from there —
 /// <see cref="ISharedImmediateTexture"/> is not itself disposable, and disposing a rented
 /// <see cref="IDalamudTextureWrap"/> here would fight Dalamud's own sharing/caching.
+///
+/// <para><b>Bounds.</b> The GPU memory itself is Dalamud's: a shared immediate texture is only
+/// kept resident while something keeps drawing it, so a Plate that stops being shown releases
+/// its images without anything here being disposed. What this class owns is its own lookup
+/// state, which is LRU-bounded to <see cref="MaxCachedAssets"/> assets: far more than any one
+/// Plate can show (a Plate holds at most 256 elements, and in practice a handful of images), yet
+/// small enough that previewing many Plates in the Plate Viewer can't grow it without limit.</para>
 /// </summary>
 internal sealed class ImageTextureCache
 {
+    internal const int MaxCachedAssets = 256;
+
     private readonly AssetStorageService assetStorage;
-    private readonly Dictionary<Guid, ISharedImmediateTexture?> textures = new();
-    private readonly HashSet<Guid> loggedFailures = new();
+    private readonly LruCache<Guid, ISharedImmediateTexture?> textures = new(MaxCachedAssets);
+    private readonly LruCache<Guid, bool> loggedFailures = new(MaxCachedAssets);
+
+    // Header-read native sizes for assets whose texture hasn't finished loading yet; read at
+    // most once per asset (see GetNativeSize).
+    private readonly LruCache<Guid, (int Width, int Height)?> headerSizes = new(MaxCachedAssets);
 
     internal ImageTextureCache(AssetStorageService assetStorage)
     {
@@ -34,7 +47,7 @@ internal sealed class ImageTextureCache
         {
             var path = assetStorage.ResolveAssetPath(assetId);
             shared = path is null ? null : DalamudServices.TextureProvider.GetFromFile(path);
-            textures[assetId] = shared;
+            textures.Set(assetId, shared);
 
             if (shared is null)
             {
@@ -62,11 +75,34 @@ internal sealed class ImageTextureCache
         return null;
     }
 
+    /// <summary>
+    /// The asset's native pixel size: from its loaded texture when available, otherwise from its
+    /// file header (read once and cached, so this is cheap to call every frame), or null if the
+    /// asset is missing or unreadable.
+    /// </summary>
+    internal (int Width, int Height)? GetNativeSize(Guid assetId)
+    {
+        if (GetWrapOrNull(assetId) is { } wrap)
+        {
+            return (wrap.Width, wrap.Height);
+        }
+
+        if (!headerSizes.TryGetValue(assetId, out var size))
+        {
+            var path = assetStorage.ResolveAssetPath(assetId);
+            size = path is null ? null : ImageDimensionReader.TryReadDimensions(path);
+            headerSizes.Set(assetId, size);
+        }
+
+        return size;
+    }
+
     /// <summary>Forces a fresh load next time an asset is requested, e.g. after Replace Image.</summary>
     internal void Invalidate(Guid assetId)
     {
         textures.Remove(assetId);
         loggedFailures.Remove(assetId);
+        headerSizes.Remove(assetId);
     }
 
     /// <summary>Drops every cached texture reference, e.g. on profile switch or plugin unload.</summary>
@@ -74,12 +110,14 @@ internal sealed class ImageTextureCache
     {
         textures.Clear();
         loggedFailures.Clear();
+        headerSizes.Clear();
     }
 
     private void LogFailureOnce(Guid assetId, string reason)
     {
-        if (loggedFailures.Add(assetId))
+        if (!loggedFailures.ContainsKey(assetId))
         {
+            loggedFailures.Set(assetId, true);
             DalamudServices.Log.Warning($"AetherFrame could not load image asset {assetId}: {reason}");
         }
     }
