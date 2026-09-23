@@ -16,7 +16,17 @@ public abstract class ProfileElement
     public const float DefaultWidth = 220f;
     public const float DefaultHeight = 50f;
 
+    public const int MaxNameLength = 64;
+
     public Guid Id { get; set; } = Guid.NewGuid();
+
+    /// <summary>
+    /// User-editable layer name, shown only in editor UI (Layers panel, Inspector). Never affects
+    /// rendering. Empty — the default, including for every legacy element saved before this field
+    /// existed — means "use the automatic name" (see <see cref="ProfileElementNames.GetDisplayName"/>),
+    /// so opening an old profile never has to write names into it.
+    /// </summary>
+    public string Name { get; set; } = string.Empty;
 
     public bool Visible { get; set; } = true;
 
@@ -82,12 +92,44 @@ public abstract class ProfileElement
     /// </summary>
     internal virtual void CopyFrom(ProfileElement source)
     {
+        Name = source.Name;
         Visible = source.Visible;
         Locked = source.Locked;
         Position = source.Position;
         Size = source.Size;
         ZIndex = source.ZIndex;
         Role = source.Role;
+    }
+
+    /// <summary>
+    /// Value equality over every persistent property (including <see cref="Id"/>) — the same set
+    /// <see cref="Clone"/>/<see cref="CopyFrom"/> carry. Used by the editor's dirty-state check.
+    /// Kept alongside Clone/CopyFrom so a newly added property is updated in all three together.
+    /// </summary>
+    internal virtual bool ContentEquals(ProfileElement other) =>
+        GetType() == other.GetType()
+        && Id == other.Id
+        && Name == other.Name
+        && Visible == other.Visible
+        && Locked == other.Locked
+        && Position == other.Position
+        && Size == other.Size
+        && ZIndex == other.ZIndex
+        && Role == other.Role;
+
+    /// <summary>Copies the base properties into a freshly constructed clone.</summary>
+    private protected T CloneBaseInto<T>(T clone)
+        where T : ProfileElement
+    {
+        clone.Id = Id;
+        clone.Name = Name;
+        clone.Visible = Visible;
+        clone.Locked = Locked;
+        clone.Position = Position;
+        clone.Size = Size;
+        clone.ZIndex = ZIndex;
+        clone.Role = Role;
+        return clone;
     }
 }
 

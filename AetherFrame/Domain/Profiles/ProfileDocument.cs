@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text.Json.Serialization;
 
 namespace AetherFrame.Domain.Profiles;
 
@@ -48,15 +49,28 @@ public sealed class ProfileDocument
     public List<ProfileElement> Elements { get; set; } = new();
 
     /// <summary>
-    /// Managed asset id of the profile's background image, or null for none. Rendered behind
-    /// every <see cref="ProfileElement"/>, not selectable via ordinary canvas hit testing, and
-    /// tracked separately from element Z order.
+    /// The background style (see <see cref="ProfileBackground"/>). Null only transiently: for a
+    /// profile saved before this model existed, until <see cref="NormalizeLegacyBackground"/>
+    /// derives it from the legacy fields below. Every load and every newly created profile
+    /// resolves it before anything renders or edits the profile.
     /// </summary>
-    public Guid? BackgroundAssetId { get; set; }
+    public ProfileBackground? Background { get; set; }
 
-    public BackgroundFitMode BackgroundFitMode { get; set; } = BackgroundFitMode.Cover;
+    // Legacy background fields (image + fit + opacity), from before ProfileBackground existed.
+    // Read only so NormalizeLegacyBackground can migrate an old profile in memory; nulled once
+    // migrated, so they are never written back (WhenWritingNull). JSON names are unchanged.
 
-    public float BackgroundOpacity { get; set; } = 1f;
+    [JsonPropertyName("BackgroundAssetId")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Guid? LegacyBackgroundAssetId { get; set; }
+
+    [JsonPropertyName("BackgroundFitMode")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public BackgroundFitMode? LegacyBackgroundFitMode { get; set; }
+
+    [JsonPropertyName("BackgroundOpacity")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public float? LegacyBackgroundOpacity { get; set; }
 
     /// <summary>
     /// Repairs a profile loaded with an invalid (non-positive) canvas size: a legacy profile
@@ -78,8 +92,32 @@ public sealed class ProfileDocument
         CanvasHeight = LegacyCanvasHeight;
         return true;
     }
+
+    /// <summary>
+    /// Resolves <see cref="Background"/> for a profile saved before <see cref="ProfileBackground"/>
+    /// existed, from its legacy image/fit/opacity fields — in memory only, like the other legacy
+    /// repairs: the file on disk is untouched until the user explicitly saves, and the result
+    /// renders identically to the old background. A profile that already has a Background is left
+    /// untouched.
+    /// </summary>
+    /// <returns>True if a migration was applied.</returns>
+    internal bool NormalizeLegacyBackground()
+    {
+        if (Background is not null)
+        {
+            return false;
+        }
+
+        Background = ProfileBackground.FromLegacy(LegacyBackgroundAssetId, LegacyBackgroundFitMode, LegacyBackgroundOpacity);
+        LegacyBackgroundAssetId = null;
+        LegacyBackgroundFitMode = null;
+        LegacyBackgroundOpacity = null;
+        return true;
+    }
 }
 
+/// <summary>Legacy background fit modes, kept only to deserialize old profiles (see
+/// <see cref="ProfileDocument.LegacyBackgroundFitMode"/>). New code uses <see cref="ProfileImageFit"/>.</summary>
 public enum BackgroundFitMode
 {
     Cover,

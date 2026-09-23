@@ -114,7 +114,23 @@ internal sealed class ProfileFontService : IDisposable
     /// ImGui thread. Bold/Italic are silently dropped to false for a family that doesn't support
     /// them (see <see cref="ProfileFontFamilyDescriptor"/>).
     /// </summary>
-    internal IFontHandle GetHandle(string? familyId, float requestedPixelSize, bool bold, bool italic)
+    internal IFontHandle GetHandle(string? familyId, float requestedPixelSize, bool bold, bool italic) =>
+        GetHandle(familyId, requestedPixelSize, bold, italic, out _);
+
+    /// <summary>
+    /// Same as <see cref="GetHandle(string?, float, bool, bool)"/>, also reporting whether the
+    /// returned handle is the transient cold-start fallback (Dalamud's global default font, used
+    /// only until the requested family's first tier finishes building) rather than the requested
+    /// family itself — callers that cache anything measured with the font must not cache that.
+    /// </summary>
+    internal IFontHandle GetHandle(string? familyId, float requestedPixelSize, bool bold, bool italic, out bool isColdStartFallback)
+    {
+        var handle = GetHandleCore(familyId, requestedPixelSize, bold, italic);
+        isColdStartFallback = ReferenceEquals(handle, DalamudServices.PluginInterface.UiBuilder.DefaultFontHandle);
+        return handle;
+    }
+
+    private IFontHandle GetHandleCore(string? familyId, float requestedPixelSize, bool bold, bool italic)
     {
         var descriptor = ProfileFontCatalog.Resolve(familyId);
         var effectiveBold = bold && descriptor.SupportsBold;

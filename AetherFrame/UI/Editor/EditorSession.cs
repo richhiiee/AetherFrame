@@ -1,9 +1,10 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Numerics;
+using System.Threading.Tasks;
 using AetherFrame.Domain.Profiles;
 using AetherFrame.Services;
+using Dalamud.Bindings.ImGui;
 
 namespace AetherFrame.UI.Editor;
 
@@ -27,16 +28,24 @@ internal enum ResizeHandle
 /// Holds transient editor UI state and translates ImGui interactions into
 /// <see cref="ProfileService"/> calls, surfacing failures as an inline error message
 /// instead of letting exceptions escape ImGui Draw. Also owns runtime-only canvas
-/// interaction state (selection, drag/resize in progress, undo/redo history) that is
-/// never persisted.
+/// interaction state (selection, drag/resize in progress, snapping, undo/redo history,
+/// viewport and preview state) that is never persisted.
+///
+/// Shared by the Advanced and Basic editors, so both always agree on undo/redo history and
+/// dirty state. Split across partial files: this one (history, dirty state, save/revert,
+/// element operations), <c>EditorSession.Canvas.cs</c> (drag/resize/snap/nudge/alignment and
+/// their geometry), and <c>EditorSession.Document.cs</c> (background and canvas size).
+///
+/// <para><b>Undo granularity.</b> Every persistent change is recorded exactly once:
+/// discrete edits (checkbox, combo, button, rename, reorder) immediately via
+/// <see cref="ApplyImmediateEdit"/>; continuous edits (sliders, drags, color pickers, typing)
+/// through the <see cref="BeginOrContinueEdit"/>/<see cref="CommitPendingEdit"/> pair, which
+/// coalesces a whole slider drag or typing burst into one entry.</para>
 /// </summary>
-internal sealed class EditorSession
+internal sealed partial class EditorSession
 {
-    internal const float MinZoom = 0.25f;
+    internal const float MinZoom = 0.1f;
     internal const float MaxZoom = 4f;
-
-    // Small visual margin around the fitted canvas so it doesn't touch the panel's edges.
-    private const float FitPaddingPixels = 16f;
 
     internal const float MinElementWidth = 20f;
     internal const float MinElementHeight = 20f;
@@ -44,40 +53,36 @@ internal sealed class EditorSession
     // Caps how far back undo can go; history is runtime-only, so this just bounds memory.
     private const int MaxHistoryEntries = 100;
 
+    internal const string DefaultNewText = "New text";
+
     private readonly ProfileService profileService;
     private readonly AssetStorageService assetStorage;
     private readonly ImageTextureCache imageTextureCache;
 
-    // Active drag/resize interaction. Runtime only; never persisted.
-    private Guid interactingElementId;
-    private Vector2 dragStartMousePosition;
-    private Vector2 dragOriginalPosition;
-    private Vector2 dragOriginalSize;
-    private ProfileElement? interactionBeforeSnapshot;
-
-    // A slider/color edit in progress: the element's state before the first change this
+    // A slider/color/text edit in progress: the element's state before the first change of this
     // "session" of edits, committed to history as a single entry once the widget deactivates.
     private Guid pendingEditElementId;
     private ProfileElement? pendingEditBefore;
 
-    // A background slider/combo edit in progress; same "commit on deactivate" pattern as
-    // pendingEditBefore above, just for ProfileDocument-level background fields.
-    private ProfileService.BackgroundState? pendingBackgroundBefore;
-
     private readonly List<HistoryEntry> undoStack = new();
     private readonly List<HistoryEntry> redoStack = new();
 
-    // A structural snapshot of the last successfully loaded-or-saved element set. IsDirty is
-    // computed by comparing the live profile's elements against this baseline every time it's
-    // queried, rather than by tracking history-position bookkeeping that has to stay in sync —
-    // so it can't drift out of sync with reality regardless of what path got us here.
-    // baselineSourceProfile is a reference marker only (never dereferenced) used to notice a
-    // fresh load: every load produces a brand-new ProfileDocument instance, even when reloading
-    // the same profile, so a reference change reliably means "establish a new clean baseline".
+    // The last loaded-or-saved state of the profile. IsDirty compares the live profile against
+    // this, rather than tracking history-position bookkeeping that has to stay in sync — so it
+    // can't drift out of sync with reality regardless of what path got us here.
+    // baselineSourceProfile is a reference marker only, used to notice a fresh load: every load
+    // produces a brand-new ProfileDocument instance, so a reference change reliably means
+    // "new document: new baseline, fresh history".
     private ProfileDocument? baselineSourceProfile;
-    private List<ProfileElement>? savedBaseline;
-    private ProfileService.BackgroundState? savedBackgroundBaseline;
-    private Vector2? savedCanvasSizeBaseline;
+    private ProfileService.DocumentState? savedBaseline;
+
+    // Published by a save's continuation (which may run off the render thread) and adopted by the
+    // render thread on its next SyncWithCurrentProfile — so the baseline itself is only ever
+    // touched on the render thread.
+    private volatile CompletedSave? completedSave;
+
+    private int dirtyMemoFrame = -1;
+    private bool dirtyMemo;
 
     internal EditorSession(ProfileService profileService, AssetStorageService assetStorage, ImageTextureCache imageTextureCache)
     {
@@ -86,142 +91,96 @@ internal sealed class EditorSession
         this.imageTextureCache = imageTextureCache;
     }
 
-    internal string NewElementText { get; set; } = string.Empty;
-
     internal string? ErrorMessage { get; private set; }
 
-    /// <summary>
-    /// True when the live profile's elements differ from the last successfully loaded/saved
-    /// baseline, or while an edit is actively in progress (a drag/resize, or a slider/color
-    /// edit that hasn't been committed to history yet).
-    /// </summary>
-    internal bool IsDirty
-    {
-        get
-        {
-            EnsureBaselineCurrent();
-            var currentProfile = profileService.CurrentProfile;
-            return !ProfileStatesEqual(savedBaseline, currentProfile?.Elements)
-                || !BackgroundStatesEqual(savedBackgroundBaseline, currentProfile)
-                || !CanvasSizeStatesEqual(savedCanvasSizeBaseline, currentProfile)
-                || ActiveInteraction != ElementInteractionKind.None
-                || pendingEditBefore is not null
-                || pendingBackgroundBefore is not null;
-        }
-    }
-
-    internal float Zoom { get; set; } = 1f;
-
-    /// <summary>
-    /// Runtime-only viewport preference — never persisted with the profile. While true, the
-    /// editor canvas recalculates <see cref="Zoom"/> to fit its available panel size; setting
-    /// <see cref="Zoom"/> manually (the Zoom slider) is expected to also set this false.
-    /// </summary>
-    internal bool AutoFit { get; set; } = true;
-
-    /// <summary>
-    /// Runtime-only editor chrome preference — never persisted with the profile (see
-    /// <c>ProfileDocument</c>, which has no field for it). While true (the default), the canvas
-    /// draws element bounds, the selection outline, and resize handles; while false, the canvas
-    /// draws nothing but the finished profile itself, matching <c>ProfileViewWindow</c>.
-    /// Selection state itself is unaffected either way — an element can still be selected via the
-    /// Elements panel, and the Inspector still edits it — only the on-canvas chrome is hidden.
-    /// </summary>
-    internal bool ShowGuides { get; set; } = true;
-
     internal Guid? SelectedElementId { get; private set; }
-
-    internal ElementInteractionKind ActiveInteraction { get; private set; } = ElementInteractionKind.None;
-
-    internal ResizeHandle ActiveResizeHandle { get; private set; } = ResizeHandle.None;
 
     internal bool CanUndo => undoStack.Count > 0;
 
     internal bool CanRedo => redoStack.Count > 0;
 
     /// <summary>
-    /// The current profile's logical canvas size, or the legacy 1920x1080 size if no profile is
-    /// loaded (matching <see cref="ProfileDocument.NormalizeLegacyCanvasSize"/>'s fallback, so
-    /// bounds-clamping helpers here never divide by, or clamp against, zero).
+    /// True when the live profile differs from the last successfully loaded/saved state, or while
+    /// an edit is actively in progress (a drag/resize, or a slider/color/text edit that hasn't
+    /// been committed to history yet). The structural comparison runs at most once per frame.
     /// </summary>
-    private Vector2 CurrentCanvasSize => profileService.CurrentProfile is { } profile
-        ? new Vector2(profile.CanvasWidth, profile.CanvasHeight)
-        : new Vector2(ProfileDocument.LegacyCanvasWidth, ProfileDocument.LegacyCanvasHeight);
-
-    /// <summary>
-    /// Sets <see cref="Zoom"/> so the full logical canvas fits inside a panel of
-    /// <paramref name="availablePanelSize"/> screen pixels, preserving aspect ratio, with a
-    /// small padding margin, clamped to [<see cref="MinZoom"/>, <see cref="MaxZoom"/>]. Does not
-    /// touch <see cref="AutoFit"/> — callers decide whether this was an auto or manual fit.
-    /// </summary>
-    internal void ApplyFitZoom(Vector2 availablePanelSize)
+    internal bool IsDirty
     {
-        Zoom = ComputeFitZoom(CurrentCanvasSize, availablePanelSize);
-    }
+        get
+        {
+            SyncWithCurrentProfile();
 
-    private static float ComputeFitZoom(Vector2 canvasSize, Vector2 availablePanelSize)
-    {
-        var usableWidth = Math.Max(1f, availablePanelSize.X - (FitPaddingPixels * 2f));
-        var usableHeight = Math.Max(1f, availablePanelSize.Y - (FitPaddingPixels * 2f));
+            if (ActiveInteraction != ElementInteractionKind.None || pendingEditBefore is not null || pendingBackgroundBefore is not null)
+            {
+                return true;
+            }
 
-        var fitZoom = Math.Min(usableWidth / canvasSize.X, usableHeight / canvasSize.Y);
-        return Math.Clamp(fitZoom, MinZoom, MaxZoom);
+            var frame = ImGui.GetFrameCount();
+            if (frame != dirtyMemoFrame)
+            {
+                dirtyMemoFrame = frame;
+                dirtyMemo = !DocumentMatchesBaseline(profileService.CurrentProfile);
+            }
+
+            return dirtyMemo;
+        }
     }
 
     /// <summary>
-    /// Resizes the current profile's canvas, optionally scaling every element's Position/Size
-    /// proportionally to the new dimensions (rotation values are never touched either way — see
-    /// <c>ProfileService.ResizeCanvas</c>), and records one undoable history entry. Surfaces
-    /// failures (no profile loaded, etc.) via <see cref="ErrorMessage"/>.
+    /// Re-baselines against the live profile if it's not the one we last baselined (a load or
+    /// reload), and adopts a just-completed save's baseline. Call at the start of each editor
+    /// frame; also called implicitly by <see cref="IsDirty"/>.
     /// </summary>
-    internal void ApplyCanvasResize(float newWidth, float newHeight, bool scaleContentsProportionally)
+    internal void SyncWithCurrentProfile()
     {
-        ErrorMessage = null;
+        var profile = profileService.CurrentProfile;
 
-        ProfileService.CanvasLayoutState before;
-        try
+        if (!ReferenceEquals(profile, baselineSourceProfile))
         {
-            before = profileService.CaptureCanvasLayoutState();
-        }
-        catch (Exception ex)
-        {
-            ErrorMessage = ex.Message;
+            // A genuine document switch (not a post-save re-baseline of the same profile): cached
+            // GPU textures for the old profile's images are no longer relevant, and neither is any
+            // history, selection, or in-progress edit — those all refer to the old document.
+            imageTextureCache.Clear();
+            ResetTransientState();
+            CaptureBaseline(profile);
+            completedSave = null;
             return;
         }
 
-        try
+        if (completedSave is { } save)
         {
-            profileService.ResizeCanvas(newWidth, newHeight, scaleContentsProportionally);
+            completedSave = null;
+            if (ReferenceEquals(save.Profile, profile))
+            {
+                savedBaseline = save.State;
+                InvalidateDirtyMemo();
+            }
         }
-        catch (Exception ex)
-        {
-            ErrorMessage = ex.Message;
-            return;
-        }
-
-        var after = profileService.CaptureCanvasLayoutState();
-        RecordHistory(
-            undo: () => profileService.RestoreCanvasLayoutState(before),
-            redo: () => profileService.RestoreCanvasLayoutState(after));
     }
 
-    internal void AddTextElement()
+    // ---------------------------------------------------------------- element operations
+
+    /// <summary>
+    /// Adds a new text element (AetherFrame's default font, an automatic "Text N" layer name,
+    /// placeholder content the user is expected to replace), selects it, and records one history
+    /// entry. Returns its id, or null on failure.
+    /// </summary>
+    internal Guid? AddTextElement(string? initialText = null)
     {
         ErrorMessage = null;
+        CommitPendingEdits();
 
         try
         {
-            var newId = profileService.AddTextElement(NewElementText);
-            NewElementText = string.Empty;
-
-            var snapshot = profileService.CloneElement(newId);
-            RecordHistory(
-                undo: () => profileService.RemoveElement(snapshot.Id),
-                redo: () => profileService.InsertElement(snapshot.Clone()));
+            var newId = profileService.AddTextElement(initialText ?? DefaultNewText);
+            RecordAdd(newId);
+            Select(newId);
+            return newId;
         }
         catch (Exception ex)
         {
             ErrorMessage = ex.Message;
+            return null;
         }
     }
 
@@ -271,14 +230,12 @@ internal sealed class EditorSession
     internal Guid AddElement(ProfileElement element)
     {
         ErrorMessage = null;
+        CommitPendingEdits();
 
         try
         {
             var newId = profileService.AddElement(element);
-            var snapshot = profileService.CloneElement(newId);
-            RecordHistory(
-                undo: () => profileService.RemoveElement(snapshot.Id),
-                redo: () => profileService.InsertElement(snapshot.Clone()));
+            RecordAdd(newId);
             return newId;
         }
         catch (Exception ex)
@@ -289,8 +246,10 @@ internal sealed class EditorSession
     }
 
     /// <summary>
-    /// Imports a new image file and points an existing image element at it. The previous asset
-    /// remains on disk (undo may still need it) and its cache entry is left alone.
+    /// Imports a new image file and points an existing image element at it. Every transform
+    /// (position, size, rotation, flips, display mode, opacity) is kept — resetting any of them is
+    /// always a separate, explicit action. The previous asset remains on disk (undo may still need
+    /// it) and its cache entry is left alone.
     /// </summary>
     internal void ReplaceImage(Guid elementId, string sourceFilePath)
     {
@@ -319,6 +278,7 @@ internal sealed class EditorSession
     internal void RemoveElement(Guid elementId)
     {
         ErrorMessage = null;
+        CommitPendingEdits();
 
         try
         {
@@ -351,9 +311,14 @@ internal sealed class EditorSession
         }
     }
 
+    /// <summary>
+    /// Duplicates an element — same styling and visual settings, a "Copy" layer name, offset so
+    /// it's visibly distinct — selects the copy, and records one history entry.
+    /// </summary>
     internal void DuplicateElement(Guid elementId)
     {
         ErrorMessage = null;
+        CommitPendingEdits();
 
         try
         {
@@ -382,73 +347,52 @@ internal sealed class EditorSession
         }
     }
 
-    internal void BringForward(Guid elementId) => ApplyZOrder(elementId, profileService.BringForward);
-
-    internal void SendBackward(Guid elementId) => ApplyZOrder(elementId, profileService.SendBackward);
-
-    internal void BringToFront(Guid elementId) => ApplyZOrder(elementId, profileService.BringToFront);
-
-    internal void SendToBack(Guid elementId) => ApplyZOrder(elementId, profileService.SendToBack);
-
-    /// <summary>
-    /// Moves the selected unlocked element by a logical canvas offset (e.g. an arrow-key
-    /// nudge), clamped to canvas bounds. Records one history entry; a no-op that hits the
-    /// canvas edge (no actual movement) records nothing.
-    /// </summary>
-    internal void NudgeSelected(Vector2 delta)
+    /// <summary>Renames an element's layer (one history entry); empty restores the automatic name.</summary>
+    internal void RenameElement(Guid elementId, string? name)
     {
-        if (SelectedElementId is not { } elementId)
+        var sanitized = ProfileElementNames.Sanitize(name);
+        var current = profileService.CurrentProfile?.Elements.Find(e => e.Id == elementId);
+        if (current is null || current.Name == sanitized)
         {
             return;
         }
 
-        ErrorMessage = null;
+        ApplyImmediateEdit(elementId, element => element.Name = sanitized);
+    }
 
-        ProfileElement before;
-        try
+    internal void SetElementVisible(Guid elementId, bool visible) =>
+        ApplyImmediateEdit(elementId, element => element.Visible = visible);
+
+    internal void SetElementLocked(Guid elementId, bool locked) =>
+        ApplyImmediateEdit(elementId, element => element.Locked = locked);
+
+    internal void BringForward(Guid elementId) => ApplyZOrder(() => profileService.BringForward(elementId));
+
+    internal void SendBackward(Guid elementId) => ApplyZOrder(() => profileService.SendBackward(elementId));
+
+    internal void BringToFront(Guid elementId) => ApplyZOrder(() => profileService.BringToFront(elementId));
+
+    internal void SendToBack(Guid elementId) => ApplyZOrder(() => profileService.SendToBack(elementId));
+
+    /// <summary>Layers panel drag reorder: places an element directly above/below another (one history entry).</summary>
+    internal void MoveLayer(Guid elementId, Guid targetElementId, bool placeAbove)
+    {
+        if (elementId == targetElementId)
         {
-            before = profileService.CloneElement(elementId);
-        }
-        catch (Exception ex)
-        {
-            ErrorMessage = ex.Message;
             return;
         }
 
-        if (before.Locked)
-        {
-            return;
-        }
-
-        var newPosition = ClampPositionForRotation(CurrentCanvasSize, before.Position + delta, before.Size, RotationGeometry.GetRotationDegrees(before));
-        if (newPosition == before.Position)
-        {
-            return;
-        }
-
-        try
-        {
-            profileService.UpdateElement(elementId, element => element.Position = newPosition);
-        }
-        catch (Exception ex)
-        {
-            ErrorMessage = ex.Message;
-            return;
-        }
-
-        var oldPosition = before.Position;
-        RecordHistory(
-            undo: () => profileService.UpdateElement(elementId, element => element.Position = oldPosition),
-            redo: () => profileService.UpdateElement(elementId, element => element.Position = newPosition));
+        ApplyZOrder(() => profileService.MoveNextTo(elementId, targetElementId, placeAbove));
     }
 
     /// <summary>
     /// Applies a discrete, single-step edit (checkbox, combo, button) to an existing element
-    /// and immediately records one history entry. Marks the session dirty on success.
+    /// and immediately records one history entry — or nothing, if the edit changed nothing.
     /// </summary>
     internal void ApplyImmediateEdit(Guid elementId, Action<ProfileElement> update)
     {
         ErrorMessage = null;
+        CommitPendingEdits();
 
         ProfileElement before;
         try
@@ -472,6 +416,11 @@ internal sealed class EditorSession
         }
 
         var after = profileService.CloneElement(elementId);
+        if (after.ContentEquals(before))
+        {
+            return;
+        }
+
         RecordHistory(
             undo: () => profileService.UpdateElement(elementId, element => element.CopyFrom(before)),
             redo: () => profileService.UpdateElement(elementId, element => element.CopyFrom(after)));
@@ -481,14 +430,22 @@ internal sealed class EditorSession
     /// Applies a live, in-progress edit (e.g. a slider being dragged) without recording
     /// history yet. Call <see cref="CommitPendingEdit"/> once the edit completes (e.g. on
     /// ImGui's "deactivated after edit") to record a single history entry for the whole
-    /// sequence of calls since the first one for this element.
+    /// sequence of calls since the first one for this element. Starting an edit on a different
+    /// element first commits the previous element's pending edit, so it's never lost.
     /// </summary>
     internal void BeginOrContinueEdit(Guid elementId, Action<ProfileElement> apply)
     {
         ErrorMessage = null;
 
-        if (pendingEditBefore is null || pendingEditElementId != elementId)
+        if (pendingEditBefore is not null && pendingEditElementId != elementId)
         {
+            CommitPendingEdit();
+        }
+
+        if (pendingEditBefore is null)
+        {
+            CommitPendingBackgroundEdit();
+
             try
             {
                 pendingEditBefore = profileService.CloneElement(elementId);
@@ -534,274 +491,152 @@ internal sealed class EditorSession
             return;
         }
 
+        if (after.ContentEquals(before))
+        {
+            return;
+        }
+
         RecordHistory(
             undo: () => profileService.UpdateElement(elementId, element => element.CopyFrom(before)),
             redo: () => profileService.UpdateElement(elementId, element => element.CopyFrom(after)));
     }
 
-    /// <summary>Imports an image and sets it as the profile's background.</summary>
-    internal void SetBackground(string sourceFilePath)
+    /// <summary>Finalizes every pending (element or background) edit. Called before any action
+    /// that must not interleave with one (undo, save, structural changes).</summary>
+    internal void CommitPendingEdits()
     {
-        ErrorMessage = null;
-
-        Guid assetId;
-        try
-        {
-            assetId = assetStorage.ImportImage(sourceFilePath);
-        }
-        catch (Exception ex)
-        {
-            ErrorMessage = ex.Message;
-            return;
-        }
-
-        ApplyBackgroundEdit(doc => doc.BackgroundAssetId = assetId);
-    }
-
-    /// <summary>Clears the profile's background. The asset itself is left on disk (see undo).</summary>
-    internal void RemoveBackground() => ApplyBackgroundEdit(doc => doc.BackgroundAssetId = null);
-
-    /// <summary>
-    /// Applies a discrete background edit (combo, button) and immediately records one history
-    /// entry, mirroring <see cref="ApplyImmediateEdit"/> for elements.
-    /// </summary>
-    internal void ApplyBackgroundEdit(Action<ProfileDocument> update)
-    {
-        ErrorMessage = null;
-
-        ProfileService.BackgroundState before;
-        try
-        {
-            before = profileService.CaptureBackgroundState();
-        }
-        catch (Exception ex)
-        {
-            ErrorMessage = ex.Message;
-            return;
-        }
-
-        try
-        {
-            profileService.UpdateBackground(update);
-        }
-        catch (Exception ex)
-        {
-            ErrorMessage = ex.Message;
-            return;
-        }
-
-        var after = profileService.CaptureBackgroundState();
-        RecordHistory(
-            undo: () => profileService.RestoreBackgroundState(before),
-            redo: () => profileService.RestoreBackgroundState(after));
+        CommitPendingEdit();
+        CommitPendingBackgroundEdit();
     }
 
     /// <summary>
-    /// Applies a live, in-progress background edit (e.g. the opacity slider being dragged)
-    /// without recording history yet. Mirrors <see cref="BeginOrContinueEdit"/> for elements;
-    /// call <see cref="CommitPendingBackgroundEdit"/> once the edit completes.
+    /// Safety net for widgets whose "deactivated after edit" signal is unreliable (e.g. a color
+    /// picker edited through its popup): once no widget is active any more, whatever was pending
+    /// is committed, so an edit can never stay uncommitted (and the profile stuck "dirty").
     /// </summary>
-    internal void BeginOrContinueBackgroundEdit(Action<ProfileDocument> apply)
+    internal void CommitPendingEditsIfIdle(bool anyWidgetActive)
     {
-        ErrorMessage = null;
-
-        if (pendingBackgroundBefore is null)
+        if (!anyWidgetActive)
         {
-            try
-            {
-                pendingBackgroundBefore = profileService.CaptureBackgroundState();
-            }
-            catch (Exception ex)
-            {
-                ErrorMessage = ex.Message;
-                return;
-            }
-        }
-
-        try
-        {
-            profileService.UpdateBackground(apply);
-        }
-        catch (Exception ex)
-        {
-            ErrorMessage = ex.Message;
+            CommitPendingEdits();
         }
     }
 
-    /// <summary>Finalizes a pending background edit started by <see cref="BeginOrContinueBackgroundEdit"/>.</summary>
-    internal void CommitPendingBackgroundEdit()
-    {
-        if (pendingBackgroundBefore is not { } before)
-        {
-            return;
-        }
+    // ---------------------------------------------------------------- save / revert
 
-        pendingBackgroundBefore = null;
+    /// <summary>Fire-and-forget save (see <see cref="SaveProfileAsync"/>).</summary>
+    internal void SaveProfile() => _ = SaveProfileAsync();
 
-        ProfileService.BackgroundState after;
-        try
-        {
-            after = profileService.CaptureBackgroundState();
-        }
-        catch
-        {
-            // Profile no longer editable (e.g. character switch mid-edit); nothing to record.
-            return;
-        }
-
-        RecordHistory(
-            undo: () => profileService.RestoreBackgroundState(before),
-            redo: () => profileService.RestoreBackgroundState(after));
-    }
-
-    internal async void SaveProfile()
+    /// <summary>
+    /// Saves the current profile. On success the saved state becomes the new clean baseline (the
+    /// state captured here, on the render thread, is exactly what was written: the profile can't
+    /// be edited while the save is in flight). Returns false (with <see cref="ErrorMessage"/> set)
+    /// on failure.
+    /// </summary>
+    internal async Task<bool> SaveProfileAsync()
     {
         ErrorMessage = null;
+        CommitPendingEdits();
+
+        var profile = profileService.CurrentProfile;
+        if (profile is null)
+        {
+            ErrorMessage = "No profile is currently loaded.";
+            return false;
+        }
+
+        var savedState = ProfileService.DocumentState.Capture(profile);
 
         try
         {
             await profileService.SaveCurrentProfileAsync().ConfigureAwait(false);
-            CaptureBaseline(profileService.CurrentProfile);
+            completedSave = new CompletedSave(profile, savedState);
+            return true;
         }
         catch (Exception ex)
         {
             ErrorMessage = ex.Message;
             DalamudServices.Log.Error(ex, "AetherFrame failed to save the current profile.");
+            return false;
         }
     }
 
-    /// <summary>Selects an element on the canvas, or clears the selection when null.</summary>
-    internal void Select(Guid? elementId) => SelectedElementId = elementId;
-
-    /// <summary>Starts dragging a selected, unlocked element. No-op for locked elements.</summary>
-    internal void BeginDrag(ProfileElement element, Vector2 mouseCanvasPosition)
-    {
-        if (element.Locked)
-        {
-            return;
-        }
-
-        ActiveInteraction = ElementInteractionKind.Dragging;
-        ActiveResizeHandle = ResizeHandle.None;
-        interactingElementId = element.Id;
-        dragStartMousePosition = mouseCanvasPosition;
-        dragOriginalPosition = element.Position;
-        dragOriginalSize = element.Size;
-        interactionBeforeSnapshot = element.Clone();
-    }
-
-    /// <summary>Starts resizing a selected, unlocked element from the given corner handle.</summary>
-    internal void BeginResize(ProfileElement element, ResizeHandle handle, Vector2 mouseCanvasPosition)
-    {
-        if (element.Locked || handle == ResizeHandle.None)
-        {
-            return;
-        }
-
-        ActiveInteraction = ElementInteractionKind.Resizing;
-        ActiveResizeHandle = handle;
-        interactingElementId = element.Id;
-        dragStartMousePosition = mouseCanvasPosition;
-        dragOriginalPosition = element.Position;
-        dragOriginalSize = element.Size;
-        interactionBeforeSnapshot = element.Clone();
-    }
+    /// <summary>True if there is a saved baseline to revert to.</summary>
+    internal bool CanRevert => savedBaseline is not null && profileService.CurrentProfile is not null;
 
     /// <summary>
-    /// Advances the active drag or resize interaction using the mouse's current logical
-    /// canvas position. Safe to call every frame; a no-op when nothing is active. Does not
-    /// record history — see <see cref="EndInteraction"/>.
+    /// Restores the live profile to its last loaded/saved state. As an explicit toolbar action
+    /// (<paramref name="undoable"/> true) the revert itself is one undoable history entry; as the
+    /// "Discard" answer to an unsaved-changes prompt, history is cleared instead, since it only
+    /// described the work being thrown away.
     /// </summary>
-    internal void UpdateInteraction(Vector2 mouseCanvasPosition)
+    internal void RevertToSaved(bool undoable)
     {
-        if (ActiveInteraction == ElementInteractionKind.None)
+        ErrorMessage = null;
+        CommitPendingEdits();
+        CancelInteraction();
+
+        if (savedBaseline is not { } baseline)
         {
             return;
         }
 
-        var elementId = interactingElementId;
-        var rotationDegrees = interactionBeforeSnapshot is null ? 0f : RotationGeometry.GetRotationDegrees(interactionBeforeSnapshot);
-        var canvasSize = CurrentCanvasSize;
-
+        ProfileService.DocumentState before;
         try
         {
-            if (ActiveInteraction == ElementInteractionKind.Dragging)
-            {
-                // Translation is invariant under rotation: moving a rotated element just moves
-                // its (still unrotated) Position/Size by the same screen-space delta.
-                var delta = mouseCanvasPosition - dragStartMousePosition;
-                var newPosition = ClampPositionForRotation(canvasSize, dragOriginalPosition + delta, dragOriginalSize, rotationDegrees);
-                profileService.UpdateElement(elementId, element => element.Position = newPosition);
-            }
-            else
-            {
-                var lockedAspectRatio = interactionBeforeSnapshot is ImageProfileElement { PreserveAspectRatio: true } && dragOriginalSize.Y > 0f
-                    ? dragOriginalSize.X / dragOriginalSize.Y
-                    : (float?)null;
-
-                Vector2 newPosition, newSize;
-                if (rotationDegrees == 0f)
-                {
-                    var delta = mouseCanvasPosition - dragStartMousePosition;
-                    (newPosition, newSize) = ComputeResize(canvasSize, dragOriginalPosition, dragOriginalSize, ActiveResizeHandle, delta, lockedAspectRatio);
-                }
-                else
-                {
-                    // Resizing a rotated element keeps the VISIBLE corner opposite the one being
-                    // dragged fixed in canvas space — see ComputeRotatedResize for why the naive
-                    // "hold the opposite LOCAL corner's coordinates fixed" approach (used above
-                    // for rotation 0) doesn't generalize to a rotated element.
-                    (newPosition, newSize) = ComputeRotatedResize(
-                        canvasSize, dragOriginalPosition, dragOriginalSize, ActiveResizeHandle, mouseCanvasPosition, lockedAspectRatio, rotationDegrees);
-                }
-
-                profileService.UpdateElement(elementId, element =>
-                {
-                    element.Position = newPosition;
-                    element.Size = newSize;
-                });
-            }
+            before = profileService.CaptureDocumentState();
+            profileService.RestoreDocumentState(baseline);
         }
         catch (Exception ex)
         {
             ErrorMessage = ex.Message;
+            return;
         }
+
+        DropSelectionIfMissing();
+        InvalidateDirtyMemo();
+
+        if (!undoable)
+        {
+            ClearHistory();
+            return;
+        }
+
+        RecordHistory(
+            undo: () =>
+            {
+                profileService.RestoreDocumentState(before);
+                DropSelectionIfMissing();
+            },
+            redo: () =>
+            {
+                profileService.RestoreDocumentState(baseline);
+                DropSelectionIfMissing();
+            });
     }
 
-    /// <summary>
-    /// Ends the active drag or resize interaction (e.g. on mouse release), recording exactly
-    /// one history entry for the whole interaction if the element actually moved or resized.
-    /// </summary>
-    internal void EndInteraction()
-    {
-        if (ActiveInteraction != ElementInteractionKind.None && interactionBeforeSnapshot is { } before)
-        {
-            var elementId = interactingElementId;
+    /// <summary>Discards unsaved work (see <see cref="RevertToSaved"/>) without an undo entry.</summary>
+    internal void DiscardChanges() => RevertToSaved(undoable: false);
 
-            try
-            {
-                var after = profileService.CloneElement(elementId);
-                if (after.Position != before.Position || after.Size != before.Size)
-                {
-                    RecordHistory(
-                        undo: () => profileService.UpdateElement(elementId, element => element.CopyFrom(before)),
-                        redo: () => profileService.UpdateElement(elementId, element => element.CopyFrom(after)));
-                }
-            }
-            catch
-            {
-                // Element no longer exists; nothing to record.
-            }
+    // ---------------------------------------------------------------- selection / history
+
+    /// <summary>Selects an element, or clears the selection when null.</summary>
+    internal void Select(Guid? elementId)
+    {
+        if (SelectedElementId != elementId)
+        {
+            CommitPendingEdits();
         }
 
-        interactionBeforeSnapshot = null;
-        ActiveInteraction = ElementInteractionKind.None;
-        ActiveResizeHandle = ResizeHandle.None;
+        SelectedElementId = elementId;
     }
 
     /// <summary>Reverts the most recent recorded action, if any.</summary>
     internal void Undo()
     {
+        CommitPendingEdits();
+        CancelInteraction();
+
         if (undoStack.Count == 0)
         {
             return;
@@ -820,11 +655,17 @@ internal sealed class EditorSession
         {
             ErrorMessage = ex.Message;
         }
+
+        DropSelectionIfMissing();
+        InvalidateDirtyMemo();
     }
 
     /// <summary>Re-applies the most recently undone action, if any.</summary>
     internal void Redo()
     {
+        CommitPendingEdits();
+        CancelInteraction();
+
         if (redoStack.Count == 0)
         {
             return;
@@ -843,26 +684,42 @@ internal sealed class EditorSession
         {
             ErrorMessage = ex.Message;
         }
+
+        DropSelectionIfMissing();
+        InvalidateDirtyMemo();
     }
 
-    private void ApplyZOrder(Guid elementId, Action<Guid> operation)
+    internal void ClearHistory()
+    {
+        undoStack.Clear();
+        redoStack.Clear();
+    }
+
+    private void RecordAdd(Guid newId)
+    {
+        var snapshot = profileService.CloneElement(newId);
+        RecordHistory(
+            undo: () =>
+            {
+                profileService.RemoveElement(snapshot.Id);
+                if (SelectedElementId == snapshot.Id)
+                {
+                    SelectedElementId = null;
+                }
+            },
+            redo: () => profileService.InsertElement(snapshot.Clone()));
+    }
+
+    private void ApplyZOrder(Action operation)
     {
         ErrorMessage = null;
+        CommitPendingEdits();
 
         Dictionary<Guid, int> before;
         try
         {
             before = profileService.SnapshotZOrder();
-        }
-        catch (Exception ex)
-        {
-            ErrorMessage = ex.Message;
-            return;
-        }
-
-        try
-        {
-            operation(elementId);
+            operation();
         }
         catch (Exception ex)
         {
@@ -871,9 +728,32 @@ internal sealed class EditorSession
         }
 
         var after = profileService.SnapshotZOrder();
+        if (ZOrdersEqual(before, after))
+        {
+            return;
+        }
+
         RecordHistory(
             undo: () => profileService.RestoreZOrder(before),
             redo: () => profileService.RestoreZOrder(after));
+    }
+
+    private static bool ZOrdersEqual(Dictionary<Guid, int> a, Dictionary<Guid, int> b)
+    {
+        if (a.Count != b.Count)
+        {
+            return false;
+        }
+
+        foreach (var (id, z) in a)
+        {
+            if (!b.TryGetValue(id, out var other) || other != z)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /// <summary>Records a new undoable action. Always clears the redo stack.</summary>
@@ -886,77 +766,94 @@ internal sealed class EditorSession
         {
             undoStack.RemoveAt(0);
         }
+
+        InvalidateDirtyMemo();
     }
 
-    /// <summary>Re-baselines against the live profile if it's not the one we last baselined.</summary>
-    private void EnsureBaselineCurrent()
+    private void DropSelectionIfMissing()
     {
-        var profile = profileService.CurrentProfile;
-        if (!ReferenceEquals(profile, baselineSourceProfile))
+        if (SelectedElementId is { } id && profileService.CurrentProfile?.Elements.Exists(e => e.Id == id) != true)
         {
-            // A genuine profile switch (not just a post-save re-baseline of the same profile):
-            // cached GPU textures for the old profile's images are no longer relevant.
-            imageTextureCache.Clear();
-            CaptureBaseline(profile);
+            SelectedElementId = null;
         }
     }
+
+    private void ResetTransientState()
+    {
+        ClearHistory();
+        pendingEditBefore = null;
+        pendingBackgroundBefore = null;
+        SelectedElementId = null;
+        CancelInteraction();
+        ErrorMessage = null;
+        InvalidateDirtyMemo();
+    }
+
+    private void InvalidateDirtyMemo() => dirtyMemoFrame = -1;
 
     private void CaptureBaseline(ProfileDocument? profile)
     {
         baselineSourceProfile = profile;
-        savedBaseline = profile?.Elements.Select(e => e.Clone()).ToList();
-        savedBackgroundBaseline = profile is null
-            ? null
-            : new ProfileService.BackgroundState(profile.BackgroundAssetId, profile.BackgroundFitMode, profile.BackgroundOpacity);
-        savedCanvasSizeBaseline = profile is null
-            ? null
-            : new Vector2(profile.CanvasWidth, profile.CanvasHeight);
+        savedBaseline = profile is null ? null : ProfileService.DocumentState.Capture(profile);
+        InvalidateDirtyMemo();
     }
 
-    private static bool BackgroundStatesEqual(ProfileService.BackgroundState? baseline, ProfileDocument? current)
+    /// <summary>Structural comparison of the live profile against the saved baseline.</summary>
+    private bool DocumentMatchesBaseline(ProfileDocument? profile)
     {
-        if (baseline is null || current is null)
+        var baseline = savedBaseline;
+        if (baseline is null || profile is null)
         {
-            return baseline is null && current is null;
+            return baseline is null && profile is null;
         }
 
-        var b = baseline.Value;
-        return b.AssetId == current.BackgroundAssetId
-            && b.FitMode == current.BackgroundFitMode
-            && b.Opacity.Equals(current.BackgroundOpacity);
-    }
-
-    private static bool CanvasSizeStatesEqual(Vector2? baseline, ProfileDocument? current)
-    {
-        if (baseline is null || current is null)
-        {
-            return baseline is null && current is null;
-        }
-
-        return baseline.Value == new Vector2(current.CanvasWidth, current.CanvasHeight);
-    }
-
-    private static bool ProfileStatesEqual(List<ProfileElement>? baseline, List<ProfileElement>? current)
-    {
-        if (baseline is null || current is null)
-        {
-            return baseline is null && current is null;
-        }
-
-        if (baseline.Count != current.Count)
+        if (!baseline.CanvasWidth.Equals(profile.CanvasWidth) || !baseline.CanvasHeight.Equals(profile.CanvasHeight))
         {
             return false;
         }
 
-        var baselineById = new Dictionary<Guid, ProfileElement>(baseline.Count);
-        foreach (var element in baseline)
+        if (baseline.Background is null ? profile.Background is not null : !baseline.Background.ContentEquals(profile.Background))
         {
-            baselineById[element.Id] = element;
+            return false;
         }
 
-        foreach (var element in current)
+        var saved = baseline.Elements;
+        var live = profile.Elements;
+        if (saved.Count != live.Count)
         {
-            if (!baselineById.TryGetValue(element.Id, out var baselineElement) || !ElementsEqual(baselineElement, element))
+            return false;
+        }
+
+        // Fast path: same order (the usual case — reorders only renumber ZIndex, and adds append).
+        var sameOrder = true;
+        for (var i = 0; i < live.Count; i++)
+        {
+            if (saved[i].Id != live[i].Id)
+            {
+                sameOrder = false;
+                break;
+            }
+
+            if (!saved[i].ContentEquals(live[i]))
+            {
+                return false;
+            }
+        }
+
+        if (sameOrder)
+        {
+            return true;
+        }
+
+        var savedById = new Dictionary<Guid, ProfileElement>(saved.Count);
+        foreach (var element in saved)
+        {
+            savedById[element.Id] = element;
+        }
+
+        foreach (var element in live)
+        {
+            if (!savedById.TryGetValue(element.Id, out var savedElement) || !savedElement.ContentEquals(element))
             {
                 return false;
             }
@@ -965,316 +862,7 @@ internal sealed class EditorSession
         return true;
     }
 
-    /// <summary>
-    /// Value-equality over the persistent, editable fields of an element — the same set that's
-    /// meaningful to save. Deliberately excludes anything that isn't actually element data.
-    /// </summary>
-    private static bool ElementsEqual(ProfileElement a, ProfileElement b)
-    {
-        if (a.GetType() != b.GetType())
-        {
-            return false;
-        }
-
-        if (a.Id != b.Id || a.Visible != b.Visible || a.Locked != b.Locked
-            || a.Position != b.Position || a.Size != b.Size || a.ZIndex != b.ZIndex || a.Role != b.Role)
-        {
-            return false;
-        }
-
-        if (a is TextProfileElement textA && b is TextProfileElement textB)
-        {
-            return textA.Text == textB.Text
-                && textA.FontSize.Equals(textB.FontSize)
-                && textA.Color == textB.Color
-                && textA.Alignment == textB.Alignment
-                && textA.Wrap == textB.Wrap
-                && textA.FontFamily == textB.FontFamily
-                && textA.Bold == textB.Bold
-                && textA.Italic == textB.Italic
-                && textA.Underline == textB.Underline
-                && textA.Strikethrough == textB.Strikethrough;
-        }
-
-        if (a is ImageProfileElement imageA && b is ImageProfileElement imageB)
-        {
-            return imageA.AssetId == imageB.AssetId
-                && imageA.Opacity.Equals(imageB.Opacity)
-                && imageA.PreserveAspectRatio == imageB.PreserveAspectRatio
-                && imageA.RotationDegrees.Equals(imageB.RotationDegrees);
-        }
-
-        return true;
-    }
-
-    /// <summary>
-    /// Picks a newly imported image's initial canvas size: its native aspect ratio, scaled down
-    /// (never up) so its longer side fits <see cref="ImageProfileElement.DefaultSize"/> — a
-    /// square image keeps exactly the old default footprint, while a tall or wide one starts
-    /// correctly proportioned instead of stretched into a square. Falls back to the old fixed
-    /// square default if the file's dimensions can't be read (unrecognized/corrupt header).
-    /// </summary>
-    private static Vector2 ComputeDefaultImportSize(string sourceFilePath)
-    {
-        if (ImageDimensionReader.TryReadDimensions(sourceFilePath) is not { } native || native.Width <= 0 || native.Height <= 0)
-        {
-            return new Vector2(ImageProfileElement.DefaultSize, ImageProfileElement.DefaultSize);
-        }
-
-        var scale = Math.Min(1f, Math.Min(ImageProfileElement.DefaultSize / native.Width, ImageProfileElement.DefaultSize / native.Height));
-        var size = new Vector2(native.Width * scale, native.Height * scale);
-
-        // Guards an extreme aspect ratio (e.g. a very wide banner) from shrinking to a sliver
-        // too small to see or grab, at the cost of slightly distorting its proportions in that
-        // edge case only.
-        return new Vector2(Math.Max(MinElementWidth, size.X), Math.Max(MinElementHeight, size.Y));
-    }
-
-    private static Vector2 ClampPosition(Vector2 canvasSize, Vector2 position, Vector2 size)
-    {
-        var maxX = Math.Max(0f, canvasSize.X - size.X);
-        var maxY = Math.Max(0f, canvasSize.Y - size.Y);
-        return new Vector2(Math.Clamp(position.X, 0f, maxX), Math.Clamp(position.Y, 0f, maxY));
-    }
-
-    /// <summary>
-    /// Rotation-aware version of <see cref="ClampPosition"/>: keeps the element's full rotated
-    /// visual bounds (not just its unrotated Position/Size box) inside the canvas, by clamping
-    /// the rotated bounding box's center rather than the unrotated corner.
-    /// </summary>
-    private static Vector2 ClampPositionForRotation(Vector2 canvasSize, Vector2 position, Vector2 size, float rotationDegrees)
-    {
-        if (rotationDegrees == 0f)
-        {
-            return ClampPosition(canvasSize, position, size);
-        }
-
-        var aabbSize = RotationGeometry.GetRotatedAabbSize(size, rotationDegrees);
-        var center = RotationGeometry.GetCenter(position, size);
-
-        var maxCenterX = Math.Max(aabbSize.X / 2f, canvasSize.X - (aabbSize.X / 2f));
-        var maxCenterY = Math.Max(aabbSize.Y / 2f, canvasSize.Y - (aabbSize.Y / 2f));
-
-        var clampedCenter = new Vector2(
-            Math.Clamp(center.X, aabbSize.X / 2f, maxCenterX),
-            Math.Clamp(center.Y, aabbSize.Y / 2f, maxCenterY));
-
-        return clampedCenter - (size / 2f);
-    }
-
-    /// <summary>
-    /// Axis-aligned resize (rotation 0 only — see <see cref="ComputeRotatedResize"/> for a
-    /// rotated element). Unchanged from before rotation existed: the opposite edge/corner is
-    /// simply held at its original canvas coordinate while the dragged edge/corner moves by
-    /// <paramref name="delta"/>.
-    /// </summary>
-    private static (Vector2 Position, Vector2 Size) ComputeResize(
-        Vector2 canvasSize, Vector2 originalPosition, Vector2 originalSize, ResizeHandle handle, Vector2 delta, float? lockedAspectRatio)
-    {
-        var left = originalPosition.X;
-        var top = originalPosition.Y;
-        var right = originalPosition.X + originalSize.X;
-        var bottom = originalPosition.Y + originalSize.Y;
-
-        switch (handle)
-        {
-            case ResizeHandle.TopLeft:
-                left += delta.X;
-                top += delta.Y;
-                break;
-            case ResizeHandle.TopRight:
-                right += delta.X;
-                top += delta.Y;
-                break;
-            case ResizeHandle.BottomLeft:
-                left += delta.X;
-                bottom += delta.Y;
-                break;
-            case ResizeHandle.BottomRight:
-                right += delta.X;
-                bottom += delta.Y;
-                break;
-        }
-
-        // Keep every edge inside the canvas before enforcing minimum size.
-        left = Math.Clamp(left, 0f, canvasSize.X);
-        top = Math.Clamp(top, 0f, canvasSize.Y);
-        right = Math.Clamp(right, 0f, canvasSize.X);
-        bottom = Math.Clamp(bottom, 0f, canvasSize.Y);
-
-        if (lockedAspectRatio is { } aspectRatio && aspectRatio > 0f)
-        {
-            // Fit the largest box of the locked aspect ratio that stays within the raw
-            // (unconstrained) drag bounds just computed, anchored at the corner opposite the
-            // dragged handle.
-            var rawWidth = Math.Max(0f, right - left);
-            var rawHeight = Math.Max(0f, bottom - top);
-
-            float width, height;
-            if (rawHeight <= 0f || rawWidth / aspectRatio <= rawHeight)
-            {
-                width = rawWidth;
-                height = rawWidth / aspectRatio;
-            }
-            else
-            {
-                height = rawHeight;
-                width = rawHeight * aspectRatio;
-            }
-
-            switch (handle)
-            {
-                case ResizeHandle.TopLeft:
-                    left = right - width;
-                    top = bottom - height;
-                    break;
-                case ResizeHandle.TopRight:
-                    right = left + width;
-                    top = bottom - height;
-                    break;
-                case ResizeHandle.BottomLeft:
-                    left = right - width;
-                    bottom = top + height;
-                    break;
-                case ResizeHandle.BottomRight:
-                    right = left + width;
-                    bottom = top + height;
-                    break;
-            }
-        }
-
-        // Enforce a minimum size by holding the edge opposite the dragged handle in place,
-        // which also rules out negative width/height.
-        if (right - left < MinElementWidth)
-        {
-            if (handle is ResizeHandle.TopLeft or ResizeHandle.BottomLeft)
-            {
-                left = right - MinElementWidth;
-            }
-            else
-            {
-                right = left + MinElementWidth;
-            }
-        }
-
-        if (bottom - top < MinElementHeight)
-        {
-            if (handle is ResizeHandle.TopLeft or ResizeHandle.TopRight)
-            {
-                top = bottom - MinElementHeight;
-            }
-            else
-            {
-                bottom = top + MinElementHeight;
-            }
-        }
-
-        return (new Vector2(left, top), new Vector2(right - left, bottom - top));
-    }
-
-    /// <summary>
-    /// Resize for a rotated element, keeping the VISIBLE corner diagonally opposite the one
-    /// being dragged exactly fixed in canvas space for the whole drag.
-    ///
-    /// This is deliberately not a rotation-aware variant of <see cref="ComputeResize"/>'s
-    /// "hold the opposite corner's local coordinates fixed, then re-derive the rotation center"
-    /// approach. That approach is correct at rotation 0 (where local space IS canvas space,
-    /// so an unmoved local coordinate trivially stays visually fixed too) but NOT once the
-    /// element is rotated: <see cref="RotationGeometry.GetCenter"/> recomputes the rotation
-    /// pivot from Position/Size on every use, and resizing by moving only two of four local
-    /// edges shifts that center — so rotating the new box around its new (shifted) center no
-    /// longer puts the "fixed" corner back where it visually was. The drift is small near
-    /// rotation 0 but becomes obviously wrong near 90/270 degrees, where a corner can end up a
-    /// full side-length away from where the user grabbed it.
-    ///
-    /// Instead, this solves directly for the new center that keeps the anchor's canvas-space
-    /// position exactly at its drag-start value, for whatever size the drag implies:
-    /// 1. anchorWorld: the anchor corner's fixed canvas position, from the ORIGINAL box.
-    /// 2. xAxis/yAxis: canvas-space unit vectors for the element's local +X/+Y directions —
-    ///    fixed for the whole drag, since rotation doesn't change while resizing.
-    /// 3. The current mouse position, projected onto xAxis/yAxis relative to anchorWorld, gives
-    ///    the new local width/height (this is what "drag follows the local axes" means for a
-    ///    rotated element — equivalent to the plain delta.X/delta.Y projection ComputeResize
-    ///    uses at rotation 0).
-    /// 4. The new center is whatever makes the anchor corner (at its fixed local offset from
-    ///    that center) land back on anchorWorld when rotated — solved directly below, not
-    ///    iterated or approximated.
-    /// </summary>
-    private static (Vector2 Position, Vector2 Size) ComputeRotatedResize(
-        Vector2 canvasSize, Vector2 originalPosition, Vector2 originalSize, ResizeHandle handle, Vector2 mouseCanvasPosition, float? lockedAspectRatio, float rotationDegrees)
-    {
-        var originalCenter = RotationGeometry.GetCenter(originalPosition, originalSize);
-
-        var xAxis = RotationGeometry.RotatePoint(Vector2.UnitX, Vector2.Zero, rotationDegrees);
-        var yAxis = RotationGeometry.RotatePoint(Vector2.UnitY, Vector2.Zero, rotationDegrees);
-
-        // Local +X/+Y direction, per axis, from the anchor corner towards the dragged (handle)
-        // corner — e.g. dragging TopLeft (anchor BottomRight) grows the box towards local -X,-Y.
-        var cornerSign = handle switch
-        {
-            ResizeHandle.TopLeft => new Vector2(-1f, -1f),
-            ResizeHandle.TopRight => new Vector2(1f, -1f),
-            ResizeHandle.BottomLeft => new Vector2(-1f, 1f),
-            _ => new Vector2(1f, 1f), // BottomRight
-        };
-
-        var anchorLocal = new Vector2(
-            originalPosition.X + ((cornerSign.X > 0f ? 0f : 1f) * originalSize.X),
-            originalPosition.Y + ((cornerSign.Y > 0f ? 0f : 1f) * originalSize.Y));
-        var anchorWorld = RotationGeometry.RotatePoint(anchorLocal, originalCenter, rotationDegrees);
-
-        var mouseOffset = mouseCanvasPosition - anchorWorld;
-        var along = Vector2.Dot(mouseOffset, xAxis) * cornerSign.X;
-        var up = Vector2.Dot(mouseOffset, yAxis) * cornerSign.Y;
-
-        var rawWidth = Math.Max(0f, along);
-        var rawHeight = Math.Max(0f, up);
-
-        float width, height;
-        if (lockedAspectRatio is { } aspectRatio && aspectRatio > 0f)
-        {
-            // Same "fit the largest box of the locked aspect ratio within the raw drag bounds"
-            // rule as ComputeResize, just expressed in the rotated local width/height instead
-            // of canvas-space edges.
-            if (rawHeight <= 0f || rawWidth / aspectRatio <= rawHeight)
-            {
-                width = rawWidth;
-                height = rawWidth / aspectRatio;
-            }
-            else
-            {
-                height = rawHeight;
-                width = rawHeight * aspectRatio;
-            }
-        }
-        else
-        {
-            width = rawWidth;
-            height = rawHeight;
-        }
-
-        // Minimum size, same as ComputeResize — and since neither dimension is ever negative
-        // above, this is also what rules out a negative/zero size here.
-        width = Math.Max(MinElementWidth, width);
-        height = Math.Max(MinElementHeight, height);
-
-        // The new center that keeps anchorWorld fixed: the anchor sits at local offset
-        // cornerSign * (width/2, height/2) from the center (e.g. BottomRight is always at
-        // +halfWidth,+halfHeight from center), so the center is that same offset, in canvas
-        // space via xAxis/yAxis, back from the anchor.
-        var newCenter = anchorWorld
-            + (cornerSign.X * (width / 2f) * xAxis)
-            + (cornerSign.Y * (height / 2f) * yAxis);
-
-        var newSize = new Vector2(width, height);
-        var newPosition = newCenter - (newSize / 2f);
-
-        // Same rotated-bounds canvas clamp ComputeResize's caller already applies for a rotated
-        // element; reused as-is so canvas clamping behavior doesn't regress.
-        newPosition = ClampPositionForRotation(canvasSize, newPosition, newSize, rotationDegrees);
-
-        return (newPosition, newSize);
-    }
-
     private sealed record HistoryEntry(Action Undo, Action Redo);
+
+    private sealed record CompletedSave(ProfileDocument Profile, ProfileService.DocumentState State);
 }

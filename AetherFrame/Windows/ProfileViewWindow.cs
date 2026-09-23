@@ -2,7 +2,6 @@ using System;
 using System.Numerics;
 using AetherFrame.Domain.Profiles;
 using AetherFrame.Services;
-using AetherFrame.Services.Fonts;
 using AetherFrame.UI.Rendering;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Utility.Raii;
@@ -33,10 +32,9 @@ internal sealed class ProfileViewWindow : Window, IDisposable
     private const float CloseButtonMargin = 6f;
 
     private readonly ProfileService profileService;
-    private readonly ImageTextureCache imageTextureCache;
-    private readonly ProfileFontService fontService;
+    private readonly ProfileRenderResources renderResources;
 
-    internal ProfileViewWindow(ProfileService profileService, ImageTextureCache imageTextureCache, ProfileFontService fontService)
+    internal ProfileViewWindow(ProfileService profileService, ProfileRenderResources renderResources)
         : base("AetherFrame Profile View##ProfileViewWindow")
     {
         SizeConstraints = new WindowSizeConstraints
@@ -46,8 +44,7 @@ internal sealed class ProfileViewWindow : Window, IDisposable
         };
 
         this.profileService = profileService;
-        this.imageTextureCache = imageTextureCache;
-        this.fontService = fontService;
+        this.renderResources = renderResources;
     }
 
     public void Dispose()
@@ -116,7 +113,7 @@ internal sealed class ProfileViewWindow : Window, IDisposable
         ImGui.Dummy(available);
 
         var drawList = ImGui.GetWindowDrawList();
-        ProfileRenderer.Draw(drawList, profile, canvasOrigin, scale, imageTextureCache, fontService, showElementBounds: false);
+        ProfileRenderer.Draw(drawList, profile, canvasOrigin, scale, renderResources, ProfileRenderOptions.Finished);
 
         DrawCloseButton();
     }

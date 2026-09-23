@@ -19,6 +19,10 @@ internal sealed class ImageTextureCache
     private readonly Dictionary<Guid, ISharedImmediateTexture?> textures = new();
     private readonly HashSet<Guid> loggedFailures = new();
 
+    // Header-read native sizes for assets whose texture hasn't finished loading yet; read at
+    // most once per asset (see GetNativeSize).
+    private readonly Dictionary<Guid, (int Width, int Height)?> headerSizes = new();
+
     internal ImageTextureCache(AssetStorageService assetStorage)
     {
         this.assetStorage = assetStorage;
@@ -62,11 +66,34 @@ internal sealed class ImageTextureCache
         return null;
     }
 
+    /// <summary>
+    /// The asset's native pixel size: from its loaded texture when available, otherwise from its
+    /// file header (read once and cached, so this is cheap to call every frame), or null if the
+    /// asset is missing or unreadable.
+    /// </summary>
+    internal (int Width, int Height)? GetNativeSize(Guid assetId)
+    {
+        if (GetWrapOrNull(assetId) is { } wrap)
+        {
+            return (wrap.Width, wrap.Height);
+        }
+
+        if (!headerSizes.TryGetValue(assetId, out var size))
+        {
+            var path = assetStorage.ResolveAssetPath(assetId);
+            size = path is null ? null : ImageDimensionReader.TryReadDimensions(path);
+            headerSizes[assetId] = size;
+        }
+
+        return size;
+    }
+
     /// <summary>Forces a fresh load next time an asset is requested, e.g. after Replace Image.</summary>
     internal void Invalidate(Guid assetId)
     {
         textures.Remove(assetId);
         loggedFailures.Remove(assetId);
+        headerSizes.Remove(assetId);
     }
 
     /// <summary>Drops every cached texture reference, e.g. on profile switch or plugin unload.</summary>
@@ -74,6 +101,7 @@ internal sealed class ImageTextureCache
     {
         textures.Clear();
         loggedFailures.Clear();
+        headerSizes.Clear();
     }
 
     private void LogFailureOnce(Guid assetId, string reason)

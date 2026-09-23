@@ -51,6 +51,24 @@ internal sealed class ProfileService
     }
 
     /// <summary>
+    /// True when a profile is loaded but a DIFFERENT character is now logged in (e.g. after a
+    /// character switch, which doesn't reload the profile on its own). The loaded profile can't
+    /// be edited or saved in that state — see <see cref="RequireEditableProfile"/>.
+    /// </summary>
+    internal bool IsLoadedForDifferentCharacter
+    {
+        get
+        {
+            lock (gate)
+            {
+                return currentBinding is not null
+                    && characterIdentity.CurrentContentId is { } contentId
+                    && contentId != currentBinding.ContentId;
+            }
+        }
+    }
+
+    /// <summary>
     /// Loads the character binding and active profile for the currently logged-in character.
     /// Safe to call from ImGui Draw; the actual load runs on the framework thread.
     /// </summary>
@@ -163,6 +181,7 @@ internal sealed class ProfileService
                 // property's doc comment for why those two defaults must stay independent.
                 FontFamily = ProfileFontFamilies.AetherFrameSans,
             };
+            element.Name = ProfileElementNames.NextSequentialName(profile.Elements, element);
             profile.Elements.Add(element);
             return element.Id;
         }
@@ -184,6 +203,14 @@ internal sealed class ProfileService
             EnsureCapacityLocked(profile);
 
             element.ZIndex = NextZIndexLocked(profile);
+
+            // Free-form elements get a sequential automatic name ("Image 3"); Basic role elements
+            // deliberately stay unnamed so their display name follows their role label.
+            if (string.IsNullOrWhiteSpace(element.Name) && element.Role == ProfileElementRole.None)
+            {
+                element.Name = ProfileElementNames.NextSequentialName(profile.Elements, element);
+            }
+
             profile.Elements.Add(element);
             return element.Id;
         }
@@ -244,8 +271,9 @@ internal sealed class ProfileService
     }
 
     /// <summary>
-    /// Duplicates an existing element: new id, same editable properties, offset and clamped
-    /// position, placed above the source in z-order. Returns the duplicate's id.
+    /// Duplicates an existing element: new id, same styling and visual settings, a "Copy" layer
+    /// name, offset and clamped position so it's visibly distinct, placed above everything in
+    /// z-order. Returns the duplicate's id.
     /// </summary>
     internal Guid DuplicateElement(Guid elementId)
     {
@@ -259,6 +287,12 @@ internal sealed class ProfileService
 
             var duplicate = source.Clone();
             duplicate.Id = Guid.NewGuid();
+            duplicate.Name = ProfileElementNames.MakeCopyName(profile.Elements, source);
+
+            // A copy of a Basic-owned element (e.g. the portrait) is an ordinary free-form element:
+            // cloning the role too would give the profile two "portrait" slots, and Basic mode's
+            // role lookup would then silently pick whichever happens to come first.
+            duplicate.Role = ProfileElementRole.None;
 
             var maxX = Math.Max(0f, profile.CanvasWidth - duplicate.Size.X);
             var maxY = Math.Max(0f, profile.CanvasHeight - duplicate.Size.Y);
@@ -307,6 +341,33 @@ internal sealed class ProfileService
         ordered.Insert(0, element);
     });
 
+    /// <summary>
+    /// Moves an element directly next to another one in the visual stacking order — just above
+    /// <paramref name="targetElementId"/> when <paramref name="placeAbove"/>, otherwise just below
+    /// it. Used by the Layers panel's drag reordering.
+    /// </summary>
+    internal void MoveNextTo(Guid elementId, Guid targetElementId, bool placeAbove) => ReorderZIndex(elementId, (ordered, index) =>
+    {
+        if (elementId == targetElementId)
+        {
+            return;
+        }
+
+        var element = ordered[index];
+        ordered.RemoveAt(index);
+
+        var targetIndex = ordered.FindIndex(e => e.Id == targetElementId);
+        if (targetIndex < 0)
+        {
+            // Target vanished mid-drag: leave the order exactly as it was.
+            ordered.Insert(index, element);
+            return;
+        }
+
+        // Ascending paint order: "above" means later in the list.
+        ordered.Insert(placeAbove ? targetIndex + 1 : targetIndex, element);
+    });
+
     /// <summary>Captures every element's current ZIndex, e.g. for an undo/redo snapshot.</summary>
     internal Dictionary<Guid, int> SnapshotZOrder()
     {
@@ -335,38 +396,71 @@ internal sealed class ProfileService
     }
 
     /// <summary>
-    /// Mutates the current profile's background fields (asset, fit mode, opacity). Kept
-    /// separate from <see cref="Elements"/> since the background isn't itself a
-    /// <see cref="ProfileElement"/> (no Z order, not hit-testable).
+    /// Mutates the current profile's <see cref="ProfileBackground"/>. Kept separate from element
+    /// mutation since the background isn't itself a <see cref="ProfileElement"/> (no Z order, not
+    /// hit-testable).
     /// </summary>
-    internal void UpdateBackground(Action<ProfileDocument> update)
+    internal void UpdateBackground(Action<ProfileBackground> update)
     {
         lock (gate)
         {
             var profile = RequireEditableProfileLocked();
-            update(profile);
+            update(GetOrCreateBackgroundLocked(profile));
         }
     }
 
-    /// <summary>Captures the current profile's background fields, e.g. for an undo/redo snapshot.</summary>
-    internal BackgroundState CaptureBackgroundState()
+    /// <summary>Captures an independent copy of the current background, e.g. for an undo/redo snapshot.</summary>
+    internal ProfileBackground CaptureBackgroundState()
     {
         lock (gate)
         {
             var profile = RequireEditableProfileLocked();
-            return new BackgroundState(profile.BackgroundAssetId, profile.BackgroundFitMode, profile.BackgroundOpacity);
+            return GetOrCreateBackgroundLocked(profile).Clone();
         }
     }
 
     /// <summary>Restores a previously captured background snapshot (see <see cref="CaptureBackgroundState"/>).</summary>
-    internal void RestoreBackgroundState(BackgroundState state)
+    internal void RestoreBackgroundState(ProfileBackground state)
     {
         lock (gate)
         {
             var profile = RequireEditableProfileLocked();
-            profile.BackgroundAssetId = state.AssetId;
-            profile.BackgroundFitMode = state.FitMode;
-            profile.BackgroundOpacity = state.Opacity;
+            profile.Background = state.Clone();
+        }
+    }
+
+    /// <summary>
+    /// Captures an independent copy of everything the editor can change about the current
+    /// profile (canvas size, background, every element), e.g. as the "last saved" baseline or for
+    /// an undoable Revert to Saved.
+    /// </summary>
+    internal DocumentState CaptureDocumentState()
+    {
+        lock (gate)
+        {
+            return DocumentState.Capture(RequireEditableProfileLocked());
+        }
+    }
+
+    /// <summary>
+    /// Restores a previously captured <see cref="DocumentState"/> onto the live profile. The
+    /// element list instance itself is kept (only its contents are replaced), so nothing holding
+    /// a reference to it observes a different list.
+    /// </summary>
+    internal void RestoreDocumentState(DocumentState state)
+    {
+        lock (gate)
+        {
+            var profile = RequireEditableProfileLocked();
+            profile.CanvasWidth = state.CanvasWidth;
+            profile.CanvasHeight = state.CanvasHeight;
+            profile.Background = state.Background?.Clone();
+
+            profile.Elements.Clear();
+            foreach (var element in state.Elements)
+            {
+                profile.Elements.Add(element.Clone());
+            }
         }
     }
 
@@ -523,6 +617,7 @@ internal sealed class ProfileService
             // their own repair clamps against the correct bounds. Neither repair is persisted
             // here; a subsequent manual save writes them back to disk.
             profile.NormalizeLegacyCanvasSize();
+            profile.NormalizeLegacyBackground();
 
             foreach (var element in profile.Elements)
             {
@@ -609,6 +704,7 @@ internal sealed class ProfileService
         UpdatedAtUtc = DateTime.UtcNow,
         CanvasWidth = ProfileDocument.DefaultCanvasWidth,
         CanvasHeight = ProfileDocument.DefaultCanvasHeight,
+        Background = new ProfileBackground(),
         Elements = new List<ProfileElement>(),
     };
 
@@ -623,14 +719,33 @@ internal sealed class ProfileService
         UpdatedAtUtc = updatedAtUtc,
         CanvasWidth = source.CanvasWidth,
         CanvasHeight = source.CanvasHeight,
-        BackgroundAssetId = source.BackgroundAssetId,
-        BackgroundFitMode = source.BackgroundFitMode,
-        BackgroundOpacity = source.BackgroundOpacity,
-        Elements = new List<ProfileElement>(source.Elements),
+        Background = source.Background?.Clone(),
+
+        // Deep copies: the snapshot is serialized on the framework thread, so it must not share
+        // element instances the render thread could still be mutating.
+        Elements = source.Elements.Select(e => e.Clone()).ToList(),
     };
 
-    /// <summary>Immutable snapshot of a profile's background fields, for undo/redo.</summary>
-    internal readonly record struct BackgroundState(Guid? AssetId, BackgroundFitMode FitMode, float Opacity);
+    /// <summary>Must be called while holding <see cref="gate"/>. Resolves a missing background
+    /// (a profile that somehow skipped load normalization) rather than failing an edit.</summary>
+    private static ProfileBackground GetOrCreateBackgroundLocked(ProfileDocument profile)
+    {
+        profile.NormalizeLegacyBackground();
+        return profile.Background!;
+    }
+
+    /// <summary>
+    /// Immutable (by convention — never mutate the contained instances) snapshot of every
+    /// editable part of a profile: canvas size, background, and independent element clones.
+    /// </summary>
+    internal sealed record DocumentState(float CanvasWidth, float CanvasHeight, ProfileBackground? Background, List<ProfileElement> Elements)
+    {
+        internal static DocumentState Capture(ProfileDocument profile) => new(
+            profile.CanvasWidth,
+            profile.CanvasHeight,
+            profile.Background?.Clone(),
+            profile.Elements.Select(e => e.Clone()).ToList());
+    }
 
     /// <summary>Immutable snapshot of a profile's canvas size and every element's Position/Size, for undo/redo of a canvas resize.</summary>
     internal readonly record struct CanvasLayoutState(float CanvasWidth, float CanvasHeight, Dictionary<Guid, (Vector2 Position, Vector2 Size)> ElementLayouts);

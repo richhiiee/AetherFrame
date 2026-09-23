@@ -82,6 +82,21 @@ internal static class RotationGeometry
         return new Vector2((size.X * cos) + (size.Y * sin), (size.X * sin) + (size.Y * cos));
     }
 
+    /// <summary>
+    /// The axis-aligned bounds (min, max corners) of an element's full visual extent — its rotated
+    /// rectangle for a rotated image, or simply its Position/Size box otherwise. Used for snapping
+    /// and alignment, which operate on what the user actually sees.
+    /// </summary>
+    internal static (Vector2 Min, Vector2 Max) GetVisualBounds(ProfileElement element) =>
+        GetVisualBounds(element.Position, element.Size, GetRotationDegrees(element));
+
+    internal static (Vector2 Min, Vector2 Max) GetVisualBounds(Vector2 position, Vector2 size, float degrees)
+    {
+        var halfExtent = GetRotatedAabbSize(size, degrees) / 2f;
+        var center = GetCenter(position, size);
+        return (center - halfExtent, center + halfExtent);
+    }
+
     /// <summary>Wraps a rotation value into [0, 360).</summary>
     internal static float NormalizeDegrees(float degrees)
     {

@@ -3,7 +3,6 @@ using System.Numerics;
 using System.Threading.Tasks;
 using AetherFrame.Domain.Profiles;
 using AetherFrame.Services;
-using AetherFrame.Services.Fonts;
 using AetherFrame.UI.Editor;
 using AetherFrame.UI.Rendering;
 using Dalamud.Bindings.ImGui;
@@ -26,13 +25,14 @@ internal sealed class BasicProfileEditorWindow : Window, IDisposable
 {
     private const float PreviewHeight = 420f;
 
-    private static readonly string[] FitModeLabels = ["Cover", "Contain", "Stretch"];
+    // Indexed by ProfileImageFit (Stretch, Fit, Fill) — the shared background model's fit modes.
+    private static readonly string[] FitModeLabels = ["Stretch", "Fit", "Fill"];
 
     private readonly ProfileService profileService;
     private readonly EditorSession editorSession;
     private readonly BasicEditorSession basicEditorSession;
     private readonly ImageTextureCache imageTextureCache;
-    private readonly ProfileFontService fontService;
+    private readonly ProfileRenderResources renderResources;
     private readonly FileDialogManager fileDialogManager;
     private readonly Action openAdvancedEditor;
 
@@ -41,7 +41,7 @@ internal sealed class BasicProfileEditorWindow : Window, IDisposable
         EditorSession editorSession,
         BasicEditorSession basicEditorSession,
         ImageTextureCache imageTextureCache,
-        ProfileFontService fontService,
+        ProfileRenderResources renderResources,
         FileDialogManager fileDialogManager,
         Action openAdvancedEditor)
         : base("AetherFrame Basic Editor##BasicProfileEditorWindow")
@@ -56,7 +56,7 @@ internal sealed class BasicProfileEditorWindow : Window, IDisposable
         this.editorSession = editorSession;
         this.basicEditorSession = basicEditorSession;
         this.imageTextureCache = imageTextureCache;
-        this.fontService = fontService;
+        this.renderResources = renderResources;
         this.fileDialogManager = fileDialogManager;
         this.openAdvancedEditor = openAdvancedEditor;
     }
@@ -158,7 +158,9 @@ internal sealed class BasicProfileEditorWindow : Window, IDisposable
         ImGui.Dummy(available);
 
         var drawList = ImGui.GetWindowDrawList();
-        ProfileRenderer.Draw(drawList, profile, canvasOrigin, scale, imageTextureCache, fontService, showElementBounds: false);
+        // Editor preview: the finished rendering plus semantic placeholders for empty Basic
+        // fields (never shown by Profile View, which always renders ProfileRenderOptions.Finished).
+        ProfileRenderer.Draw(drawList, profile, canvasOrigin, scale, renderResources, EditorPlaceholders.PreviewOptions);
     }
 
     private void DrawPortraitControls(ProfileDocument profile)
@@ -245,14 +247,16 @@ internal sealed class BasicProfileEditorWindow : Window, IDisposable
 
     private void DrawBackgroundControls(ProfileDocument profile)
     {
-        ImGui.TextUnformatted("Background: " + (profile.BackgroundAssetId is null ? "(none)" : "set"));
+        var background = profile.Background;
+        var hasImage = background is { HasImage: true };
+        ImGui.TextUnformatted("Background: " + (hasImage ? "set" : "(none)"));
 
         if (ImGui.Button("Choose Background"))
         {
             OpenImageFileDialog("Choose Background", editorSession.SetBackground);
         }
 
-        if (profile.BackgroundAssetId is null)
+        if (!hasImage)
         {
             return;
         }
@@ -263,12 +267,12 @@ internal sealed class BasicProfileEditorWindow : Window, IDisposable
             editorSession.RemoveBackground();
         }
 
-        var fitModeIndex = (int)profile.BackgroundFitMode;
+        var fitModeIndex = (int)background!.ImageFit;
         ImGui.SetNextItemWidth(160);
         if (ImGui.Combo("Fit", ref fitModeIndex, FitModeLabels, FitModeLabels.Length))
         {
-            var newFitMode = (BackgroundFitMode)fitModeIndex;
-            editorSession.ApplyBackgroundEdit(document => document.BackgroundFitMode = newFitMode);
+            var newFitMode = (ProfileImageFit)fitModeIndex;
+            editorSession.ApplyBackgroundEdit(style => style.ImageFit = newFitMode);
         }
     }
 

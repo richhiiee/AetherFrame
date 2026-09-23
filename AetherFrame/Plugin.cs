@@ -6,6 +6,7 @@ using AetherFrame.Services;
 using AetherFrame.Services.Fonts;
 using AetherFrame.UI;
 using AetherFrame.UI.Editor;
+using AetherFrame.UI.Rendering;
 using AetherFrame.Windows;
 using Dalamud.Game.Command;
 using Dalamud.Interface.ImGuiFileDialog;
@@ -38,6 +39,7 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
     private readonly KeyboardShortcutService keyboardShortcutService;
     private readonly ImageTextureCache imageTextureCache;
     private readonly ProfileFontService fontService;
+    private readonly ProceduralTextureCache proceduralTextureCache;
     private readonly MainWindow mainWindow;
     private readonly BasicProfileEditorWindow basicProfileEditorWindow;
     private readonly ProfileEditorWindow profileEditorWindow;
@@ -57,6 +59,8 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
         var assetStorageService = new AssetStorageService();
         imageTextureCache = new ImageTextureCache(assetStorageService);
         fontService = new ProfileFontService();
+        proceduralTextureCache = new ProceduralTextureCache();
+        var renderResources = new ProfileRenderResources(imageTextureCache, fontService, proceduralTextureCache);
         var fileDialogManager = new FileDialogManager();
         var basicFileDialogManager = new FileDialogManager();
 
@@ -66,10 +70,10 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
 
         mainWindow = new MainWindow(this, profileService);
         basicProfileEditorWindow = new BasicProfileEditorWindow(
-            profileService, editorSession, basicEditorSession, imageTextureCache, fontService, basicFileDialogManager, ToggleProfileEditorUi);
+            profileService, editorSession, basicEditorSession, imageTextureCache, renderResources, basicFileDialogManager, ToggleProfileEditorUi);
         profileEditorWindow = new ProfileEditorWindow(
-            profileService, editorSession, keyboardShortcutService, imageTextureCache, fontService, fileDialogManager, ToggleProfileViewUi, ToggleBasicProfileEditorUi);
-        profileViewWindow = new ProfileViewWindow(profileService, imageTextureCache, fontService);
+            profileService, editorSession, keyboardShortcutService, renderResources, fileDialogManager, ToggleProfileViewUi, ToggleBasicProfileEditorUi);
+        profileViewWindow = new ProfileViewWindow(profileService, renderResources);
 
         WindowSystem.AddWindow(mainWindow);
         WindowSystem.AddWindow(basicProfileEditorWindow);
@@ -107,6 +111,7 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
         profileViewWindow.Dispose();
         keyboardShortcutService.Dispose();
         imageTextureCache.Clear();
+        proceduralTextureCache.Dispose();
         fontService.Dispose();
 
         CommandManager.RemoveHandler(CommandName);
