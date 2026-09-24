@@ -26,6 +26,7 @@ internal sealed class PlateStoragePaths
         AssetMetadataDirectory = Path.Combine(rootDirectory, "asset-metadata");
         AssetTrashDirectory = Path.Combine(rootDirectory, "asset-trash");
         ThumbnailsDirectory = Path.Combine(rootDirectory, "thumbnails");
+        PackageStagingDirectory = Path.Combine(rootDirectory, "package-staging");
     }
 
     internal string Root { get; }
@@ -58,6 +59,12 @@ internal sealed class PlateStoragePaths
     internal string AssetTrashDirectory { get; }
 
     internal string ThumbnailsDirectory { get; }
+
+    /// <summary>
+    /// Private scratch space for validating .aetherframe files: one folder per import, deleted when
+    /// the import finishes or is cancelled. Never user data; leftovers are swept at startup.
+    /// </summary>
+    internal string PackageStagingDirectory { get; }
 
     internal string GetPlatePath(Guid plateId) => Path.Combine(PlatesDirectory, $"{plateId}.json");
 

@@ -188,6 +188,102 @@ internal static class ImageSafety
         return null;
     }
 
+    /// <summary>
+    /// A stricter, still header-level check for files from an untrusted package: the file must be
+    /// structurally whole — not truncated, not padded with an unrelated payload. PNG: a chunk walk
+    /// from IHDR to IEND that stays inside the file and ends exactly at its end. JPEG: an
+    /// end-of-image marker near the end (cameras may legitimately append small trailers). WebP:
+    /// the RIFF size matches the file. Pixels are still never decoded (the game's decoder does that,
+    /// within <see cref="Validate"/>'s limits). Null when whole, else the player-facing reason.
+    /// </summary>
+    internal static string? CheckStructure(string path, DetectedImageFormat format)
+    {
+        const string damaged = "The image file is incomplete or damaged.";
+        try
+        {
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+            var ok = format switch
+            {
+                DetectedImageFormat.Png => IsWholePng(stream),
+                DetectedImageFormat.Jpeg => IsWholeJpeg(stream),
+                DetectedImageFormat.WebP => IsWholeWebP(stream),
+                _ => false,
+            };
+
+            return ok ? null : damaged;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return "The image file couldn't be read.";
+        }
+    }
+
+    private static bool IsWholePng(Stream stream)
+    {
+        Span<byte> chunkHeader = stackalloc byte[8];
+        stream.Position = 8;
+        for (var i = 0; i < MaxChunksWalked * 16; i++)
+        {
+            if (stream.ReadAtLeast(chunkHeader, 8, throwOnEndOfStream: false) < 8)
+            {
+                return false;
+            }
+
+            var length = BinaryPrimitives.ReadUInt32BigEndian(chunkHeader[..4]);
+            var type = chunkHeader[4..8];
+            if (i == 0 && !type.SequenceEqual("IHDR"u8))
+            {
+                return false;
+            }
+
+            foreach (var b in type)
+            {
+                if (!char.IsAsciiLetter((char)b))
+                {
+                    return false;
+                }
+            }
+
+            var next = stream.Position + length + 4; // payload + CRC
+            if (length > int.MaxValue || next > stream.Length)
+            {
+                return false;
+            }
+
+            if (type.SequenceEqual("IEND"u8))
+            {
+                return length == 0 && next == stream.Length;
+            }
+
+            stream.Position = next;
+        }
+
+        return false;
+    }
+
+    private static bool IsWholeJpeg(Stream stream)
+    {
+        const int trailerWindow = 1024 * 1024;
+        var windowLength = (int)Math.Min(stream.Length, trailerWindow);
+        var window = new byte[windowLength];
+        stream.Position = stream.Length - windowLength;
+        stream.ReadExactly(window);
+        return window.AsSpan().LastIndexOf((ReadOnlySpan<byte>)[0xFF, 0xD9]) >= 0 && stream.Length > 4;
+    }
+
+    private static bool IsWholeWebP(Stream stream)
+    {
+        Span<byte> header = stackalloc byte[8];
+        stream.Position = 0;
+        if (stream.ReadAtLeast(header, 8, throwOnEndOfStream: false) < 8)
+        {
+            return false;
+        }
+
+        var declared = (long)BinaryPrimitives.ReadUInt32LittleEndian(header[4..8]) + 8;
+        return stream.Length == declared || stream.Length == declared + 1;
+    }
+
     /// <summary>APNG declares its frame count in an acTL chunk before the first IDAT.</summary>
     private static int CountPngFrames(Stream stream)
     {

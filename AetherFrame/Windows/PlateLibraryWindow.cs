@@ -6,12 +6,14 @@ using System.Threading.Tasks;
 using AetherFrame.Domain.Plates;
 using AetherFrame.Domain.Profiles;
 using AetherFrame.Services;
+using AetherFrame.Services.Packages;
 using AetherFrame.Services.Plates;
 using AetherFrame.Services.Thumbnails;
 using AetherFrame.UI.Editor;
 using AetherFrame.UI.Rendering;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
+using Dalamud.Interface.ImGuiFileDialog;
 using Dalamud.Interface.Utility.Raii;
 using Dalamud.Interface.Windowing;
 
@@ -21,8 +23,9 @@ namespace AetherFrame.Windows;
 /// My Plates: the visual collection of every saved Plate, and the way into the editors and the
 /// Plate Viewer. Cards show a thumbnail (or a fallback built from the Plate's own background),
 /// the name, and whether it's the current character's Active Plate; the selected Plate's actions
-/// sit below the grid. Split across partial files: this one (lifecycle, header, card grid) and
-/// <c>.Actions.cs</c> (actions, prompts, and running Library operations).
+/// sit below the grid. Split across partial files: this one (lifecycle, header, card grid),
+/// <c>.Actions.cs</c> (actions, prompts, and running Library operations), and <c>.Packages.cs</c>
+/// (Export and Import of .aetherframe files).
 ///
 /// Never shows technical identifiers (ids, versions, file names, revisions). Works with no
 /// character logged in — only Set Active needs one.
@@ -49,6 +52,9 @@ internal sealed partial class PlateLibraryWindow : Window, IDisposable
     private readonly Action openBasicEditor;
     private readonly Action openAdvancedEditor;
     private readonly Action<Guid> showInViewer;
+    private readonly PlatePackageService packages;
+    private readonly FileDialogManager fileDialogManager;
+    private readonly Action<string> beginImport;
 
     private readonly Dictionary<Guid, string> cardIds = new();
 
@@ -65,7 +71,10 @@ internal sealed partial class PlateLibraryWindow : Window, IDisposable
         PlateThumbnailTextures thumbnailTextures,
         Action openBasicEditor,
         Action openAdvancedEditor,
-        Action<Guid> showInViewer)
+        Action<Guid> showInViewer,
+        PlatePackageService packages,
+        FileDialogManager fileDialogManager,
+        Action<string> beginImport)
         : base("My Plates##AetherFramePlateLibrary")
     {
         SizeConstraints = new WindowSizeConstraints
@@ -83,6 +92,9 @@ internal sealed partial class PlateLibraryWindow : Window, IDisposable
         this.openBasicEditor = openBasicEditor;
         this.openAdvancedEditor = openAdvancedEditor;
         this.showInViewer = showInViewer;
+        this.packages = packages;
+        this.fileDialogManager = fileDialogManager;
+        this.beginImport = beginImport;
     }
 
     public void Dispose()
@@ -134,6 +146,8 @@ internal sealed partial class PlateLibraryWindow : Window, IDisposable
         DrawRenamePopup();
         DrawDeletePopup(character);
         DrawUnsavedChangesPopup();
+        DrawOverwritePopup();
+        fileDialogManager.Draw();
     }
 
     // ---------------------------------------------------------------- header
@@ -144,6 +158,14 @@ internal sealed partial class PlateLibraryWindow : Window, IDisposable
         {
             pendingCreatePopup = true;
         }
+
+        ImGui.SameLine();
+        if (ImGui.Button("Import"))
+        {
+            OpenImportDialog();
+        }
+
+        EditorWidgets.Tooltip("Add a Plate from an .aetherframe file. It's checked and previewed first,\nand always added as a new Plate.");
 
         ImGui.SameLine();
         ImGui.SetNextItemWidth(220f);

@@ -128,6 +128,81 @@ internal sealed class AssetStorageService
         return assetId;
     }
 
+    /// <summary>
+    /// Adds an image that an .aetherframe import already validated into managed storage, under
+    /// <paramref name="assetId"/> — a brand-new id the import minted, never one from the package.
+    /// The bytes are copied (staging is left alone), re-hashed and re-inspected from the copy, and
+    /// must still match <paramref name="expectedSha256"/>, so what was validated is exactly what
+    /// is stored. Never overwrites: refuses if any file for that id already exists. Returns the
+    /// created file's path, which is all <see cref="RemoveImportedAsset"/> may later remove.
+    /// Throws <see cref="InvalidOperationException"/> (player-facing) or an IO exception.
+    /// </summary>
+    internal string AddValidatedPackageImage(string stagedFilePath, Guid assetId, string expectedSha256, string originalFileName)
+    {
+        if (assetId == Guid.Empty || ResolveAssetPath(assetId) is not null)
+        {
+            throw new InvalidOperationException("An image id for the import was already in use.");
+        }
+
+        Directory.CreateDirectory(directory);
+        Directory.CreateDirectory(stagingDirectory);
+
+        var stagingPath = Path.Combine(stagingDirectory, assetId.ToString("N") + ".importing");
+        try
+        {
+            var (byteLength, sha256) = CopyAndHash(stagedFilePath, stagingPath);
+            if (sha256 != expectedSha256)
+            {
+                throw new InvalidOperationException("An image changed while it was being imported.");
+            }
+
+            var staged = ImageSafety.Inspect(stagingPath);
+            if (ImageSafety.Validate(staged, isDecoderSupported) is { } error)
+            {
+                throw new InvalidOperationException(error);
+            }
+
+            var destinationPath = Path.Combine(directory, assetId.ToString("N") + staged!.Extension);
+            File.Move(stagingPath, destinationPath, overwrite: false);
+
+            lock (gate)
+            {
+                importedThisSession.Add(assetId);
+            }
+
+            RecordImport(assetId, originalFileName, staged, byteLength, sha256);
+            return destinationPath;
+        }
+        finally
+        {
+            TryDelete(stagingPath);
+        }
+    }
+
+    /// <summary>
+    /// Rolls back one <see cref="AddValidatedPackageImage"/>: deletes exactly the file it created
+    /// (and that asset's metadata), and nothing else. Only ever called for an id minted by the
+    /// same import, so it can never touch an image that existed before.
+    /// </summary>
+    internal void RemoveImportedAsset(Guid assetId, string createdPath)
+    {
+        if (Path.GetFileNameWithoutExtension(createdPath) != assetId.ToString("N")
+            || !string.Equals(Path.GetDirectoryName(Path.GetFullPath(createdPath)), Path.GetFullPath(directory).TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("Refusing to remove a file that isn't this import's managed image.");
+        }
+
+        TryDelete(createdPath);
+        try
+        {
+            metadataStore.Delete(assetId);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            log.Warning($"AetherFrame could not remove metadata for a rolled-back image ({ex.GetType().Name}).");
+        }
+    }
+
     /// <summary>Resolves an asset id to its file on disk, or null if it's missing/unreadable.</summary>
     internal string? ResolveAssetPath(Guid assetId)
     {

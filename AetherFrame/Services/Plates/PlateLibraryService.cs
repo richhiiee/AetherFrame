@@ -154,6 +154,19 @@ internal sealed class PlateLibraryService
         return PlateDocuments.Materialize(ParseObject(rawJson));
     }
 
+    /// <summary>
+    /// A Plate's saved JSON exactly as stored (every field, including ones this build doesn't
+    /// know), for export. Throws <see cref="PlateLibraryException"/> when the Plate can't be read.
+    /// </summary>
+    internal (string Json, string Name) GetSavedJsonForExport(Guid plateId)
+    {
+        lock (gate)
+        {
+            var record = RequireReadyLocked(plateId, "exported");
+            return (record.RawJson!, record.Name);
+        }
+    }
+
     /// <summary>The character's Active Plate, only if that Plate currently exists.</summary>
     internal Guid? GetActivePlateId(ulong contentId)
     {
@@ -799,6 +812,57 @@ internal sealed class PlateLibraryService
             {
                 await WriteLibraryAsync().ConfigureAwait(false);
             }
+        });
+
+    /// <summary>
+    /// Adds an imported Plate (see <c>PackageImporter</c>) as a brand-new Plate at the front of
+    /// the Library. <paramref name="raw"/> must already carry <paramref name="plateId"/> — a fresh
+    /// id — and every image it references must already be in managed storage: the document write
+    /// is the commit point, so once the Plate is visible, all it needs exists. Never overwrites
+    /// (refuses an id that's in use or on disk), and never touches any character binding: an
+    /// imported Plate belongs to no one and is Active for no one until the player chooses.
+    /// </summary>
+    internal Task ImportPlateAsync(Guid plateId, JsonObject raw) =>
+        RunExclusiveAsync(async () =>
+        {
+            RequireLoaded();
+
+            lock (gate)
+            {
+                if (plateId == Guid.Empty || plates.ContainsKey(plateId) || store.FileExists(paths.GetPlatePath(plateId)))
+                {
+                    throw new PlateLibraryException("The imported Plate couldn't be given a new identity.");
+                }
+            }
+
+            if (raw[nameof(ProfileDocument.ProfileId)] is not JsonValue idValue || !idValue.TryGetValue<string>(out var idText)
+                || !Guid.TryParse(idText, out var documentId) || documentId != plateId)
+            {
+                throw new PlateLibraryException("The imported Plate couldn't be given a new identity.");
+            }
+
+            // Read back before writing, so nothing after the write (the commit point) can fail on content.
+            var record = ReadyRecord(plateId, raw);
+            await WritePlateAsync(plateId, raw).ConfigureAwait(false);
+
+            lock (gate)
+            {
+                plates[plateId] = record;
+                PlateOrdering.InsertAtFront(library.OrderedPlateIds, plateId);
+                Changed();
+            }
+
+            try
+            {
+                await WriteLibraryAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                // The Plate is saved and listed; only its position isn't, and startup re-lists it.
+                log.Error(ex, "AetherFrame imported a Plate but could not save the Library order.");
+            }
+
+            log.Information($"AetherFrame imported a package as new Plate {plateId}.");
         });
 
     /// <summary>

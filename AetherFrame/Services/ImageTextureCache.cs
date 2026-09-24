@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using AetherFrame.Services.Caching;
 using AetherFrame.UI.Editor;
 using Dalamud.Interface.Textures;
@@ -33,6 +34,11 @@ internal sealed class ImageTextureCache : IEditorImageInfo
     // most once per asset (see GetNativeSize).
     private readonly LruCache<Guid, (int Width, int Height)?> headerSizes = new(MaxCachedAssets);
 
+    // Images of a package being previewed before import: already validated, still in the import's
+    // staging folder, under the brand-new ids the import will give them (so they can never be
+    // mistaken for an existing image). Draw thread only.
+    private readonly Dictionary<Guid, string> previewImages = new();
+
     internal ImageTextureCache(AssetStorageService assetStorage)
     {
         this.assetStorage = assetStorage;
@@ -46,7 +52,7 @@ internal sealed class ImageTextureCache : IEditorImageInfo
     {
         if (!textures.TryGetValue(assetId, out var shared))
         {
-            var path = assetStorage.ResolveAssetPath(assetId);
+            var path = ResolvePath(assetId);
             shared = path is null ? null : DalamudServices.TextureProvider.GetFromFile(path);
             textures.Set(assetId, shared);
 
@@ -90,13 +96,41 @@ internal sealed class ImageTextureCache : IEditorImageInfo
 
         if (!headerSizes.TryGetValue(assetId, out var size))
         {
-            var path = assetStorage.ResolveAssetPath(assetId);
+            var path = ResolvePath(assetId);
             size = path is null ? null : ImageDimensionReader.TryReadDimensions(path);
             headerSizes.Set(assetId, size);
         }
 
         return size;
     }
+
+    /// <summary>
+    /// Shows a validated package's staged images under their new ids, for the Import Preview.
+    /// Replaces any previous preview's images.
+    /// </summary>
+    internal void SetPreviewImages(IEnumerable<(Guid AssetId, string StagedPath)> images)
+    {
+        ClearPreviewImages();
+        foreach (var (assetId, path) in images)
+        {
+            previewImages[assetId] = path;
+            Invalidate(assetId);
+        }
+    }
+
+    /// <summary>Forgets the previewed images (the preview closed, or they're now in managed storage).</summary>
+    internal void ClearPreviewImages()
+    {
+        foreach (var assetId in previewImages.Keys)
+        {
+            Invalidate(assetId);
+        }
+
+        previewImages.Clear();
+    }
+
+    private string? ResolvePath(Guid assetId) =>
+        previewImages.TryGetValue(assetId, out var staged) ? staged : assetStorage.ResolveAssetPath(assetId);
 
     /// <summary>Forces a fresh load next time an asset is requested, e.g. after Replace Image.</summary>
     internal void Invalidate(Guid assetId)

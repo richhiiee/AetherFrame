@@ -6,6 +6,7 @@ using AetherFrame.Persistence;
 using AetherFrame.Services;
 using AetherFrame.Services.Assets;
 using AetherFrame.Services.Fonts;
+using AetherFrame.Services.Packages;
 using AetherFrame.Services.Plates;
 using AetherFrame.Services.Thumbnails;
 using AetherFrame.UI.Editor;
@@ -55,6 +56,8 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
     private readonly BasicProfileEditorWindow basicProfileEditorWindow;
     private readonly ProfileEditorWindow profileEditorWindow;
     private readonly ProfileViewWindow profileViewWindow;
+    private readonly PackageImportWindow packageImportWindow;
+    private readonly PlatePackageService packageService;
 
     public Plugin()
     {
@@ -111,14 +114,20 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
             profileService, editorSession, keyboardShortcutService, renderResources, fileDialogManager, ToggleOpenPlateInViewer, OpenBasicEditor, OpenMyPlates, editorSurfaces);
         editorSurfaces.Attach(basicProfileEditorWindow, profileEditorWindow);
         profileViewWindow = new ProfileViewWindow(profileService, plateLibrary, renderResources);
+
+        // .aetherframe export/import: local files only, chosen by the player; nothing networked.
+        packageService = new PlatePackageService(
+            plateLibrary, assetStorageService, paths, $"AetherFrame {PluginInterface.Manifest.AssemblyVersion}", ImageFormatSupport.IsSupported, log);
+        packageImportWindow = new PackageImportWindow(packageService, renderResources, (plateId, name) => plateLibraryWindow!.OnPlateImported(plateId, name));
         plateLibraryWindow = new PlateLibraryWindow(
             plateLibrary, profileService, editorSession, characterIdentityService, thumbnailService, thumbnailTextures,
-            OpenBasicEditor, OpenAdvancedEditor, profileViewWindow.ShowPlate);
+            OpenBasicEditor, OpenAdvancedEditor, profileViewWindow.ShowPlate, packageService, new FileDialogManager(), packageImportWindow.Begin);
 
         WindowSystem.AddWindow(plateLibraryWindow);
         WindowSystem.AddWindow(basicProfileEditorWindow);
         WindowSystem.AddWindow(profileEditorWindow);
         WindowSystem.AddWindow(profileViewWindow);
+        WindowSystem.AddWindow(packageImportWindow);
 
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
         {
@@ -134,6 +143,9 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
 
     public async Task LoadAsync(CancellationToken cancellationToken)
     {
+        // Temporary files from an import interrupted by the game closing; only AetherFrame's own.
+        packageService.SweepStaging();
+
         try
         {
             await plateLibrary.InitializeAsync().ConfigureAwait(false);
@@ -161,6 +173,7 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
         basicProfileEditorWindow.Dispose();
         profileEditorWindow.Dispose();
         profileViewWindow.Dispose();
+        packageImportWindow.Dispose();
         keyboardShortcutService.Dispose();
         imageTextureCache.Clear();
         thumbnailTextures.Clear();

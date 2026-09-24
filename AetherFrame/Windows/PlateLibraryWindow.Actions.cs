@@ -124,6 +124,14 @@ internal sealed partial class PlateLibraryWindow
             EditorWidgets.Tooltip("Make an independent copy of this Plate as last saved. Images are shared, not copied.");
 
             ImGui.SameLine();
+            if (ImGui.Button("Export"))
+            {
+                OpenExportDialog(selected!.PlateId, selected.DisplayName);
+            }
+
+            EditorWidgets.Tooltip("Save this Plate as it was last saved, with its images, as one .aetherframe file.\nNothing about your characters is included. Nothing is uploaded.");
+
+            ImGui.SameLine();
             if (ImGui.Button("Rename"))
             {
                 renameTargetId = selected!.PlateId;
