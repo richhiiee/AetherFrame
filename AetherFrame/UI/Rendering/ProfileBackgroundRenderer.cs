@@ -35,9 +35,14 @@ internal static class ProfileBackgroundRenderer
 
         var canvasMax = canvasOrigin + canvasScreenSize;
 
+        // The base: what Mode draws, on its own, exactly as if no Pattern were ever involved.
+        // TexturedFill is kept only for backward compatibility with already-saved Plates — its
+        // base was always identical to SolidColor's (a flat PrimaryColor fill); new documents
+        // never need to select it, since a Pattern no longer requires any particular Mode.
         switch (background.Mode)
         {
             case ProfileBackgroundMode.SolidColor:
+            case ProfileBackgroundMode.TexturedFill:
                 drawList.AddRectFilled(canvasOrigin, canvasMax, ToU32(background.PrimaryColor, opacity));
                 break;
 
@@ -45,14 +50,16 @@ internal static class ProfileBackgroundRenderer
                 DrawLinearGradient(drawList, background, canvasOrigin, canvasScreenSize, opacity);
                 break;
 
-            case ProfileBackgroundMode.TexturedFill:
-                drawList.AddRectFilled(canvasOrigin, canvasMax, ToU32(background.PrimaryColor, opacity));
-                DrawTexture(drawList, background, canvasOrigin, canvasScreenSize, scale, opacity, resources.Textures);
-                break;
-
             case ProfileBackgroundMode.Image:
                 DrawImage(drawList, background, canvasOrigin, canvasScreenSize, opacity, resources);
                 break;
+        }
+
+        // The Pattern overlay: independent of Mode — composed on top of whatever base was just
+        // drawn above (solid, gradient, or image alike), never a Mode of its own to switch into.
+        if (background.Texture != ProfileBackgroundTexture.None)
+        {
+            DrawTexture(drawList, background, canvasOrigin, canvasScreenSize, scale, opacity, resources.Textures);
         }
     }
 

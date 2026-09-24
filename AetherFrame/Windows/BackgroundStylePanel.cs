@@ -77,7 +77,10 @@ internal sealed class BackgroundStylePanel
                 EditorWidgets.Hint("No background. Choose a mode or a theme.");
                 return;
 
+            // TexturedFill's base has always been identical to SolidColor's (a flat fill) — kept
+            // selectable only for Plates that already saved it; a Pattern no longer requires it.
             case ProfileBackgroundMode.SolidColor:
+            case ProfileBackgroundMode.TexturedFill:
                 DrawBackgroundColor("Color", "##BgPrimary", background.PrimaryColor, primary: true);
                 DrawSolidSwatches();
                 break;
@@ -86,25 +89,37 @@ internal sealed class BackgroundStylePanel
                 DrawGradientControls(background);
                 break;
 
-            case ProfileBackgroundMode.TexturedFill:
-                DrawTextureControls(background);
-                break;
-
             case ProfileBackgroundMode.Image:
                 DrawBackgroundImageControls(background);
                 break;
         }
 
-        ImGui.Spacing();
-        var opacity = background.Opacity * 100f;
-        EditorWidgets.PropertyLabel("Opacity");
-        if (ImGui.SliderFloat("##BgOpacity", ref opacity, 0f, 100f, "%.0f%%"))
+        // The Pattern's own tuning — independent of Mode, shown whenever a Pattern is selected,
+        // exactly like the renderer composes it independent of Mode (see ProfileBackgroundRenderer).
+        if (background.Texture != ProfileBackgroundTexture.None)
         {
-            var value = opacity / 100f;
-            editorSession.BeginOrContinueBackgroundEdit(style => style.Opacity = value);
+            ImGui.Spacing();
+            DrawPatternTuningControls(background);
         }
 
-        CommitBackgroundOnRelease();
+        // Global Background Opacity isn't exposed in Basic (applyTheme is null there — see the
+        // two call sites in BasicProfileEditorWindow.Design.cs / ProfileEditorWindow.CanvasSettings.cs):
+        // a new or Theme-driven Basic background should always read as fully visible, with Pattern
+        // strength controlled separately by Pattern Intensity above. The field itself (and Advanced's
+        // existing control here) is untouched — no migration, no schema change, nothing deleted.
+        if (applyTheme is not null)
+        {
+            ImGui.Spacing();
+            var opacity = background.Opacity * 100f;
+            EditorWidgets.PropertyLabel("Opacity");
+            if (ImGui.SliderFloat("##BgOpacity", ref opacity, 0f, 100f, "%.0f%%"))
+            {
+                var value = opacity / 100f;
+                editorSession.BeginOrContinueBackgroundEdit(style => style.Opacity = value);
+            }
+
+            CommitBackgroundOnRelease();
+        }
     }
 
     private const float ThemeCardWidth = 118f;
@@ -305,11 +320,14 @@ internal sealed class BackgroundStylePanel
     /// (<see cref="PatternPreview"/>) at a standardized, always-legible size and contrast — never the
     /// profile's own colors, intensity, or scale, which could make a candidate invisible (nearly
     /// matching Base/Pattern colors, a theme's low intensity, a canvas-relative scale too small to
-    /// clear the shared renderer's tiling threshold). Picking a card switches the background to
-    /// Textured Fill if it wasn't already and sets that pattern — exactly the one thing choosing a
-    /// pattern always needs to do — as one undo step, leaving the profile's own color/intensity/scale
-    /// untouched. Detailed tuning stays under Customize Background's Textured Fill controls
-    /// (<see cref="DrawTextureControls"/>), reachable once a pattern is chosen.
+    /// clear the shared renderer's tiling threshold). Picking a card sets that Pattern — exactly the
+    /// one thing choosing a pattern ever does — as one undo step: it is an overlay independent of
+    /// the background's Mode, so a gradient (or solid, or image) base is always preserved exactly as
+    /// it was, never replaced or flattened. The only time Mode is touched is when there was no
+    /// background at all (None) — switching to Solid Color so the pick is actually visible, the same
+    /// visibility rule an applied Theme already follows. Picking None removes the overlay and
+    /// reveals the base underneath, unchanged. Detailed tuning stays under Customize Background
+    /// (<see cref="DrawPatternTuningControls"/>), reachable once a pattern is chosen.
     /// </summary>
     internal void DrawPatternPresets(ProfileDocument profile)
     {
@@ -320,17 +338,20 @@ internal sealed class BackgroundStylePanel
         }
 
         EditorWidgets.PropertyLabel("Pattern", 0f);
-        var currentLabel = background.Mode == ProfileBackgroundMode.TexturedFill
-            ? TextureLabels[(int)background.Texture]
-            : "None";
-        ImGui.TextDisabled($"Current: {currentLabel}");
+        ImGui.TextDisabled($"Current: {TextureLabels[(int)background.Texture]}");
 
         DrawPatternCardGrid(background, texture =>
         {
             editorSession.ApplyBackgroundEdit(style =>
             {
-                style.Mode = ProfileBackgroundMode.TexturedFill;
                 style.Texture = texture;
+
+                // Only an actual pattern needs a visible Mode to show up in; picking None on a
+                // document with no background at all is a true no-op, not a reason to conjure one.
+                if (texture != ProfileBackgroundTexture.None && style.Mode == ProfileBackgroundMode.None)
+                {
+                    style.Mode = ProfileBackgroundMode.SolidColor;
+                }
             });
         });
 
@@ -431,18 +452,17 @@ internal sealed class BackgroundStylePanel
         return clicked;
     }
 
-    /// <summary>Detailed tuning for the pattern chosen in <see cref="DrawPatternPresets"/>: base and
-    /// pattern colors, intensity, scale, and (when meaningful) rotation. The pattern picker itself
-    /// lives in the Design category's own first-class Pattern section, not here.</summary>
-    private void DrawTextureControls(ProfileBackground background)
+    /// <summary>
+    /// Detailed tuning for the Pattern chosen in <see cref="DrawPatternPresets"/>: its tint color,
+    /// intensity, scale, and (when meaningful) rotation — shown whenever a Pattern is selected,
+    /// independent of the background's own Mode (see <see cref="ProfileBackgroundRenderer"/>, which
+    /// composes it the same way). The base fill's own color lives under that Mode's own controls
+    /// (e.g. Solid Color's "Color", Linear Gradient's "From"/"To") — never duplicated here. The
+    /// pattern picker itself lives in the Design category's own first-class Pattern section, not here.
+    /// </summary>
+    private void DrawPatternTuningControls(ProfileBackground background)
     {
-        DrawBackgroundColor("Base", "##BgPrimary", background.PrimaryColor, primary: true);
         DrawBackgroundColor("Pattern", "##BgSecondary", background.SecondaryColor, primary: false);
-
-        if (background.Texture == ProfileBackgroundTexture.None)
-        {
-            return;
-        }
 
         var intensity = background.TextureIntensity * 100f;
         EditorWidgets.PropertyLabel("Intensity");

@@ -20,9 +20,12 @@ namespace AetherFrame.Tests;
 /// current Base/Pattern colors, intensity, scale, and rotation, accepting that similar colors should
 /// truthfully look subtle).
 ///
-/// <see cref="PatternPreview.Create"/> is the current, final design: it clones the profile's own
-/// current background and overrides only Mode and Texture, so a card differs from its neighbors in
-/// exactly one respect — the candidate pattern. These tests cover everything about that construction
+/// <see cref="PatternPreview.Create"/> clones the profile's own current background and overrides
+/// only Texture (Mode is preserved exactly, except None — which becomes Solid Color so the pick is
+/// actually visible, the same rule the real pick handler in <c>BackgroundStylePanel.DrawPatternPresets</c>
+/// follows), so a card differs from its neighbors in exactly one respect — the candidate pattern —
+/// and, for a gradient or image background, truthfully previews the Pattern overlaid on that same
+/// base rather than a flattened stand-in. These tests cover everything about that construction
 /// that's pure and Dalamud-free; on-screen legibility and live updates while dragging a color/slider
 /// can only be confirmed in game.
 /// </summary>
@@ -96,14 +99,24 @@ public class PatternPreviewTests
 
     [Theory]
     [MemberData(nameof(AllRealPatternsData))]
-    public void Preview_AlwaysShowsAsTexturedFill_RegardlessOfTheCurrentMode(ProfileBackgroundTexture texture)
+    public void Preview_PreservesTheCurrentMode_SoAGradientOrImageBaseIsNotFlattened(ProfileBackgroundTexture texture)
     {
-        foreach (var mode in Enum.GetValues<ProfileBackgroundMode>())
+        foreach (var mode in Enum.GetValues<ProfileBackgroundMode>().Where(m => m != ProfileBackgroundMode.None))
         {
             var current = CurrentPlateBackground();
             current.Mode = mode;
-            Assert.Equal(ProfileBackgroundMode.TexturedFill, PatternPreview.Create(current, texture).Mode);
+            Assert.Equal(mode, PatternPreview.Create(current, texture).Mode);
         }
+    }
+
+    [Theory]
+    [MemberData(nameof(AllRealPatternsData))]
+    public void Preview_OfANoBackground_BecomesSolidColor_SoThePatternIsActuallyVisible(ProfileBackgroundTexture texture)
+    {
+        var current = CurrentPlateBackground();
+        current.Mode = ProfileBackgroundMode.None;
+
+        Assert.Equal(ProfileBackgroundMode.SolidColor, PatternPreview.Create(current, texture).Mode);
     }
 
     // ---------------------------------------------------------------- only the candidate differs
@@ -246,14 +259,18 @@ public class PatternPreviewTests
     // ---------------------------------------------------------------- clicking a card applies the intended pattern
 
     [Fact]
-    public void PickingACard_AppliesTexturedFillAndTheCandidatePattern_WithoutCopyingPreviewStateBack()
+    public void PickingACard_AppliesOnlyTheCandidatePattern_NeverTouchingModeOrBaseState()
     {
         // The exact lambda body DrawPatternPresets hands to EditorSession.ApplyBackgroundEdit: it
-        // touches only Mode and Texture, never anything a preview construction might have touched.
+        // touches only Texture (Mode only if there was no background at all), never anything a
+        // preview construction might have touched, and never any base Theme state.
         static void OnPick(ProfileBackground style, ProfileBackgroundTexture candidate)
         {
-            style.Mode = ProfileBackgroundMode.TexturedFill;
             style.Texture = candidate;
+            if (candidate != ProfileBackgroundTexture.None && style.Mode == ProfileBackgroundMode.None)
+            {
+                style.Mode = ProfileBackgroundMode.SolidColor;
+            }
         }
 
         var background = new ProfileBackground
@@ -261,6 +278,7 @@ public class PatternPreviewTests
             Mode = ProfileBackgroundMode.LinearGradient,
             PrimaryColor = new Vector4(0.2f, 0.05f, 0.3f, 1f),
             SecondaryColor = new Vector4(0.98f, 0.8f, 0.88f, 1f),
+            GradientAngle = 137f,
             TextureIntensity = 0.42f,
             TextureScale = 51f,
             TextureRotation = 77f,
@@ -276,15 +294,36 @@ public class PatternPreviewTests
 
         Assert.True(background.ContentEquals(before));
 
-        // ...only the actual pick does, and only Mode/Texture.
+        // ...only the actual pick does, and only Texture — the gradient base is untouched.
         OnPick(background, ProfileBackgroundTexture.Honeycomb);
 
-        Assert.Equal(ProfileBackgroundMode.TexturedFill, background.Mode);
+        Assert.Equal(ProfileBackgroundMode.LinearGradient, background.Mode);
         Assert.Equal(ProfileBackgroundTexture.Honeycomb, background.Texture);
         Assert.Equal(before.PrimaryColor, background.PrimaryColor);
         Assert.Equal(before.SecondaryColor, background.SecondaryColor);
+        Assert.Equal(before.GradientAngle, background.GradientAngle);
         Assert.Equal(before.TextureIntensity, background.TextureIntensity);
         Assert.Equal(before.TextureScale, background.TextureScale);
         Assert.Equal(before.TextureRotation, background.TextureRotation);
+    }
+
+    [Fact]
+    public void PickingACard_WhenThereWasNoBackground_SwitchesToSolidColor_SoThePickIsVisible()
+    {
+        static void OnPick(ProfileBackground style, ProfileBackgroundTexture candidate)
+        {
+            style.Texture = candidate;
+            if (candidate != ProfileBackgroundTexture.None && style.Mode == ProfileBackgroundMode.None)
+            {
+                style.Mode = ProfileBackgroundMode.SolidColor;
+            }
+        }
+
+        var background = new ProfileBackground { Mode = ProfileBackgroundMode.None, Texture = ProfileBackgroundTexture.None };
+
+        OnPick(background, ProfileBackgroundTexture.Ripples);
+
+        Assert.Equal(ProfileBackgroundMode.SolidColor, background.Mode);
+        Assert.Equal(ProfileBackgroundTexture.Ripples, background.Texture);
     }
 }

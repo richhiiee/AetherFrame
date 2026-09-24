@@ -27,6 +27,9 @@ internal sealed class PlateStoragePaths
         AssetTrashDirectory = Path.Combine(rootDirectory, "asset-trash");
         ThumbnailsDirectory = Path.Combine(rootDirectory, "thumbnails");
         PackageStagingDirectory = Path.Combine(rootDirectory, "package-staging");
+        TemplatesDirectory = Path.Combine(rootDirectory, "Templates");
+        TemplateTrashDirectory = Path.Combine(rootDirectory, "Trash", "Templates");
+        TemplateThumbnailsDirectory = Path.Combine(rootDirectory, "thumbnails", "templates");
     }
 
     internal string Root { get; }
@@ -66,6 +69,18 @@ internal sealed class PlateStoragePaths
     /// </summary>
     internal string PackageStagingDirectory { get; }
 
+    /// <summary>Template envelopes, one "{guid}.json" per Template. Never mixed with Plate
+    /// identity — a physically separate directory tree.</summary>
+    internal string TemplatesDirectory { get; }
+
+    /// <summary>Deleted user Templates, moved here intact (never destroyed). Built-in Templates
+    /// are never persisted, so they never appear here.</summary>
+    internal string TemplateTrashDirectory { get; }
+
+    /// <summary>Separate from <see cref="ThumbnailsDirectory"/> so a Template id and a Plate id
+    /// (drawn from the same Guid space) can never collide on the same cache file name.</summary>
+    internal string TemplateThumbnailsDirectory { get; }
+
     internal string GetPlatePath(Guid plateId) => Path.Combine(PlatesDirectory, $"{plateId}.json");
 
     internal string GetBindingPath(ulong contentId) => Path.Combine(CharactersDirectory, $"{contentId.ToString(CultureInfo.InvariantCulture)}.json");
@@ -82,4 +97,12 @@ internal sealed class PlateStoragePaths
 
     internal static bool TryParseBindingFileName(string path, out ulong contentId) =>
         ulong.TryParse(Path.GetFileNameWithoutExtension(path), NumberStyles.None, CultureInfo.InvariantCulture, out contentId) && contentId != 0;
+
+    internal string GetTemplatePath(Guid templateId) => Path.Combine(TemplatesDirectory, $"{templateId}.json");
+
+    internal string GetTrashTemplatePath(Guid templateId, DateTime deletedUtc) =>
+        Path.Combine(TemplateTrashDirectory, $"{templateId}.deleted-{deletedUtc:yyyyMMdd-HHmmss-fff}.json");
+
+    internal static bool TryParseTemplateFileName(string path, out Guid templateId) =>
+        Guid.TryParse(Path.GetFileNameWithoutExtension(path), out templateId) && templateId != Guid.Empty;
 }

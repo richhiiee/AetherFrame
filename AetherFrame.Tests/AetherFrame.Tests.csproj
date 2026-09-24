@@ -24,6 +24,7 @@
     <Compile Include="..\AetherFrame\Domain\**\*.cs" Link="Linked\Domain\%(RecursiveDir)%(Filename)%(Extension)" />
     <Compile Include="..\AetherFrame\Persistence\**\*.cs" Link="Linked\Persistence\%(RecursiveDir)%(Filename)%(Extension)" />
     <Compile Include="..\AetherFrame\Services\Plates\**\*.cs" Link="Linked\Services\Plates\%(RecursiveDir)%(Filename)%(Extension)" />
+    <Compile Include="..\AetherFrame\Services\Templates\**\*.cs" Link="Linked\Services\Templates\%(RecursiveDir)%(Filename)%(Extension)" />
     <Compile Include="..\AetherFrame\Services\Assets\**\*.cs" Link="Linked\Services\Assets\%(RecursiveDir)%(Filename)%(Extension)" />
     <Compile Include="..\AetherFrame\Services\Caching\**\*.cs" Link="Linked\Services\Caching\%(RecursiveDir)%(Filename)%(Extension)" />
     <Compile Include="..\AetherFrame\Services\Diagnostics\**\*.cs" Link="Linked\Services\Diagnostics\%(RecursiveDir)%(Filename)%(Extension)" />

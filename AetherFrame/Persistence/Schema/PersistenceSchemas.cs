@@ -5,6 +5,7 @@ using AetherFrame.Domain.Assets;
 using AetherFrame.Domain.Characters;
 using AetherFrame.Domain.Plates;
 using AetherFrame.Domain.Profiles;
+using AetherFrame.Domain.Templates;
 
 namespace AetherFrame.Persistence.Schema;
 
@@ -53,6 +54,18 @@ internal static class PersistenceSchemas
     internal static readonly SchemaDefinition AssetMetadata = new(
         "Asset metadata",
         currentVersion: Domain.Assets.AssetMetadata.CurrentVersion,
+        missingVersionMeans: 1,
+        minimumVersion: 1,
+        []);
+
+    /// <summary>
+    /// The Template envelope only — versioned independently of the embedded Plate document, which
+    /// keeps using <see cref="ProfileDocument"/>'s own schema (see <c>TemplateDocuments</c>). No
+    /// migration steps have ever been needed: v1 is the only version that has shipped.
+    /// </summary>
+    internal static readonly SchemaDefinition Template = new(
+        "Template",
+        currentVersion: Domain.Templates.PlateTemplate.CurrentSchemaVersion,
         missingVersionMeans: 1,
         minimumVersion: 1,
         []);

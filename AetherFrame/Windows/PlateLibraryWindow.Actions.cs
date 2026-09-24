@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using AetherFrame.Domain.Plates;
 using AetherFrame.Services;
 using AetherFrame.Services.Plates;
+using AetherFrame.Services.Templates;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Utility.Raii;
 
@@ -17,19 +18,15 @@ namespace AetherFrame.Windows;
 /// </summary>
 internal sealed partial class PlateLibraryWindow
 {
-    private const string CreatePopupId = "Create Plate##AetherFrameCreatePlate";
     private const string RenamePopupId = "Rename Plate##AetherFrameRenamePlate";
     private const string DeletePopupId = "Delete Plate##AetherFrameDeletePlate";
     private const string UnsavedPopupId = "Unsaved Changes##AetherFramePlateSwitch";
 
     // Deferred popup opens: requests can come from inside the card grid's child window, but
     // OpenPopup/BeginPopup must share one id-stack scope (see ProfileEditorWindow).
-    private bool pendingCreatePopup;
     private bool pendingRenamePopup;
     private bool pendingDeletePopup;
     private bool pendingGuardPrompt;
-
-    private PlateStartingLayout createLayout = PlateStartingLayout.AdventurePlateClassic;
 
     private Guid renameTargetId;
     private string renameBuffer = string.Empty;
@@ -122,6 +119,17 @@ internal sealed partial class PlateLibraryWindow
             }
 
             EditorWidgets.Tooltip("Make an independent copy of this Plate as last saved. Images are shared, not copied.");
+
+            ImGui.SameLine();
+            if (ImGui.Button("Save as Template"))
+            {
+                saveAsTemplateSourcePlateId = selected!.PlateId;
+                saveAsTemplateBuffer = selected.DisplayName;
+                saveAsTemplateError = null;
+                pendingSaveAsTemplatePopup = true;
+            }
+
+            EditorWidgets.Tooltip("Saves this Plate's last saved state as a new Template.\nChanges you haven't saved yet won't be included.");
 
             ImGui.SameLine();
             if (ImGui.Button("Export"))
@@ -315,82 +323,6 @@ internal sealed partial class PlateLibraryWindow
         ImGui.EndPopup();
     }
 
-    // ---------------------------------------------------------------- create
-
-    private void DrawCreatePopup()
-    {
-        if (pendingCreatePopup)
-        {
-            ImGui.OpenPopup(CreatePopupId);
-            pendingCreatePopup = false;
-        }
-
-        if (!ImGui.BeginPopupModal(CreatePopupId, ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoSavedSettings))
-        {
-            return;
-        }
-
-        ImGui.TextUnformatted("Start from:");
-        ImGui.Spacing();
-
-        DrawLayoutChoice(PlateStartingLayout.AdventurePlateClassic, "Adventure Plate Classic",
-            "A ready-to-fill Adventure Plate with every section in place, filled from\nyour character where the game provides it. Opens in the Basic Editor.");
-        DrawLayoutChoice(PlateStartingLayout.Blank, "Blank Plate",
-            "An empty Adventure Plate canvas.\nOpens in the Advanced Editor.");
-
-        ImGui.Spacing();
-        var character = characterIdentity.CurrentCharacter;
-        EditorWidgets.Hint(character is { } who
-            ? $"The new Plate will belong to {DescribeCharacter(who)}. It becomes the Active Plate only if it's the character's first."
-            : "No character is logged in, so the new Plate won't belong to a character yet.");
-        ImGui.Spacing();
-
-        using (ImRaii.Disabled(IsBusy))
-        {
-            if (ImGui.Button("Create", new Vector2(110f, 0f)))
-            {
-                var layout = createLayout;
-                // Read now, on the draw thread: the character details the new Plate starts with.
-                var starter = new PlateStarterContent(characterIdentity.CurrentInfo);
-                RunOperation<PlateCreationResult>("create the Plate", () => library.CreatePlateAsync(layout, character, starter: starter), result =>
-                {
-                    selectedPlateId = result.PlateId;
-                    searchText = string.Empty;
-                    if (result.BecameActive && character is { } owner)
-                    {
-                        statusMessage = $"Created your first Plate. It's now {DescribeCharacter(owner)}'s Active Plate.";
-                    }
-
-                    RequestOpen(result.PlateId, PlateFactory.OpensInBasicEditor(layout));
-                });
-                ImGui.CloseCurrentPopup();
-            }
-        }
-
-        ImGui.SameLine();
-        if (ImGui.Button("Cancel", new Vector2(110f, 0f)))
-        {
-            ImGui.CloseCurrentPopup();
-        }
-
-        ImGui.EndPopup();
-    }
-
-    private void DrawLayoutChoice(PlateStartingLayout layout, string label, string description)
-    {
-        if (ImGui.RadioButton(label, createLayout == layout))
-        {
-            createLayout = layout;
-        }
-
-        using (ImRaii.PushIndent(ImGui.GetFrameHeight() + ImGui.GetStyle().ItemInnerSpacing.X))
-        {
-            EditorWidgets.Hint(description);
-        }
-
-        ImGui.Spacing();
-    }
-
     // ---------------------------------------------------------------- rename
 
     private void DrawRenamePopup()
@@ -569,7 +501,7 @@ internal sealed partial class PlateLibraryWindow
         {
             return await operation().ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is not PlateLibraryException)
+        catch (Exception ex) when (ex is not PlateLibraryException and not TemplateLibraryException)
         {
             DalamudServices.Log.Error(ex, $"AetherFrame failed to {name}.");
             throw;
@@ -596,6 +528,10 @@ internal sealed partial class PlateLibraryWindow
         switch (exception)
         {
             case PlateLibraryException refused:
+                errorMessage = refused.Message;
+                break;
+
+            case TemplateLibraryException refused:
                 errorMessage = refused.Message;
                 break;
 

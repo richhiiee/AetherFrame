@@ -111,6 +111,26 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable, IEditor
         this.surfaces = surfaces;
         backgroundPanel = new BackgroundStylePanel(editorSession, renderResources, OpenImageFileDialog);
 
+        // Title bar, left to right: Dalamud's own Window Options button (always drawn beyond
+        // every custom button, so it can't be reordered here), then Minimize, then Close.
+        // Native collapse is disabled (see PreDraw's NoCollapse) and replaced by the Minimize
+        // button below so it can sit between Window Options and Close instead of always ending
+        // up rightmost, like the native one would; its Priority (0) only needs to fall between
+        // Window Options' fixed int.MinValue and Close's int.MaxValue below. Clicking it toggles
+        // the exact same collapsed/expanded state a native collapse button would.
+        TitleBarButtons.Add(new TitleBarButton
+        {
+            Icon = FontAwesomeIcon.WindowMinimize,
+            IconOffset = new Vector2(1.5f, 1f),
+            Click = _ =>
+            {
+                Collapsed = !ImGui.IsWindowCollapsed();
+                CollapsedCondition = ImGuiCond.Always;
+            },
+            ShowTooltip = () => ImGui.SetTooltip("Minimize"),
+            Priority = 0,
+        });
+
         // The native close button can't be intercepted, so it's replaced by one that goes through
         // the unsaved-changes prompt. (Other close paths are caught in OnClose.)
         ShowCloseButton = false;
@@ -196,13 +216,21 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable, IEditor
     public override void PreDraw()
     {
         // The layout is sized to fit exactly; the panels scroll themselves. Escape belongs to
-        // Clean Preview while it's up, so the window-close hotkey stands down then.
-        Flags = ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse;
+        // Clean Preview while it's up, so the window-close hotkey stands down then. NoCollapse
+        // hides the native collapse button — replaced by the custom Minimize title bar button
+        // (see the constructor) so it can be positioned between Window Options and Close.
+        Flags = ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse | ImGuiWindowFlags.NoCollapse;
         RespectCloseHotkey = !editorSession.PreviewActive;
     }
 
     public override void Draw()
     {
+        // Releases the one-frame collapsed-state request the Minimize button made (if any) back
+        // to ImGui's own tracking, so it only forces that one toggle and never fights later
+        // collapse/expand state. Safe to clear unconditionally: by the time this runs, this
+        // frame's PreDraw/ApplyConditionals has already consumed whatever was set last frame.
+        Collapsed = null;
+
         // Drawn unconditionally so an in-progress file pick isn't stranded if the profile
         // becomes unavailable (e.g. character logs out) while the dialog is open.
         fileDialogManager.Draw();

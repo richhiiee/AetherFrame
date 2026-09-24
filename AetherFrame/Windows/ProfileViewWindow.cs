@@ -39,6 +39,10 @@ internal sealed class ProfileViewWindow : Window, IDisposable
     // The Plate being viewed; null means "whichever Plate is open in the editors".
     private Guid? viewedPlateId;
 
+    // A Template (or any other document that isn't a saved Plate) being previewed. Mutually
+    // exclusive with viewedPlateId: whichever was set most recently wins.
+    private ProfileDocument? viewedExternalDocument;
+
     internal ProfileViewWindow(ProfileService profileService, PlateLibraryService library, ProfileRenderResources renderResources)
         : base("AetherFrame Plate Viewer##ProfileViewWindow")
     {
@@ -56,27 +60,47 @@ internal sealed class ProfileViewWindow : Window, IDisposable
     /// <summary>Shows a specific Plate (its live copy if it's the one open in the editors).</summary>
     internal void ShowPlate(Guid plateId)
     {
+        viewedExternalDocument = null;
         viewedPlateId = plateId;
+        IsOpen = true;
+    }
+
+    /// <summary>
+    /// Shows a document that isn't a saved Plate — a Template's saved or freshly generated
+    /// content. Read-only, exactly like viewing a Plate: never mutates <paramref name="document"/>,
+    /// never changes which Plate is Active, and never touches the editors' own state.
+    /// </summary>
+    internal void ShowDocument(ProfileDocument document)
+    {
+        viewedPlateId = null;
+        viewedExternalDocument = document;
         IsOpen = true;
     }
 
     /// <summary>Toggles the viewer on the Plate open in the editors.</summary>
     internal void ToggleOpenPlate()
     {
-        var showingOpenPlate = viewedPlateId is null || viewedPlateId == profileService.OpenPlateId;
+        var showingOpenPlate = viewedExternalDocument is null && (viewedPlateId is null || viewedPlateId == profileService.OpenPlateId);
         if (IsOpen && showingOpenPlate)
         {
             IsOpen = false;
             return;
         }
 
+        viewedExternalDocument = null;
         viewedPlateId = null;
         IsOpen = true;
     }
 
-    /// <summary>What to draw: the live open document when it's the viewed Plate, else the saved one.</summary>
+    /// <summary>What to draw: an external document if one is being previewed, else the live open
+    /// document when it's the viewed Plate, else the saved one.</summary>
     private ProfileDocument? ResolveDocument()
     {
+        if (viewedExternalDocument is not null)
+        {
+            return viewedExternalDocument;
+        }
+
         var live = profileService.CurrentProfile;
         if (viewedPlateId is not { } plateId || live?.ProfileId == plateId)
         {

@@ -39,10 +39,6 @@ internal sealed record PlateCreationResult(Guid PlateId, bool BecameActive);
 
 internal sealed record PlateDeletionResult(Guid PlateId, IReadOnlyList<ulong> ClearedActiveForContentIds);
 
-/// <summary>Every asset referenced by any Plate, including trashed ones. Only a complete scan
-/// (every document readable) may ever be used to decide an asset is unreferenced.</summary>
-internal sealed record AssetReferenceScan(bool IsComplete, IReadOnlySet<Guid> ReferencedAssetIds, IReadOnlyList<string> Problems);
-
 /// <summary>A Library operation refused for a reason the player should see (message is player-facing).</summary>
 internal sealed class PlateLibraryException : Exception
 {

@@ -8,6 +8,7 @@ using AetherFrame.Domain.Profiles;
 using AetherFrame.Services;
 using AetherFrame.Services.Packages;
 using AetherFrame.Services.Plates;
+using AetherFrame.Services.Templates;
 using AetherFrame.Services.Thumbnails;
 using AetherFrame.UI.Editor;
 using AetherFrame.UI.Rendering;
@@ -44,14 +45,18 @@ internal sealed partial class PlateLibraryWindow : Window, IDisposable
     private static readonly Vector4 ActiveBadgeColor = new(0.95f, 0.78f, 0.30f, 1f);
 
     private readonly PlateLibraryService library;
+    private readonly TemplateLibraryService templates;
     private readonly ProfileService profileService;
     private readonly EditorSession editorSession;
     private readonly CharacterIdentityService characterIdentity;
     private readonly PlateThumbnailService thumbnails;
     private readonly PlateThumbnailTextures thumbnailTextures;
+    private readonly PlateThumbnailService templateThumbnails;
+    private readonly PlateThumbnailTextures templateThumbnailTextures;
     private readonly Action openBasicEditor;
     private readonly Action openAdvancedEditor;
     private readonly Action<Guid> showInViewer;
+    private readonly Action<ProfileDocument> showDocumentInViewer;
     private readonly PlatePackageService packages;
     private readonly FileDialogManager fileDialogManager;
     private readonly Action<string> beginImport;
@@ -64,14 +69,18 @@ internal sealed partial class PlateLibraryWindow : Window, IDisposable
 
     internal PlateLibraryWindow(
         PlateLibraryService library,
+        TemplateLibraryService templates,
         ProfileService profileService,
         EditorSession editorSession,
         CharacterIdentityService characterIdentity,
         PlateThumbnailService thumbnails,
         PlateThumbnailTextures thumbnailTextures,
+        PlateThumbnailService templateThumbnails,
+        PlateThumbnailTextures templateThumbnailTextures,
         Action openBasicEditor,
         Action openAdvancedEditor,
         Action<Guid> showInViewer,
+        Action<ProfileDocument> showDocumentInViewer,
         PlatePackageService packages,
         FileDialogManager fileDialogManager,
         Action<string> beginImport)
@@ -84,14 +93,18 @@ internal sealed partial class PlateLibraryWindow : Window, IDisposable
         };
 
         this.library = library;
+        this.templates = templates;
         this.profileService = profileService;
         this.editorSession = editorSession;
         this.characterIdentity = characterIdentity;
         this.thumbnails = thumbnails;
         this.thumbnailTextures = thumbnailTextures;
+        this.templateThumbnails = templateThumbnails;
+        this.templateThumbnailTextures = templateThumbnailTextures;
         this.openBasicEditor = openBasicEditor;
         this.openAdvancedEditor = openAdvancedEditor;
         this.showInViewer = showInViewer;
+        this.showDocumentInViewer = showDocumentInViewer;
         this.packages = packages;
         this.fileDialogManager = fileDialogManager;
         this.beginImport = beginImport;
@@ -104,6 +117,14 @@ internal sealed partial class PlateLibraryWindow : Window, IDisposable
     public override void OnClose()
     {
         thumbnailTextures.Clear();
+        templateThumbnailTextures.Clear();
+    }
+
+    /// <summary>My Plates is always what this window opens to — Manage Templates is a mode
+    /// entered from inside a session, never something that persists across reopens.</summary>
+    public override void OnOpen()
+    {
+        activeView = LibraryView.MyPlates;
     }
 
     public override void Draw()
@@ -117,6 +138,32 @@ internal sealed partial class PlateLibraryWindow : Window, IDisposable
             return;
         }
 
+        // Templates isn't a permanent top-level tab: My Plates is always what this window opens
+        // to. activeView only switches to Templates for as long as the player is inside Manage
+        // Templates (entered from the Create Plate chooser), and switches back on its own "Back
+        // to My Plates" action or whenever this window is reopened.
+        if (activeView == LibraryView.MyPlates)
+        {
+            DrawMyPlatesView();
+        }
+        else
+        {
+            DrawTemplatesView();
+        }
+
+        DrawTemplateChooserPopup();
+        DrawRenamePopup();
+        DrawDeletePopup(characterIdentity.CurrentCharacter);
+        DrawUnsavedChangesPopup();
+        DrawOverwritePopup();
+        DrawSaveAsTemplatePopup();
+        DrawTemplateRenamePopup();
+        DrawTemplateDeletePopup();
+        fileDialogManager.Draw();
+    }
+
+    private void DrawMyPlatesView()
+    {
         var character = characterIdentity.CurrentCharacter;
         var activePlateId = character is { } who ? library.GetActivePlateId(who.ContentId) : null;
         var plates = library.Search(searchText);
@@ -141,13 +188,6 @@ internal sealed partial class PlateLibraryWindow : Window, IDisposable
 
         ImGui.Separator();
         DrawActionBar(character, activePlateId);
-
-        DrawCreatePopup();
-        DrawRenamePopup();
-        DrawDeletePopup(character);
-        DrawUnsavedChangesPopup();
-        DrawOverwritePopup();
-        fileDialogManager.Draw();
     }
 
     // ---------------------------------------------------------------- header
@@ -156,7 +196,7 @@ internal sealed partial class PlateLibraryWindow : Window, IDisposable
     {
         if (ImGui.Button("Create Plate"))
         {
-            pendingCreatePopup = true;
+            pendingTemplateChooserPopup = true;
         }
 
         ImGui.SameLine();
@@ -243,7 +283,7 @@ internal sealed partial class PlateLibraryWindow : Window, IDisposable
         ImGui.Spacing();
         if (ImGui.Button("Create Your First Plate"))
         {
-            pendingCreatePopup = true;
+            pendingTemplateChooserPopup = true;
         }
     }
 

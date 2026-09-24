@@ -156,13 +156,15 @@ internal sealed class PlateLibraryService
 
     /// <summary>
     /// A Plate's saved JSON exactly as stored (every field, including ones this build doesn't
-    /// know), for export. Throws <see cref="PlateLibraryException"/> when the Plate can't be read.
+    /// know), for export (or, with <paramref name="action"/> overridden, for another use that
+    /// wants the same "exactly as saved" guarantee — e.g. Save as Template). Throws
+    /// <see cref="PlateLibraryException"/> when the Plate can't be read.
     /// </summary>
-    internal (string Json, string Name) GetSavedJsonForExport(Guid plateId)
+    internal (string Json, string Name) GetSavedJsonForExport(Guid plateId, string action = "exported")
     {
         lock (gate)
         {
-            var record = RequireReadyLocked(plateId, "exported");
+            var record = RequireReadyLocked(plateId, action);
             return (record.RawJson!, record.Name);
         }
     }
@@ -529,41 +531,81 @@ internal sealed class PlateLibraryService
 
             var document = PlateFactory.Create(layout, plateId, plateName, now, starter);
             var raw = PlateDocuments.ToJson(document);
-            await WritePlateAsync(plateId, raw).ConfigureAwait(false);
+            var result = await InsertNewPlateAsync(plateId, raw, character, now).ConfigureAwait(false);
+            log.Information($"AetherFrame created Plate {plateId} ({layout}).");
+            return result;
+        });
 
+    /// <summary>
+    /// Creates a brand-new, independent Plate from a Template's saved document (see
+    /// <c>TemplateLibraryService.InstantiateAsync</c>, the only caller): a fresh Plate Guid and
+    /// storage entry, no character binding beyond the usual new-Plate rules below, and — because
+    /// <paramref name="templateDocumentRaw"/> is only ever read here via
+    /// <see cref="PlateDocuments.CreateDuplicate"/> — the Template itself is never mutated and its
+    /// own Guid is never reused as the new Plate's.
+    /// </summary>
+    internal Task<PlateCreationResult> CreatePlateFromTemplateAsync(JsonObject templateDocumentRaw, string plateName, CharacterContext? character) =>
+        RunExclusiveAsync(async () =>
+        {
+            RequireLoaded();
+
+            var now = utcNow();
+            var plateId = Guid.NewGuid();
+            string uniqueName;
             lock (gate)
             {
-                plates[plateId] = ReadyRecord(plateId, raw);
-                PlateOrdering.InsertAtFront(library.OrderedPlateIds, plateId);
-                Changed();
+                uniqueName = PlateNaming.MakeUniqueName(plateName, plates.Values.Select(p => p.Name));
             }
 
-            var becameActive = false;
-            if (character is { } who && PrepareBindingForWrite(who, now) is { } binding)
-            {
-                lock (gate)
-                {
-                    var hadPlates = binding.PlateIds.Any(id => id != plateId && plates.ContainsKey(id));
-                    if (!binding.PlateIds.Contains(plateId))
-                    {
-                        binding.PlateIds.Add(plateId);
-                    }
+            var raw = PlateDocuments.CreateDuplicate(templateDocumentRaw, plateId, uniqueName, now);
+            var result = await InsertNewPlateAsync(plateId, raw, character, now).ConfigureAwait(false);
+            log.Information($"AetherFrame created Plate {plateId} from a Template.");
+            return result;
+        });
 
-                    // First Plate for this character: Active automatically. Never otherwise.
-                    if (!hadPlates && (binding.ActivePlateId is null || !plates.ContainsKey(binding.ActivePlateId.Value)))
-                    {
-                        binding.ActivePlateId = plateId;
-                        becameActive = true;
-                    }
+    /// <summary>
+    /// The shared tail of every "add a brand-new Plate" operation: writes the document, inserts it
+    /// first in the Library, and applies the usual character-association rules — associated with
+    /// <paramref name="character"/> if given, and Active only if this is that character's very
+    /// first Plate (never otherwise). Callers must already hold no lock and must have resolved
+    /// <paramref name="raw"/>'s final content; this only ever writes and indexes it.
+    /// </summary>
+    private async Task<PlateCreationResult> InsertNewPlateAsync(Guid plateId, JsonObject raw, CharacterContext? character, DateTime now)
+    {
+        await WritePlateAsync(plateId, raw).ConfigureAwait(false);
+
+        lock (gate)
+        {
+            plates[plateId] = ReadyRecord(plateId, raw);
+            PlateOrdering.InsertAtFront(library.OrderedPlateIds, plateId);
+            Changed();
+        }
+
+        var becameActive = false;
+        if (character is { } who && PrepareBindingForWrite(who, now) is { } binding)
+        {
+            lock (gate)
+            {
+                var hadPlates = binding.PlateIds.Any(id => id != plateId && plates.ContainsKey(id));
+                if (!binding.PlateIds.Contains(plateId))
+                {
+                    binding.PlateIds.Add(plateId);
                 }
 
-                await CommitBindingAsync(binding).ConfigureAwait(false);
+                // First Plate for this character: Active automatically. Never otherwise.
+                if (!hadPlates && (binding.ActivePlateId is null || !plates.ContainsKey(binding.ActivePlateId.Value)))
+                {
+                    binding.ActivePlateId = plateId;
+                    becameActive = true;
+                }
             }
 
-            await WriteLibraryAsync().ConfigureAwait(false);
-            log.Information($"AetherFrame created Plate {plateId} ({layout}).");
-            return new PlateCreationResult(plateId, becameActive);
-        });
+            await CommitBindingAsync(binding).ConfigureAwait(false);
+        }
+
+        await WriteLibraryAsync().ConfigureAwait(false);
+        return new PlateCreationResult(plateId, becameActive);
+    }
 
     /// <summary>
     /// Saves an independent copy of a Plate's SAVED state (unsaved editor changes are not part of

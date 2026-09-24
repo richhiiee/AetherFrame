@@ -4,9 +4,9 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
+using AetherFrame.Domain.Assets;
 using AetherFrame.Persistence;
 using AetherFrame.Services.Diagnostics;
-using AetherFrame.Services.Plates;
 
 namespace AetherFrame.Services.Assets;
 

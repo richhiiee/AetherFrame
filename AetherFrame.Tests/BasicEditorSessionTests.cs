@@ -69,6 +69,35 @@ public class BasicEditorSessionTests
     }
 
     [Fact]
+    public void CanResetLayout_IsFalse_ForADocumentWithNoBasicSections_LikeOneFromBlankCanvas()
+    {
+        // This is the exact predicate a Template-created Plate's default editor (Basic vs
+        // Advanced) is derived from — a Blank Canvas document must never look like it has Basic
+        // structure to reset.
+        var document = PlateFactory.Create(PlateStartingLayout.Blank, Guid.NewGuid(), "Blank", DateTime.UtcNow);
+
+        Assert.False(BasicEditorSession.CanResetLayout(document));
+    }
+
+    [Fact]
+    public async Task OpeningBasic_OnABlankCanvasPlate_CreatesNoSections()
+    {
+        // Preserves the existing "opening Basic mode never mutates a Plate" invariant for content
+        // shaped like the new Blank Canvas built-in Template — no special-casing was added for it.
+        using var harness = await BasicHarness.CreatePlateAsync(PlateStartingLayout.Blank, null);
+        var before = harness.Json();
+
+        harness.SimulateBasicFrame();
+        harness.SimulateBasicFrame();
+
+        Assert.Empty(harness.Document.Elements);
+        Assert.Null(harness.Document.BasicPlate);
+        Assert.Null(harness.Document.BasicIdentity);
+        Assert.Equal(before, harness.Json());
+        Assert.False(harness.Session.IsDirty);
+    }
+
+    [Fact]
     public async Task LegacyBasicElements_CountAsCustomized_AndAnOrientationChangeLeavesThemAlone()
     {
         var plateId = Guid.NewGuid();

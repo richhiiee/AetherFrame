@@ -8,6 +8,7 @@ using AetherFrame.Services.Assets;
 using AetherFrame.Services.Fonts;
 using AetherFrame.Services.Packages;
 using AetherFrame.Services.Plates;
+using AetherFrame.Services.Templates;
 using AetherFrame.Services.Thumbnails;
 using AetherFrame.UI.Editor;
 using AetherFrame.UI.Rendering;
@@ -44,6 +45,7 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
     public readonly WindowSystem WindowSystem = new("AetherFrame");
 
     private readonly PlateLibraryService plateLibrary;
+    private readonly TemplateLibraryService templateLibrary;
     private readonly CharacterIdentityService characterIdentityService;
     private readonly KeyboardShortcutService keyboardShortcutService;
     private readonly ImageTextureCache imageTextureCache;
@@ -51,6 +53,8 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
     private readonly ProceduralTextureCache proceduralTextureCache;
     private readonly PlateThumbnailService thumbnailService;
     private readonly PlateThumbnailTextures thumbnailTextures;
+    private readonly PlateThumbnailService templateThumbnailService;
+    private readonly PlateThumbnailTextures templateThumbnailTextures;
     private readonly EditorSurfaceCoordinator editorSurfaces;
     private readonly PlateLibraryWindow plateLibraryWindow;
     private readonly BasicProfileEditorWindow basicProfileEditorWindow;
@@ -70,6 +74,7 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
 
         // All Library persistence runs on the framework thread, as profile IO always has.
         plateLibrary = new PlateLibraryService(paths, new ReliablePlateFileStore(FileStorage), log, dispatch: work => Framework.Run(work));
+        templateLibrary = new TemplateLibraryService(paths, new ReliablePlateFileStore(FileStorage), plateLibrary, log, dispatch: work => Framework.Run(work));
 
         var jobCatalog = new JobCatalog();
         characterIdentityService = new CharacterIdentityService(jobCatalog);
@@ -94,6 +99,11 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
         thumbnailTextures = new PlateThumbnailTextures(thumbnailService);
         plateLibrary.PlateSaved += thumbnailService.Invalidate;
         plateLibrary.PlateDeleted += thumbnailService.Remove;
+
+        // Same (currently inert) thumbnail pipeline as Plates, kept in a separate directory only
+        // to avoid a Guid-collision surface between a Template id and a Plate id.
+        templateThumbnailService = new PlateThumbnailService(paths.TemplateThumbnailsDirectory, generator: null, log);
+        templateThumbnailTextures = new PlateThumbnailTextures(templateThumbnailService);
 
         var editorSession = new EditorSession(profileService, assetStorageService, imageTextureCache, log, () => ImGui.GetFrameCount());
         editorSurfaces = new EditorSurfaceCoordinator(() =>
@@ -120,8 +130,9 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
             plateLibrary, assetStorageService, paths, $"AetherFrame {PluginInterface.Manifest.AssemblyVersion}", ImageFormatSupport.IsSupported, log);
         packageImportWindow = new PackageImportWindow(packageService, renderResources, (plateId, name) => plateLibraryWindow!.OnPlateImported(plateId, name));
         plateLibraryWindow = new PlateLibraryWindow(
-            plateLibrary, profileService, editorSession, characterIdentityService, thumbnailService, thumbnailTextures,
-            OpenBasicEditor, OpenAdvancedEditor, profileViewWindow.ShowPlate, packageService, new FileDialogManager(), packageImportWindow.Begin);
+            plateLibrary, templateLibrary, profileService, editorSession, characterIdentityService, thumbnailService, thumbnailTextures,
+            templateThumbnailService, templateThumbnailTextures, OpenBasicEditor, OpenAdvancedEditor, profileViewWindow.ShowPlate, profileViewWindow.ShowDocument,
+            packageService, new FileDialogManager(), packageImportWindow.Begin);
 
         WindowSystem.AddWindow(plateLibraryWindow);
         WindowSystem.AddWindow(basicProfileEditorWindow);
@@ -156,6 +167,17 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
             Log.Error(ex, "AetherFrame could not load the Plate Library.");
             plateLibraryWindow.MarkLoadFailed();
         }
+
+        try
+        {
+            await templateLibrary.InitializeAsync().ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            // Nothing on disk is touched by a failed load; Templates says it couldn't load,
+            // exactly like My Plates does above.
+            Log.Error(ex, "AetherFrame could not load the Template Library.");
+        }
     }
 
     public ValueTask DisposeAsync()
@@ -178,6 +200,8 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
         imageTextureCache.Clear();
         thumbnailTextures.Clear();
         thumbnailService.Dispose();
+        templateThumbnailTextures.Clear();
+        templateThumbnailService.Dispose();
         proceduralTextureCache.Dispose();
         fontService.Dispose();
 

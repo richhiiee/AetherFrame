@@ -25,16 +25,24 @@ public static class PatternPreview
 {
     /// <summary>
     /// A background identical to <paramref name="current"/> except it shows <paramref name="candidate"/>
-    /// as a Textured Fill — Base color, Pattern color, Intensity, Scale, and Rotation are all copied
-    /// from <paramref name="current"/> unchanged. Read fresh every call, so a caller that re-renders
-    /// every frame (as ImGui does) picks up any live edit to those values immediately, with no
-    /// separate preview state to keep in sync or persist.
+    /// as its Pattern overlay — Mode (so a gradient or image base previews correctly, not just a
+    /// flat color), Base color, Pattern color, Intensity, Scale, and Rotation are all copied from
+    /// <paramref name="current"/> unchanged, exactly mirroring what picking the card would actually
+    /// do (see <c>BackgroundStylePanel.DrawPatternPresets</c>). Mode is switched to Solid
+    /// Color only when there was no background at all (None), the same visibility rule picking a
+    /// pattern for real follows. Read fresh every call, so a caller that re-renders every frame (as
+    /// ImGui does) picks up any live edit to those values immediately, with no separate preview
+    /// state to keep in sync or persist.
     /// </summary>
     public static ProfileBackground Create(ProfileBackground current, ProfileBackgroundTexture candidate)
     {
         var preview = current.Clone();
-        preview.Mode = ProfileBackgroundMode.TexturedFill;
         preview.Texture = candidate;
+        if (candidate != ProfileBackgroundTexture.None && preview.Mode == ProfileBackgroundMode.None)
+        {
+            preview.Mode = ProfileBackgroundMode.SolidColor;
+        }
+
         return preview;
     }
 }

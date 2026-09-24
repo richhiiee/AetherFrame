@@ -7,11 +7,14 @@ using System.Threading.Tasks;
 using AetherFrame.Domain.Assets;
 using AetherFrame.Domain.Plates;
 using AetherFrame.Domain.Profiles;
+using AetherFrame.Domain.Templates;
 using AetherFrame.Persistence;
 using AetherFrame.Persistence.Schema;
 using AetherFrame.Services;
 using AetherFrame.Services.Assets;
 using AetherFrame.Services.Plates;
+using AetherFrame.Services.Templates;
+using AetherFrame.UI.Editor;
 using Xunit;
 
 namespace AetherFrame.Tests;
@@ -354,6 +357,162 @@ public class AssetReferenceTests
 
         Assert.False(scan.IsComplete);
         Assert.NotEmpty(scan.Problems);
+    }
+}
+
+public class TemplateAssetReferenceTests
+{
+    [Fact]
+    public async Task TemplateLibraryScan_IncludesTemplateDocumentAssetReferences()
+    {
+        using var fixture = new TemplateLibraryFixture();
+        var templates = await fixture.LoadAsync();
+        var plateId = Guid.NewGuid();
+        var rich = SampleDocuments.Rich(plateId, "Rich", fixture.Clock.Now);
+        fixture.WritePlateJson(plateId, JsonSerializer.Serialize(rich, JsonOptions.Default));
+        await fixture.PlateLibrary.InitializeAsync();
+        await templates.SaveAsTemplateAsync(plateId, "Rich Template");
+
+        var scan = await templates.ScanAssetReferencesAsync();
+
+        Assert.True(scan.IsComplete);
+        Assert.Contains(SampleDocuments.ImageAsset, scan.ReferencedAssetIds);
+        Assert.Contains(SampleDocuments.BackgroundAsset, scan.ReferencedAssetIds);
+    }
+
+    [Fact]
+    public async Task TemplateLibraryScan_IsIncomplete_WhenAnyTemplateIsUnreadable()
+    {
+        using var fixture = new TemplateLibraryFixture();
+        var id = Guid.NewGuid();
+        fixture.WriteTemplateJson(id, "{ broken");
+        var templates = await fixture.LoadAsync();
+
+        var scan = await templates.ScanAssetReferencesAsync();
+
+        Assert.False(scan.IsComplete);
+        Assert.NotEmpty(scan.Problems);
+    }
+
+    [Fact]
+    public async Task TemplateLibraryScan_IncludesTrashedTemplates()
+    {
+        using var fixture = new TemplateLibraryFixture();
+        var templates = await fixture.LoadAsync();
+        var plateId = Guid.NewGuid();
+        var rich = SampleDocuments.Rich(plateId, "Rich", fixture.Clock.Now);
+        fixture.WritePlateJson(plateId, JsonSerializer.Serialize(rich, JsonOptions.Default));
+        await fixture.PlateLibrary.InitializeAsync();
+        var templateId = await templates.SaveAsTemplateAsync(plateId, "Rich Template");
+        await templates.DeleteTemplateAsync(templateId);
+
+        var scan = await templates.ScanAssetReferencesAsync();
+
+        Assert.True(scan.IsComplete);
+        Assert.Contains(SampleDocuments.ImageAsset, scan.ReferencedAssetIds);
+    }
+
+    [Fact]
+    public async Task CombinedScan_AssetReferencedOnlyByATemplate_IsNotUnreferenced_WhenUnionedWithPlateScan()
+    {
+        using var fixture = new TemplateLibraryFixture();
+
+        // Built directly (not via SaveAsTemplateAsync), so this asset is never referenced by any
+        // Plate — the only way to isolate a genuinely Template-only reference, since a Template
+        // saved from a Plate is always also visible to the Plate scan (including via its trash).
+        var templateOnlyAsset = Guid.NewGuid();
+        var templateId = Guid.NewGuid();
+        var document = BuiltInTemplateCatalog.CreateDocument(BuiltInTemplateCatalog.BlankCanvasId, fixture.Clock.Now, null);
+        document.ProfileId = templateId;
+        document.Elements.Add(new ImageProfileElement { AssetId = templateOnlyAsset });
+        var documentJson = PlateDocuments.ToJson(document).ToJsonString(JsonOptions.Default);
+        fixture.WriteTemplateJson(templateId, TemplateSamples.Envelope(templateId, "Template Only", documentJson));
+
+        var templates = await fixture.LoadAsync();
+
+        var plateOnlyScan = await fixture.PlateLibrary.ScanAssetReferencesAsync();
+        var combined = await LiveAssetReferences.ComputeAsync(fixture.PlateLibrary, templates);
+
+        Assert.DoesNotContain(templateOnlyAsset, plateOnlyScan.ReferencedAssetIds);
+        Assert.Contains(templateOnlyAsset, combined.ReferencedAssetIds);
+    }
+
+    [Fact]
+    public async Task CombinedScan_AssetReferencedOnlyByAPlate_IsNotUnreferenced_WhenUnionedWithTemplateScan()
+    {
+        using var fixture = new TemplateLibraryFixture();
+        var templates = await fixture.LoadAsync();
+        var plateId = Guid.NewGuid();
+        var rich = SampleDocuments.Rich(plateId, "Rich", fixture.Clock.Now);
+        fixture.WritePlateJson(plateId, JsonSerializer.Serialize(rich, JsonOptions.Default));
+        await fixture.PlateLibrary.InitializeAsync();
+        // No Template at all — the asset is referenced only by the Plate.
+
+        var combined = await LiveAssetReferences.ComputeAsync(fixture.PlateLibrary, templates);
+
+        Assert.Contains(SampleDocuments.ImageAsset, combined.ReferencedAssetIds);
+    }
+
+    [Fact]
+    public async Task CombinedScan_IsIncomplete_WhenEitherLibraryScanIsIncomplete()
+    {
+        using var fixture = new TemplateLibraryFixture();
+        fixture.WriteTemplateJson(Guid.NewGuid(), "{ broken");
+        var templates = await fixture.LoadAsync();
+
+        var combined = await LiveAssetReferences.ComputeAsync(fixture.PlateLibrary, templates);
+
+        Assert.False(combined.IsComplete);
+    }
+
+    /// <summary>
+    /// Proves the premise behind sharing AssetIds across a Template and its instantiated Plates:
+    /// replacing an image always imports a fresh asset (see <see cref="EditorSession.ReplaceImage"/>)
+    /// and never overwrites the bytes behind an existing AssetId, so a Template and every Plate
+    /// that shares its asset references stay independent even after one of them is edited.
+    /// </summary>
+    [Fact]
+    public async Task ReplacingImageOnInstantiatedPlate_NeverAffectsTemplateOrSourcePlate()
+    {
+        using var fixture = new TemplateLibraryFixture();
+        var templates = await fixture.LoadAsync();
+        var assetStorage = new AssetStorageService(fixture.Paths.AssetsDirectory, fixture.Paths.AssetStagingDirectory, new AssetMetadataStore(fixture.Paths.AssetMetadataDirectory));
+
+        var sourceId = Guid.NewGuid();
+        var originalPath = TestImages.Write(Path.Combine(fixture.Root, "src"), "original.png", TestImages.Png(4, 4));
+        var originalAssetId = assetStorage.ImportImage(originalPath);
+
+        var sourceDocument = PlateFactory.Create(PlateStartingLayout.Blank, sourceId, "Source", fixture.Clock.Now);
+        sourceDocument.Elements.Add(new ImageProfileElement { AssetId = originalAssetId, Position = new(0, 0), Size = new(100, 100) });
+        fixture.WritePlateJson(sourceId, JsonSerializer.Serialize(sourceDocument, JsonOptions.Default));
+        await fixture.PlateLibrary.InitializeAsync();
+
+        var templateId = await templates.SaveAsTemplateAsync(sourceId, "Image Template");
+        var instantiated = await templates.InstantiateAsync(templateId, null);
+
+        var profiles = new ProfileService(fixture.PlateLibrary);
+        profiles.OpenPlate(instantiated.PlateId);
+        var session = new EditorSession(profiles, assetStorage, new FakeImages(), fixture.Log, () => 1);
+        session.SyncWithCurrentProfile();
+
+        var elementId = profiles.CurrentProfile!.Elements.Single(e => e is ImageProfileElement).Id;
+        var replacementPath = TestImages.Write(Path.Combine(fixture.Root, "src"), "replacement.png", TestImages.Png(4, 4));
+        session.ReplaceImage(elementId, replacementPath);
+        Assert.Null(session.ErrorMessage);
+
+        await fixture.PlateLibrary.SavePlateDocumentAsync(profiles.CurrentProfile!);
+
+        var newPlateAssetId = ((ImageProfileElement)fixture.PlateLibrary.OpenDocumentForEditing(instantiated.PlateId).Elements.Single()).AssetId;
+        Assert.NotEqual(originalAssetId, newPlateAssetId);
+
+        var templateAssetId = ((ImageProfileElement)templates.GetSavedDocument(templateId)!.Elements.Single()).AssetId;
+        Assert.Equal(originalAssetId, templateAssetId);
+
+        var sourcePlateAssetId = ((ImageProfileElement)fixture.PlateLibrary.OpenDocumentForEditing(sourceId).Elements.Single()).AssetId;
+        Assert.Equal(originalAssetId, sourcePlateAssetId);
+
+        Assert.NotNull(assetStorage.ResolveAssetPath(originalAssetId));
+        Assert.NotNull(assetStorage.ResolveAssetPath(newPlateAssetId));
     }
 }
 

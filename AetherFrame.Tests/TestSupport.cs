@@ -10,6 +10,7 @@ using AetherFrame.Domain.Profiles;
 using AetherFrame.Persistence;
 using AetherFrame.Services.Diagnostics;
 using AetherFrame.Services.Plates;
+using AetherFrame.Services.Templates;
 
 namespace AetherFrame.Tests;
 
@@ -210,6 +211,60 @@ internal sealed class LibraryFixture : IDisposable
     public void Dispose() => directory.Dispose();
 }
 
+/// <summary>Builds a Template Library (and the Plate Library it depends on) over a temp directory.</summary>
+internal sealed class TemplateLibraryFixture : IDisposable
+{
+    private readonly TempDirectory directory = new();
+
+    internal TemplateLibraryFixture(IPlateFileStore? store = null)
+    {
+        Paths = new PlateStoragePaths(directory.Path);
+        Store = store ?? new SystemFileStore();
+        PlateLibrary = new PlateLibraryService(Paths, Store, PlateLog, () => Clock.Now);
+    }
+
+    internal PlateStoragePaths Paths { get; }
+
+    internal IPlateFileStore Store { get; }
+
+    internal FakeClock Clock { get; } = new();
+
+    internal TestLog Log { get; } = new();
+
+    internal TestLog PlateLog { get; } = new();
+
+    internal string Root => directory.Path;
+
+    internal PlateLibraryService PlateLibrary { get; }
+
+    internal TemplateLibraryService CreateService() => new(Paths, Store, PlateLibrary, Log, () => Clock.Now);
+
+    /// <summary>Loads the Plate Library first (Templates depend on it), then a fresh Template Library.</summary>
+    internal async Task<TemplateLibraryService> LoadAsync()
+    {
+        await PlateLibrary.InitializeAsync();
+        var service = CreateService();
+        await service.InitializeAsync();
+        return service;
+    }
+
+    internal void WriteTemplateJson(Guid templateId, string json)
+    {
+        Directory.CreateDirectory(Paths.TemplatesDirectory);
+        File.WriteAllText(Paths.GetTemplatePath(templateId), json, Encoding.UTF8);
+    }
+
+    internal string ReadTemplateJson(Guid templateId) => File.ReadAllText(Paths.GetTemplatePath(templateId), Encoding.UTF8);
+
+    internal void WritePlateJson(Guid plateId, string json)
+    {
+        Directory.CreateDirectory(Paths.PlatesDirectory);
+        File.WriteAllText(Paths.GetPlatePath(plateId), json, Encoding.UTF8);
+    }
+
+    public void Dispose() => directory.Dispose();
+}
+
 internal static class Characters
 {
     internal static readonly CharacterContext Alice = new(1001, "Alice Example", "Twintania");
@@ -267,6 +322,24 @@ internal static class LegacyData
           "ProfileIds": [{{string.Join(", ", profileIds.Select(p => $"\"{p}\""))}}],
           "CreatedAtUtc": "2025-01-02T03:04:05Z",
           "UpdatedAtUtc": "2025-01-02T03:04:05Z"
+        }
+        """;
+}
+
+/// <summary>Raw Template envelope JSON, for schema/migration and hardening tests.</summary>
+internal static class TemplateSamples
+{
+    /// <summary>A Template envelope wrapping <paramref name="documentJson"/> verbatim, so the
+    /// embedded document's own version can be set independently of the envelope's.</summary>
+    internal static string Envelope(Guid templateId, string name, string documentJson, int version = 1, int originKind = 0) => $$"""
+        {
+          "Version": {{version}},
+          "TemplateId": "{{templateId}}",
+          "Name": "{{name}}",
+          "CreatedAtUtc": "2025-01-02T03:04:05Z",
+          "UpdatedAtUtc": "2025-02-03T04:05:06Z",
+          "Origin": { "Kind": {{originKind}} },
+          "Document": {{documentJson}}
         }
         """;
 }
