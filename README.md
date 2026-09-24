@@ -1,78 +1,206 @@
-> ⚠️ **Don't click Fork!**
-> 
-> This is a GitHub Template repo. If you want to use this for a plugin, [use this template][new-repo] to make a new repo!
->
-> ![image](https://github.com/goatcorp/SamplePlugin/assets/16760685/d9732094-e1ed-4769-a70b-58ed2b92580c)
+# AetherFrame
 
-# SamplePlugin
+**Enhanced character Plates for Final Fantasy XIV.**
 
-[![Use This Template badge](https://img.shields.io/badge/Use%20This%20Template-0?logo=github&labelColor=grey)][new-repo]
+AetherFrame is a [Dalamud](https://github.com/goatcorp/Dalamud) plugin for designing character Plates: profile cards that start from the familiar shape of the in-game Adventure Plate and can grow into fully freeform layouts.
 
+> **Basic mode feels like FFXIV. Advanced mode removes the restrictions.**
 
-Simple example plugin for Dalamud.
+> [!NOTE]
+> AetherFrame is in **early development**. It is not an official Dalamud repository plugin, and its features, file formats and internal APIs may still change.
 
-This is not designed to be the simplest possible example, but it is also not designed to cover everything you might want to do. For more detailed questions, come ask in [the Discord](https://discord.gg/holdshift).
+---
 
-## Main Points
+## Screenshots
 
-* Simple functional plugin
-  * Slash command
-  * Main UI
-  * Settings UI
-  * Image loading
-  * Plugin json
-* Simple, slightly-improved plugin configuration handling
-* Project organization
-  * Copies all necessary plugin files to the output directory
-    * Does not copy dependencies that are provided by dalamud
-    * Output directory can be zipped directly and have exactly what is required
-  * Hides data files from visual studio to reduce clutter
-    * Also allows having data files in different paths than VS would usually allow if done in the IDE directly
+_Screenshots will be added as the interface settles._
 
+<!--
+  To add screenshots: place PNG files in a `docs/screenshots/` folder in this repository and
+  reference them with relative paths, for example:
 
-The intention is less that any of this is used directly in other projects, and more to show how similar things can be done.
+  ![Plate Library](docs/screenshots/plate-library.png)
 
-## How To Use
+  Suggested set: Plate Library, Basic editor, Advanced editor, Plate Viewer, Clean Preview.
+-->
 
-### Getting Started
+| Plate Library | Basic editor | Advanced editor | Plate Viewer |
+|---|---|---|---|
+| _coming soon_ | _coming soon_ | _coming soon_ | _coming soon_ |
 
-To begin, [clone this template repository][new-repo] to your own GitHub account. This will automatically bring in everything you need to get a jumpstart on development. You do not need to fork this repository unless you intend to contribute modifications to it.
+---
 
-Be sure to also check out the [Dalamud Developer Docs][dalamud-docs] for helpful information about building your own plugin. The Developer Docs includes helpful information about all sorts of things, including [how to submit][submit] your newly-created plugin to the official repository. Assuming you use this template repository, the provided project build configuration and license are already chosen to make everything a breeze.
+## Features
 
-[new-repo]: https://github.com/new?template_name=SamplePlugin&template_owner=goatcorp
-[dalamud-docs]: https://dalamud.dev
-[submit]: https://dalamud.dev/plugin-publishing/submission
+### Plates and the Plate Library
 
-### Prerequisites
+- **Multiple saved Plates.** Each Plate is a complete, independent design. Keep as many as you like.
+- **Plate Library ("My Plates").** Browse, search, preview, rename, duplicate and delete Plates, and choose which Plate is Active for each character. Duplicating a Plate is an easy way to keep several variations of a look side by side.
+- **Plate previews.** Library cards and a preview pane show each Plate at a glance.
+- **Plate Viewer.** A dedicated window that shows a Plate fitted to its size.
+- **Clean Preview.** Hide the editor UI and see the Plate exactly as it will look.
 
-SamplePlugin assumes all the following prerequisites are met:
+### Basic editor
 
-* XIVLauncher, FINAL FANTASY XIV, and Dalamud have all been installed and the game has been run with Dalamud at least once.
-* XIVLauncher is installed to its default directories and configurations.
-  * If a custom path is required for Dalamud's dev directory, it must be set with the `DALAMUD_HOME` environment variable.
-* A .NET Core 8 SDK has been installed and configured, or is otherwise available. (In most cases, the IDE will take care of this.)
+A structured editor modelled on FFXIV's Adventure Plates. You fill in sections, and AetherFrame handles the layout.
 
-### Building
+- **Identity**: name, title, world, job and level, drawn from your character where available.
+- **Portrait**: import your own image, with Fill / Fit / Stretch framing and a mirrored layout option.
+- **Playstyle, active hours and a free-form message.**
+- **Themes, backgrounds and patterns**: built-in colour themes plus procedural background patterns.
 
-1. Open up `SamplePlugin.sln` in your C# editor of choice (likely [Visual Studio](https://visualstudio.microsoft.com) or [JetBrains Rider](https://www.jetbrains.com/rider/)).
-2. Build the solution. By default, this will build a `Debug` build, but you can switch to `Release` in your IDE.
-3. The resulting plugin can be found at `SamplePlugin/bin/x64/Debug/SamplePlugin.dll` (or `Release` if appropriate.)
+### Advanced editor
 
-### Activating in-game
+A freeform canvas for when the Basic layout isn't enough.
 
-1. Launch the game and use `/xlsettings` in chat or `xlsettings` in the Dalamud Console to open up the Dalamud settings.
-    * In here, go to `Experimental`, and add the full path to the `SamplePlugin.dll` to the list of Dev Plugin Locations.
-2. Next, use `/xlplugins` (chat) or `xlplugins` (console) to open up the Plugin Installer.
-    * In here, go to `Dev Tools > Installed Dev Plugins`, and the `SamplePlugin` should be visible. Enable it.
-3. You should now be able to use `/pmycommand` (chat) or `pmycommand` (console)!
+- Place, move, resize and rotate text and image elements anywhere on the Plate.
+- Layers, snapping, undo/redo and per-element styling.
+- Custom text with bundled fonts, so a Plate renders the same on every machine.
+- Custom images from your own files.
 
-Note that you only need to add it to the Dev Plugin Locations once (Step 1); it is preserved afterwards. You can disable, enable, or load your plugin on startup through the Plugin Installer.
+### Components
 
-### Reconfiguring for your own uses
+Reusable decorative pieces you add to a Plate and restyle without redrawing anything.
 
-Replace all references to `SamplePlugin` in all the files and filenames with your desired name, then start building the plugin of your dreams. You'll figure it out 😁
+- **Procedural Components**: Plate frames, portrait frames and overlays, name backings, dividers, section headers and corner ornaments, all drawn in code and tintable.
+- **Bundled graphical Components**: hand-made artwork shipped inside the plugin (for example the Celestial Dream *Astrolabe Pivot* corner ornament).
+- **Corner-specific placement**: choose which corners a corner ornament appears on.
+- **Overflow**: Components can deliberately extend past the Plate's edges, and previews account for it.
 
-Dalamud will load the JSON file (by default, `SamplePlugin/SamplePlugin.json`) next to your DLL and use it for metadata, including the description for your plugin in the Plugin Installer. Make sure to update this with information relevant to _your_ plugin!
+### Templates
 
-All participation in this repository is governed by our [Code of Conduct](https://dalamud.dev/code-of-conduct). If you used AI tooling at any point, review the [AI Usage Policy](https://dalamud.dev/plugin-publishing/ai-policy) and disclose your level of AI use. Entirely AI-generated submissions will be rejected, and undisclosed AI use may result in a ban.
+- Start a new Plate from a built-in Template (*Adventure Plate Classic* or *Blank Canvas*).
+- Save any Plate as your own Template and reuse it later.
+
+### Import and export
+
+- Share a Plate as a single **`.aetherframe`** file that includes the images it uses.
+- Imports are validated before anything is written. Size limits, path checks, image checks and document validation all run on a staging copy first.
+
+### Local assets and data safety
+
+- Imported images are stored and tracked locally, and unused ones are cleaned up.
+- **Forward compatibility.** Plate data is versioned and migrated. Content from a newer version of AetherFrame that this version doesn't understand is preserved rather than discarded.
+
+---
+
+## Local first
+
+Everything AetherFrame does today happens on your own machine.
+
+- No account is needed.
+- Editing is entirely local.
+- Plates, Templates and images are stored in the plugin's local configuration folder.
+- Import and export are file-based: you choose what to export and who you give it to.
+- No online service is required for any of the core experience.
+
+## Privacy direction
+
+Sharing Plates with other players is a possible future direction, not a current feature. If it arrives, the intent is:
+
+- **Intentional sharing** rather than passive discovery.
+- No silent telemetry.
+- No automatic scraping of nearby players.
+- No public Content IDs, no alt correlation, and no public location history.
+
+---
+
+## Installation
+
+AetherFrame is not yet available from the official Dalamud plugin repository, and there is no public custom repository for players yet. **Public installation instructions will be added later.**
+
+Developers can build it from source and load it as a dev plugin (see below).
+
+## Building from source
+
+### Requirements
+
+- Windows with FFXIV, XIVLauncher and Dalamud installed, and the game run with Dalamud at least once
+- [.NET 10 SDK](https://dotnet.microsoft.com/download)
+- Dalamud API 15 (the project uses `Dalamud.NET.Sdk` 15)
+- **x64** platform. The plugin project only builds for x64.
+
+### Build
+
+From the repository root:
+
+```bash
+dotnet build AetherFrame/AetherFrame.csproj --configuration Debug -p:Platform=x64
+```
+
+```bash
+dotnet build AetherFrame/AetherFrame.csproj --configuration Release -p:Platform=x64
+```
+
+The output is written to `AetherFrame/bin/x64/<Configuration>/`.
+
+### Tests
+
+`AetherFrame.Tests` covers the Dalamud-independent logic (documents, persistence, packages, editor sessions and layout) and runs without the game:
+
+```bash
+dotnet test AetherFrame.Tests/AetherFrame.Tests.csproj
+```
+
+### Loading in game
+
+1. Open `/xlsettings` → **Experimental** and add the full path to the built `AetherFrame.dll` under **Dev Plugin Locations**.
+2. Open `/xlplugins` → **Dev Tools → Installed Dev Plugins** and enable AetherFrame.
+3. Use **`/aetherframe`** to open My Plates.
+
+---
+
+## Project structure
+
+```
+AetherFrame/            the plugin
+  Domain/               Plate documents, Basic layout rules, Components, Templates (no Dalamud dependencies)
+  Persistence/          versioned JSON storage, schema migrations, unknown-data preservation
+  Services/             Plate & Template libraries, assets, fonts, .aetherframe packages, thumbnails
+  UI/Editor/            editor sessions: history, selection, snapping, Basic/Advanced coordination
+  UI/Rendering/         Plate renderer, backgrounds, text, Components, previews
+  Windows/              Dalamud/ImGui windows: My Plates, Basic editor, Advanced editor, Viewer, import
+  Hosting/              thin adapters over Dalamud services
+  Assets/               bundled Component artwork, embedded in the DLL
+  Fonts/                bundled fonts (SIL Open Font License), embedded in the DLL
+AetherFrame.Tests/      pure-logic tests that build without Dalamud
+```
+
+### Key concepts
+
+- **Plate / Profile document.** A Plate's content is a single versioned document (`ProfileDocument`) holding the canvas, background, elements (text and images), Components and Basic-mode settings. Both editors work on the same document, so a Plate can move from Basic to Advanced.
+- **Plate Library.** Stores every saved Plate plus per-character bindings (which Plates belong to a character and which one is Active).
+- **Basic editor.** Structured input (identity, portrait, playstyle, message, theme) mapped onto an Adventure Plate-style layout.
+- **Advanced editor.** Direct manipulation of every element on the canvas, with layers, snapping and undo.
+- **Templates.** Starting points for new Plates: built-in ones compiled into the plugin, plus user Templates saved locally.
+- **Components.** Decorations described by a stable definition id and per-instance settings. Procedural ones are drawn in code, graphical ones use embedded artwork. Plates store only ids, never the art itself.
+- **Rendering.** One renderer draws a Plate for the editors, the Viewer, Clean Preview and library previews, so all of them match.
+- **Assets.** User images are copied into a local asset store, checked on import and tracked by reference so unused files can be removed.
+- **Packages.** `.aetherframe` files are ZIP-based packages containing a manifest, the Plate document and its images. They are validated in a staging area before anything is imported.
+
+Full-size source artwork for bundled Components lives in the separate [AetherFrameAssets](https://github.com/richhiiee/AetherFrameAssets) repository. The plugin only needs the optimized copies in `AetherFrame/Assets/`.
+
+---
+
+## Development note
+
+AetherFrame is built with AI-assisted development. Product and architecture decisions, testing, in-game validation, and review and iteration are directed by a human developer.
+
+## Contributing
+
+AetherFrame is still taking shape. Issues, bug reports and feedback are welcome on the [issue tracker](https://github.com/richhiiee/AetherFrame/issues).
+
+## License
+
+AetherFrame is licensed under the [GNU Affero General Public License v3.0](LICENSE.md).
+
+Bundled fonts are licensed separately under the SIL Open Font License 1.1. See `AetherFrame/Fonts/THIRD-PARTY-FONT-LICENSES.txt`.
+
+## Links
+
+- Repository: <https://github.com/richhiiee/AetherFrame>
+- Assets: <https://github.com/richhiiee/AetherFrameAssets>
+
+---
+
+<sub>AetherFrame is a fan-made plugin and is not affiliated with or endorsed by Square Enix. FINAL FANTASY XIV © SQUARE ENIX CO., LTD.</sub>
