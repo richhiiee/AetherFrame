@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Numerics;
 using System.Threading.Tasks;
+using AetherFrame.Domain.Components;
 using AetherFrame.Domain.Profiles;
 using AetherFrame.Services;
 using AetherFrame.Services.Diagnostics;
@@ -820,11 +821,11 @@ internal sealed partial class EditorSession
             return baseline is null && profile is null;
         }
 
-        return StateMatches(baseline, profile.CanvasWidth, profile.CanvasHeight, profile.Background, profile.BasicIdentity, profile.BasicPlate, profile.Elements);
+        return StateMatches(baseline, profile.CanvasWidth, profile.CanvasHeight, profile.Background, profile.BasicIdentity, profile.BasicPlate, profile.Elements, profile.Components);
     }
 
     private static bool StatesEqual(ProfileService.DocumentState a, ProfileService.DocumentState b) =>
-        StateMatches(a, b.CanvasWidth, b.CanvasHeight, b.Background, b.BasicIdentity, b.BasicPlate, b.Elements);
+        StateMatches(a, b.CanvasWidth, b.CanvasHeight, b.Background, b.BasicIdentity, b.BasicPlate, b.Elements, b.Components);
 
     /// <summary>Value equality of a captured state against another state's (or the live profile's) parts.</summary>
     private static bool StateMatches(
@@ -834,7 +835,8 @@ internal sealed partial class EditorSession
         ProfileBackground? background,
         BasicIdentityHeader? identity,
         BasicPlateSettings? basicPlate,
-        List<ProfileElement> live)
+        List<ProfileElement> live,
+        List<PlateComponent>? components)
     {
         if (!state.CanvasWidth.Equals(canvasWidth) || !state.CanvasHeight.Equals(canvasHeight))
         {
@@ -852,6 +854,11 @@ internal sealed partial class EditorSession
         }
 
         if (state.BasicPlate is null ? basicPlate is not null : !state.BasicPlate.ContentEquals(basicPlate))
+        {
+            return false;
+        }
+
+        if (!PlateComponent.ListsEqual(state.Components, components))
         {
             return false;
         }

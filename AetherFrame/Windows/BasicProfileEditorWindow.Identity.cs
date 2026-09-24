@@ -76,6 +76,10 @@ internal sealed partial class BasicProfileEditorWindow
         DrawTitleControls(profile, identity);
         DrawIdentityLayoutChoice(profile, identity);
 
+        ImGui.Spacing();
+        Subheading("Name Backing");
+        DrawComponentSlot(profile, Domain.Components.PlateComponentKind.NameBacking);
+
         // Fine tuning, out of the way until wanted.
         ImGui.Spacing();
         StyleTarget? Target(string label, ProfileElementRole role, StyleControls controls) =>

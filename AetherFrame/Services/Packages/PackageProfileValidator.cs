@@ -4,6 +4,7 @@ using System.Numerics;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using AetherFrame.Domain.Basic;
+using AetherFrame.Domain.Components;
 using AetherFrame.Domain.Plates;
 using AetherFrame.Domain.Profiles;
 using AetherFrame.Persistence;
@@ -73,6 +74,22 @@ internal static class PackageProfileValidator
             }
         }
 
+        if (raw[nameof(ProfileDocument.Components)] is { } componentsNode)
+        {
+            if (componentsNode is not JsonArray components)
+            {
+                Invalid("Components is not an array");
+                return null;
+            }
+
+            if (components.Count > PlateComponentLimits.MaxComponentCount)
+            {
+                diagnostics.Error(PackageErrorCode.PackageTooLarge, $"The Plate has too many Components (the limit is {PlateComponentLimits.MaxComponentCount}).",
+                    $"{components.Count} components");
+                return null;
+            }
+        }
+
         if (FindBadNumber(raw) is { } badNumber)
         {
             Invalid($"number out of range: {badNumber}");
@@ -134,6 +151,12 @@ internal static class PackageProfileValidator
         if (checker.Failed)
         {
             return null;
+        }
+
+        if (document.UnrecognizedComponents is { Count: > 0 })
+        {
+            diagnostics.Warning(PackageWarningCode.UnsupportedElements,
+                "Some of this Plate's Components couldn't be read. They won't be shown, but they're kept.");
         }
 
         if (document.HasUnsupportedElements)
@@ -273,6 +296,39 @@ internal static class PackageProfileValidator
             if (document.BasicPlate is { } plate)
             {
                 CheckBasicPlate(plate);
+            }
+
+            if (document.Components is { } components)
+            {
+                CheckComponents(components);
+            }
+        }
+
+        private void CheckComponents(List<PlateComponent> components)
+        {
+            foreach (var component in components)
+            {
+                Text(component.DefinitionId, PlateComponentLimits.MaxDefinitionIdLength, "Component id");
+                if (component.Color is { } color)
+                {
+                    Color(color, "Component color");
+                }
+
+                Style(component.Opacity, "Component opacity");
+                Style(component.Scale, "Component scale");
+                Style(component.RotationDegrees, "Component rotation");
+                Coordinate(component.Offset, "Component offset");
+
+                if (component.AssetId is { } assetId && assetId != Guid.Empty)
+                {
+                    AssetReferences.Add(assetId);
+                }
+
+                // A newer build's kind or definition: kept exactly as it is, just not drawn here.
+                if (ComponentPaintPlan.Resolve(component, BuiltInComponentCatalog.Instance, out _) is ComponentStatus.UnknownKind or ComponentStatus.MissingDefinition or ComponentStatus.KindMismatch)
+                {
+                    Unrecognized();
+                }
             }
         }
 

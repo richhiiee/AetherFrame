@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
 using System.Threading.Tasks;
+using AetherFrame.Domain.Components;
 using AetherFrame.Domain.Profiles;
 using AetherFrame.Services.Plates;
 
@@ -441,6 +442,7 @@ internal sealed class ProfileService
             profile.Background = state.Background?.Clone();
             profile.BasicIdentity = state.BasicIdentity?.Clone();
             profile.BasicPlate = state.BasicPlate?.Clone();
+            profile.Components = PlateComponent.CloneList(state.Components);
 
             profile.Elements.Clear();
             foreach (var element in state.Elements)
@@ -619,6 +621,7 @@ internal sealed class ProfileService
         Background = source.Background?.Clone(),
         BasicIdentity = source.BasicIdentity?.Clone(),
         BasicPlate = source.BasicPlate?.Clone(),
+        Components = PlateComponent.CloneList(source.Components),
 
         // Deep copies: the snapshot is serialized on the framework thread, so it must not share
         // element instances the render thread could still be mutating.
@@ -628,6 +631,8 @@ internal sealed class ProfileService
         // (JsonElement is immutable, so sharing the values is safe).
         ExtensionData = source.ExtensionData is null ? null : new Dictionary<string, System.Text.Json.JsonElement>(source.ExtensionData),
         UnrecognizedElements = source.UnrecognizedElements?.ToList(),
+        UnrecognizedComponents = source.UnrecognizedComponents?.ToList(),
+        MalformedComponentsValue = source.MalformedComponentsValue,
     };
 
     /// <summary>A rename in My Plates also relabels the open copy, so the next save keeps it.</summary>
@@ -664,7 +669,8 @@ internal sealed class ProfileService
 
     /// <summary>
     /// Immutable (by convention — never mutate the contained instances) snapshot of every
-    /// editable part of a profile: canvas size, background, and independent element clones.
+    /// editable part of a profile: canvas size, background, Basic settings, and independent element
+    /// and Component clones.
     /// </summary>
     internal sealed record DocumentState(
         float CanvasWidth,
@@ -672,7 +678,8 @@ internal sealed class ProfileService
         ProfileBackground? Background,
         BasicIdentityHeader? BasicIdentity,
         BasicPlateSettings? BasicPlate,
-        List<ProfileElement> Elements)
+        List<ProfileElement> Elements,
+        List<PlateComponent>? Components)
     {
         internal static DocumentState Capture(ProfileDocument profile) => new(
             profile.CanvasWidth,
@@ -680,7 +687,8 @@ internal sealed class ProfileService
             profile.Background?.Clone(),
             profile.BasicIdentity?.Clone(),
             profile.BasicPlate?.Clone(),
-            profile.Elements.Select(e => e.Clone()).ToList());
+            profile.Elements.Select(e => e.Clone()).ToList(),
+            PlateComponent.CloneList(profile.Components));
     }
 
     /// <summary>Immutable snapshot of a profile's canvas size and every element's Position/Size, for undo/redo of a canvas resize.</summary>

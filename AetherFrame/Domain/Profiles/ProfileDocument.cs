@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using AetherFrame.Domain.Components;
 
 namespace AetherFrame.Domain.Profiles;
 
@@ -90,6 +91,32 @@ public sealed class ProfileDocument
     /// </summary>
     public BasicPlateSettings? BasicPlate { get; set; }
 
+    /// <summary>
+    /// The Plate's reusable Components (frames, backings, decorations — see <see cref="PlateComponent"/>),
+    /// or null when it has none (every Plate before Components existed, and every new one until a
+    /// Component is chosen). Part of the Plate's creative state like everything else here, so
+    /// Templates, duplication and packages carry it without any storage of their own. Never written
+    /// when null, so a Plate without Components serializes exactly as before.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<PlateComponent>? Components { get; set; }
+
+    /// <summary>
+    /// Components this build couldn't read (malformed, e.g. a wrong-typed value), kept verbatim as
+    /// raw JSON and written back after <see cref="Components"/> on every save — one bad Component
+    /// never costs the Plate, or its other Components. Filled and written by <c>PlateDocuments</c>.
+    /// </summary>
+    [JsonIgnore]
+    public List<JsonElement>? UnrecognizedComponents { get; set; }
+
+    /// <summary>
+    /// A "Components" value that isn't an array at all (so no individual Component can be read from
+    /// it). Kept verbatim and written back as long as the Plate has no Components of its own; the
+    /// first Component the user adds replaces it. Filled and written by <c>PlateDocuments</c>.
+    /// </summary>
+    [JsonIgnore]
+    public JsonElement? MalformedComponentsValue { get; set; }
+
     // Legacy background fields (image + fit + opacity), from before ProfileBackground existed.
     // Read only so NormalizeLegacyBackground can migrate an old profile in memory; nulled once
     // migrated, so they are never written back (WhenWritingNull). JSON names are unchanged.
@@ -150,6 +177,34 @@ public sealed class ProfileDocument
         CanvasWidth = LegacyCanvasWidth;
         CanvasHeight = LegacyCanvasHeight;
         return true;
+    }
+
+    /// <summary>
+    /// Gives every Component a usable, unique instance id: a missing (empty) or repeated id — only
+    /// possible in a hand-edited file — gets a fresh one, in memory, like the other load repairs.
+    /// Only ids change; every other value, and the order, is left exactly as loaded.
+    /// </summary>
+    /// <returns>True if a repair was applied.</returns>
+    internal bool NormalizeComponentIds()
+    {
+        if (Components is not { Count: > 0 } components)
+        {
+            return false;
+        }
+
+        var seen = new HashSet<Guid>();
+        var repaired = false;
+        foreach (var component in components)
+        {
+            if (component.Id == Guid.Empty || !seen.Add(component.Id))
+            {
+                component.Id = Guid.NewGuid();
+                seen.Add(component.Id);
+                repaired = true;
+            }
+        }
+
+        return repaired;
     }
 
     /// <summary>
