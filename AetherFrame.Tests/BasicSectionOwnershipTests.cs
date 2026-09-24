@@ -252,6 +252,7 @@ public class JobAndLevelSpacingTests
     {
         var document = BasicDocuments.Classic(FakeCharacter.Hero with { JobName = jobName, Level = levelValue });
         BasicDocuments.Editor(document).SetOrientation((AdventurePlateOrientation)orientationValue);
+        var world = BasicSections.FindText(document, ProfileElementRole.BasicWorld)!;
         var level = BasicSections.FindText(document, ProfileElementRole.BasicLevel)!;
         var job = BasicSections.FindText(document, ProfileElementRole.BasicJob)!;
         var padding = TextProfileElement.LayoutPadding;
@@ -266,12 +267,16 @@ public class JobAndLevelSpacingTests
         Assert.True(TextWidth(level) <= level.Size.X - (2 * padding), $"{level.Text} too wide");
         Assert.True(TextWidth(job) <= job.Size.X - (2 * padding), $"{job.Text} too wide");
 
-        // The level is right-aligned and the job left-aligned, so the visible gap between the two
-        // texts is the same small, fixed amount for every level and job.
-        Assert.Equal(TextAlignment.Right, level.Alignment);
+        // Level and job are both left-aligned, like every other Details value — "Lv. 1" and "Lv. 100"
+        // start at the exact same X (flush with the column, matching Home World's own left edge), not
+        // wherever a right-aligned box happened to end for that many digits.
+        Assert.Equal(TextAlignment.Left, level.Alignment);
         Assert.Equal(TextAlignment.Left, job.Alignment);
-        var levelTextRight = level.Position.X + level.Size.X - padding;
+        Assert.Equal(world.Position.X, level.Position.X);
+
+        // The two texts never overlap, however wide "Lv. N" actually renders.
+        var levelTextRight = level.Position.X + padding + TextWidth(level);
         var jobTextLeft = job.Position.X + padding;
-        Assert.InRange(jobTextLeft - levelTextRight, 8f, 12f);
+        Assert.True(jobTextLeft > levelTextRight, $"'{level.Text}' ({TextWidth(level)}px) should end before '{job.Text}' starts");
     }
 }

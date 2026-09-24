@@ -268,8 +268,38 @@ public class JobAndLevelLayoutTests
 
         Assert.Equal(level.Position.Y, job.Position.Y);
         Assert.InRange(job.Position.X - (level.Position.X + level.Size.X), 0f, 10f);
-        Assert.Equal(TextAlignment.Right, level.Alignment);
+        Assert.Equal(TextAlignment.Left, level.Alignment);
         Assert.Equal(BasicSections.Find(document, ProfileElementRole.BasicJobHeading)!.Position.X, level.Position.X);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(9)]
+    [InlineData(100)]
+    public void TheLevel_AlignsFlushWithTheOtherDetailValues(int levelValue)
+    {
+        // "Lv. 1" and "Lv. 100" are different widths; the level text must start at the same X either
+        // way — the same column left edge every other Details value (Home World, Free Company...)
+        // already starts at. Regression coverage for the level being right-aligned in its box, which
+        // left a visible gap before short levels instead of a fixed, always-present indent.
+        var document = BasicDocuments.Classic(FakeCharacter.Hero with { Level = levelValue });
+        var world = BasicSections.FindText(document, ProfileElementRole.BasicWorld)!;
+        var level = BasicSections.FindText(document, ProfileElementRole.BasicLevel)!;
+
+        Assert.Equal(TextAlignment.Left, level.Alignment);
+        Assert.Equal(world.Position.X, level.Position.X);
+    }
+
+    [Fact]
+    public void TheLevel_AlignsFlushWithTheOtherDetailValues_Mirrored()
+    {
+        var document = BasicDocuments.Classic(FakeCharacter.Hero with { Level = 1 });
+        BasicDocuments.Editor(document).SetOrientation(AdventurePlateOrientation.Mirrored);
+        var world = BasicSections.FindText(document, ProfileElementRole.BasicWorld)!;
+        var level = BasicSections.FindText(document, ProfileElementRole.BasicLevel)!;
+
+        Assert.Equal(TextAlignment.Left, level.Alignment);
+        Assert.Equal(world.Position.X, level.Position.X);
     }
 
     [Fact]

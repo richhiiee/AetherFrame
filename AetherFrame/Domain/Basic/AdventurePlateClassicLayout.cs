@@ -61,10 +61,12 @@ public static class AdventurePlateClassicLayout
     private const float ValueHeight = 34f;
     private const float PlaystyleHeight = 58f;
 
-    // "Lv. 100  Paladin": the level is right-aligned in a box just wide enough for "Lv. 100", and
-    // the job starts right after it, left-aligned. The visible gap between the two texts is then
-    // always the same (both boxes' inner padding plus LevelGap) — for any level from 1 to 100 and
-    // any job name — and the boxes never overlap.
+    // "Lv. 90  Paladin": the level box is left-aligned like every other Details value — flush with
+    // the column's own left edge — and the job starts at the fixed column LevelWidth + LevelGap past
+    // it, also left-aligned. Right-aligning the level (the original design) reads "Lv. 100" and
+    // "Lv. 90" as different widths, so anything under three digits left a visible gap before the
+    // level text even started; left-aligning both keeps the column flush for every level while the
+    // boxes still never overlap.
     public const float LevelWidth = 80f;
     public const float LevelGap = 2f;
 
@@ -258,7 +260,7 @@ public static class AdventurePlateClassicLayout
         text.FontFamily = ProfileFontFamilies.AetherFrameSans;
         text.FontSize = ClampFont(fontSize * scale);
         text.Color = ThemeColorFor(role, theme);
-        text.Alignment = role == ProfileElementRole.BasicLevel ? TextAlignment.Right : TextAlignment.Left;
+        text.Alignment = TextAlignment.Left;
         text.VerticalAlignment = heading ? TextVerticalAlignment.Bottom : TextVerticalAlignment.Top;
         text.Wrap = multiline;
         text.Bold = heading;
