@@ -54,6 +54,11 @@ internal sealed partial class PlateLibraryWindow : Window, IDisposable
     private readonly PlateThumbnailService templateThumbnails;
     private readonly PlateThumbnailTextures templateThumbnailTextures;
     private readonly ProfileRenderResources renderResources;
+
+    // My Plates card previews: the saved documents they draw, by Plate id and version (see
+    // PlateCardPreviewCache), and the Plates the grid listed this frame (to drop the rest).
+    private readonly PlateCardPreviewCache cardPreviews = new();
+    private readonly HashSet<Guid> listedPlateIds = new();
     private readonly Action openBasicEditor;
     private readonly Action openAdvancedEditor;
     private readonly Action<Guid> showInViewer;
@@ -121,6 +126,7 @@ internal sealed partial class PlateLibraryWindow : Window, IDisposable
     {
         thumbnailTextures.Clear();
         templateThumbnailTextures.Clear();
+        cardPreviews.Clear();
     }
 
     /// <summary>My Plates is always what this window opens to — Manage Templates is a mode
@@ -270,6 +276,7 @@ internal sealed partial class PlateLibraryWindow : Window, IDisposable
         var columns = Math.Max(1, (int)((available + spacing.X) / (CardWidth + spacing.X)));
         var canReorder = string.IsNullOrWhiteSpace(searchText);
 
+        listedPlateIds.Clear();
         for (var i = 0; i < plates.Count; i++)
         {
             if (i % columns != 0)
@@ -277,8 +284,12 @@ internal sealed partial class PlateLibraryWindow : Window, IDisposable
                 ImGui.SameLine();
             }
 
+            listedPlateIds.Add(plates[i].PlateId);
             DrawCard(plates[i], plates[i].PlateId == activePlateId, canReorder, character, activePlateId);
         }
+
+        // Card previews are kept only for the Plates this list shows (deleted or filtered-out ones are dropped).
+        cardPreviews.Retain(listedPlateIds);
 
         if (!ImGui.IsMouseDown(ImGuiMouseButton.Left))
         {
@@ -416,20 +427,41 @@ internal sealed partial class PlateLibraryWindow : Window, IDisposable
         }
     }
 
-    /// <summary>The thumbnail when one is Ready and loads; otherwise a fallback from the Plate's own background.</summary>
+    /// <summary>
+    /// The card's preview: a thumbnail image when one is Ready; otherwise the real saved Plate in
+    /// miniature, drawn by the shared <see cref="ProfileRenderer"/> (background, portrait, identity,
+    /// sections, Components and their overflow — tiny text as soft bars, see <see cref="PlateCardPreview"/>),
+    /// fitted to the card and clipped to it; the background-only fallback only when the Plate can't
+    /// be loaded. Off-screen cards draw nothing.
+    /// </summary>
     private void DrawThumbnail(ImDrawListPtr drawList, PlateSummary plate, Vector2 min, Vector2 max)
     {
         if (plate.IsReady)
         {
-            var thumbnail = thumbnails.Get(
-                plate.PlateId,
-                PlateThumbnailService.VersionKeyFor(plate.Revision, plate.ModifiedUtc),
-                () => library.GetSavedDocument(plate.PlateId));
-
+            var versionKey = PlateThumbnailService.VersionKeyFor(plate.Revision, plate.ModifiedUtc);
+            var thumbnail = thumbnails.Get(plate.PlateId, versionKey, () => library.GetSavedDocument(plate.PlateId));
             if (thumbnailTextures.GetWrapOrNull(plate.PlateId, thumbnail) is { } wrap)
             {
                 drawList.AddImage(wrap.Handle, min, max, Vector2.Zero, Vector2.One, 0xFFFFFFFFu);
                 return;
+            }
+
+            if (!ImGui.IsRectVisible(min, max))
+            {
+                return; // scrolled out of view: nothing to draw this frame
+            }
+
+            if (cardPreviews.Get(plate.PlateId, versionKey, () => library.GetSavedDocument(plate.PlateId)) is { } preview)
+            {
+                var fit = PlateCardPreview.Fit(max - min, preview.Bounds);
+                if (fit.Scale > 0f)
+                {
+                    drawList.AddRectFilled(min, max, ImGui.GetColorU32(FallbackBackdropColor), 4f);
+                    drawList.PushClipRect(min, max, true);
+                    ProfileRenderer.Draw(drawList, preview.Document, min + fit.CanvasOffset, fit.Scale, renderResources, PlateCardPreview.Options);
+                    drawList.PopClipRect();
+                    return;
+                }
             }
         }
 

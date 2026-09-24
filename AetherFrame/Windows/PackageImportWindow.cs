@@ -137,15 +137,22 @@ internal sealed class PackageImportWindow : Window, IDisposable
 
     private void DrawPreview(Domain.Profiles.ProfileDocument document)
     {
-        var scale = Math.Min(PreviewSize.X / document.CanvasWidth, PreviewSize.Y / document.CanvasHeight);
-        var canvasSize = new Vector2(document.CanvasWidth, document.CanvasHeight) * scale;
-        var origin = ImGui.GetCursorScreenPos() + ((PreviewSize - canvasSize) / 2f);
-
+        // The Plate's visual bounds (canvas plus Component overflow) fitted into the preview box. The
+        // clip is the box, not the canvas, so intentional overflow shows but never spills onto the dialog.
+        var previewMin = ImGui.GetCursorScreenPos();
         ImGui.Dummy(PreviewSize);
+        var fit = PlateViewFit.Fit(PreviewSize, ProfileVisualBounds.Compute(document));
+        if (fit.Scale <= 0f)
+        {
+            return;
+        }
+
+        var origin = previewMin + fit.CanvasOffset;
+        var canvasSize = new Vector2(document.CanvasWidth, document.CanvasHeight) * fit.Scale;
         var drawList = ImGui.GetWindowDrawList();
         drawList.AddRectFilled(origin, origin + canvasSize, ImGui.GetColorU32(new Vector4(0.08f, 0.08f, 0.1f, 1f)));
-        drawList.PushClipRect(origin, origin + canvasSize, true);
-        ProfileRenderer.Draw(drawList, document, origin, scale, renderResources, ProfileRenderOptions.Finished);
+        drawList.PushClipRect(previewMin, previewMin + PreviewSize, true);
+        ProfileRenderer.Draw(drawList, document, origin, fit.Scale, renderResources, ProfileRenderOptions.Finished);
         drawList.PopClipRect();
     }
 

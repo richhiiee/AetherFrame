@@ -29,4 +29,19 @@ internal readonly record struct ProfileRenderOptions
     /// see <c>BasicSections.IsDrawnInFinishedRendering</c>.
     /// </summary>
     internal bool ShowEmptySectionHeadings { get; init; }
+
+    /// <summary>
+    /// Presentation-only: skips the opaque canvas backdrop <c>ProfileRenderer</c> normally paints
+    /// under the Plate's own background, so wherever the authored background is absent or
+    /// translucent the Plate shows whatever is behind it (Clean Preview: the game world). The
+    /// authored background itself is drawn exactly as always.
+    /// </summary>
+    internal bool HideCanvasBackdrop { get; init; }
+
+    /// <summary>
+    /// Miniatures only (My Plates cards): text that would render smaller than this many screen
+    /// pixels is drawn as soft bars in its own color (see <see cref="TextBars"/>) instead of
+    /// illegible glyphs. 0 (the default) never simplifies.
+    /// </summary>
+    internal float TextAsBarsBelowPixelSize { get; init; }
 }

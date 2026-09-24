@@ -39,6 +39,9 @@
     <Compile Include="..\AetherFrame\UI\Editor\*.cs" Link="Linked\UI\Editor\%(Filename)%(Extension)" />
     <Compile Include="..\AetherFrame\UI\Rendering\ProfileRenderOptions.cs" Link="Linked\UI\Rendering\ProfileRenderOptions.cs" />
     <Compile Include="..\AetherFrame\UI\Rendering\ProfilePaintOrder.cs" Link="Linked\UI\Rendering\ProfilePaintOrder.cs" />
+    <Compile Include="..\AetherFrame\UI\Rendering\ProfileVisualBounds.cs" Link="Linked\UI\Rendering\ProfileVisualBounds.cs" />
+    <Compile Include="..\AetherFrame\UI\Rendering\PlateViewerLayout.cs" Link="Linked\UI\Rendering\PlateViewerLayout.cs" />
+    <Compile Include="..\AetherFrame\UI\Rendering\PlateCardPreview.cs" Link="Linked\UI\Rendering\PlateCardPreview.cs" />
   </ItemGroup>
 
   <!-- The plugin's bundled artwork under the same manifest resource names, so the resource

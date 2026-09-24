@@ -119,7 +119,14 @@ public class IdentityHierarchyTests
         Assert.True(name.Bold);
         Assert.True(name.ShadowEnabled);
         Assert.InRange(name.ShadowOpacity, 0.2f, 0.6f);
-        Assert.False(name.OutlineEnabled);
+
+        // The theme's dedicated name treatment: its display color with a subtle contrasting outline.
+        var theme = ProfileThemePresets.All[0];
+        Assert.Equal(theme.PreferredNameColor, name.Color);
+        Assert.True(name.OutlineEnabled);
+        Assert.Equal(theme.PreferredNameOutlineColor, name.OutlineColor);
+        Assert.InRange(name.OutlineThickness, 0.5f, 3f);
+        Assert.InRange(name.OutlineOpacity, 0.3f, 0.85f);
         Assert.Equal(43f, name.FontSize);
         Assert.False(title.Bold);
         Assert.False(title.ShadowEnabled);

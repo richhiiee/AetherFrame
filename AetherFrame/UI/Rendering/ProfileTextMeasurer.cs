@@ -16,4 +16,7 @@ internal sealed class ProfileTextMeasurer : IIdentityTextMeasurer
 
     public bool TryMeasureNaturalWidth(TextProfileElement element, out float width) =>
         ProfileTextRenderer.TryMeasureNaturalWidth(element, fonts, out width);
+
+    public bool TryCountLines(TextProfileElement element, float fontSize, float maxWidth, out int lines) =>
+        ProfileTextRenderer.TryCountLines(element, fontSize, maxWidth, fonts, out lines);
 }

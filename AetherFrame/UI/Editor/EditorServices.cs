@@ -31,6 +31,9 @@ internal interface IIdentityTextMeasurer
 {
     /// <summary>The element's natural (unwrapped) text width in canvas units; false while its font isn't ready.</summary>
     bool TryMeasureNaturalWidth(TextProfileElement element, out float width);
+
+    /// <summary>The lines the element's text word-wraps to at <paramref name="fontSize"/> within <paramref name="maxWidth"/>; false while its font isn't ready.</summary>
+    bool TryCountLines(TextProfileElement element, float fontSize, float maxWidth, out int lines);
 }
 
 /// <summary>FFXIV titles, for the Identity Header's title source.</summary>

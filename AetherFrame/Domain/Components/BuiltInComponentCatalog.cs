@@ -60,9 +60,9 @@ public static class BuiltInComponentCatalog
         new(PortraitOverlayVignette, PlateComponentKind.PortraitOverlay, "Vignette", "Softly darkens the portrait's edges.", ComponentShape.Vignette, ComponentColorSource.Shadow, 0.6f),
         new(PortraitOverlayImage, PlateComponentKind.PortraitOverlay, "Custom Image", "An image of your own over the portrait.", ComponentShape.Image, ComponentColorSource.White, 1f),
 
-        new(NameBackingBar, PlateComponentKind.NameBacking, "Bar", "A soft bar behind the name.", ComponentShape.Bar, ComponentColorSource.Shadow, 0.35f),
+        new(NameBackingBar, PlateComponentKind.NameBacking, "Bar", "A soft bar behind the name.", ComponentShape.Bar, ComponentColorSource.NameBackdrop, 0.35f),
         new(NameBackingRibbon, PlateComponentKind.NameBacking, "Ribbon", "A bar with pointed ends behind the name.", ComponentShape.Ribbon, ComponentColorSource.ThemeBackground, 0.8f),
-        new(NameBackingFade, PlateComponentKind.NameBacking, "Fade", "A backing that fades out to the right.", ComponentShape.FadeBar, ComponentColorSource.Shadow, 0.5f),
+        new(NameBackingFade, PlateComponentKind.NameBacking, "Fade", "A backing that fades out to the right.", ComponentShape.FadeBar, ComponentColorSource.NameBackdrop, 0.5f),
 
         new(CornerOrnamentBracket, PlateComponentKind.CornerOrnament, "Bracket", "An angled mark in each corner.", ComponentShape.CornerL, ComponentColorSource.ThemeAccent, 0.9f),
         new(CornerOrnamentDiamond, PlateComponentKind.CornerOrnament, "Diamond", "A small diamond in each corner.", ComponentShape.CornerDiamond, ComponentColorSource.ThemeAccent, 0.9f),

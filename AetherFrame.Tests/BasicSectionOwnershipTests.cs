@@ -257,6 +257,9 @@ public class JobAndLevelSpacingTests
         var job = BasicSections.FindText(document, ProfileElementRole.BasicJob)!;
         var padding = TextProfileElement.LayoutPadding;
 
+        // The level is measured exactly (the layout uses the embedded font's own glyph widths); the
+        // job, any length, conservatively.
+        float LevelWidth(TextProfileElement e) => AdventurePlateClassicLayout.MeasureLevelText(e.Text, e.FontSize, e.LetterSpacing);
         float TextWidth(TextProfileElement e) => e.Text.Length * e.FontSize * EstimatedEmPerCharacter;
 
         // Boxes: same line, level first, no overlap.
@@ -264,7 +267,7 @@ public class JobAndLevelSpacingTests
         Assert.True(level.Position.X + level.Size.X <= job.Position.X);
 
         // Both texts fit their boxes at the default size (no shrinking needed).
-        Assert.True(TextWidth(level) <= level.Size.X - (2 * padding), $"{level.Text} too wide");
+        Assert.True(LevelWidth(level) <= level.Size.X - (2 * padding), $"{level.Text} too wide");
         Assert.True(TextWidth(job) <= job.Size.X - (2 * padding), $"{job.Text} too wide");
 
         // Level and job are both left-aligned, like every other Details value — "Lv. 1" and "Lv. 100"
@@ -274,9 +277,10 @@ public class JobAndLevelSpacingTests
         Assert.Equal(TextAlignment.Left, job.Alignment);
         Assert.Equal(world.Position.X, level.Position.X);
 
-        // The two texts never overlap, however wide "Lv. N" actually renders.
-        var levelTextRight = level.Position.X + padding + TextWidth(level);
+        // The two texts never overlap, and sit exactly the compact gap apart.
+        var levelTextRight = level.Position.X + padding + LevelWidth(level);
         var jobTextLeft = job.Position.X + padding;
-        Assert.True(jobTextLeft > levelTextRight, $"'{level.Text}' ({TextWidth(level)}px) should end before '{job.Text}' starts");
+        Assert.True(jobTextLeft > levelTextRight, $"'{level.Text}' ({LevelWidth(level)}px) should end before '{job.Text}' starts");
+        Assert.Equal(AdventurePlateClassicLayout.LevelJobGap * AdventurePlateClassicLayout.CanvasScale(document).X, jobTextLeft - levelTextRight, 3);
     }
 }

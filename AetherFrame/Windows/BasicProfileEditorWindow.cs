@@ -595,15 +595,17 @@ internal sealed partial class BasicProfileEditorWindow : Window, IDisposable, IE
             available = ImGui.GetWindowSize() - (ImGui.GetStyle().WindowPadding * 2f);
         }
 
-        var (scale, canvasScreenSize) = BasicEditorView.ComputePreview(available, profile.CanvasWidth, profile.CanvasHeight, navigation.Zoom);
+        // Fits the Plate's visual bounds: its canvas plus any intentional Component overflow.
+        var fit = BasicEditorView.ComputePreview(available, ProfileVisualBounds.Compute(profile), navigation.Zoom);
+        var scale = fit.Scale;
         if (scale <= 0f)
         {
             return;
         }
 
         var cursor = ImGui.GetCursorScreenPos();
-        var canvasOrigin = cursor + BasicEditorView.PreviewOffset(available, canvasScreenSize);
-        ImGui.InvisibleButton("##PreviewCanvas", Vector2.Max(available, canvasScreenSize));
+        var canvasOrigin = cursor + fit.CanvasOffset;
+        ImGui.InvisibleButton("##PreviewCanvas", Vector2.Max(available, fit.Size));
         HandlePreviewInput(profile, canvasOrigin, scale, zoomed);
 
         ProfileRenderer.Draw(ImGui.GetWindowDrawList(), profile, canvasOrigin, scale, renderResources, ProfileRenderOptions.Finished);

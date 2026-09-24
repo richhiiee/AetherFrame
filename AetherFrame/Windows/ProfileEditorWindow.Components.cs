@@ -203,6 +203,16 @@ internal sealed partial class ProfileEditorWindow
             }
         }
 
+        // Corners (Corner Ornaments): this instance's own selection; another instance can take other corners.
+        if (component.Kind == PlateComponentKind.CornerOrnament)
+        {
+            EditorWidgets.PropertyLabel("Corners");
+            if (EditorWidgets.CornerToggles(CornerMasks.Effective(component), out var corner, out var enabled))
+            {
+                editorSession.SetComponentCorner(componentId, corner, enabled);
+            }
+        }
+
         // Color: follows the theme until overridden.
         var hasColor = component.Color is not null;
         EditorWidgets.PropertyLabel("Color");
@@ -291,7 +301,7 @@ internal sealed partial class ProfileEditorWindow
         PlateComponentKind.NameBacking => "the name and title",
         PlateComponentKind.Divider => "the space under the name and title",
         PlateComponentKind.SectionHeader => "every section heading",
-        PlateComponentKind.CornerOrnament => "the Plate's four corners",
+        PlateComponentKind.CornerOrnament => "the Plate's corners you select (add another Corner Ornament for a different style in other corners)",
         _ => "the Plate's edges",
     };
 }

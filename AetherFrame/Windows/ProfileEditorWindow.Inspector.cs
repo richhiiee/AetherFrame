@@ -574,6 +574,23 @@ internal sealed partial class ProfileEditorWindow
 
         CommitOnRelease();
 
+        // A Basic Plate's character name follows its theme until given a custom color; this puts it
+        // back under the theme (one undo step; opacity kept).
+        if (text.Role == ProfileElementRole.BasicName && profileService.CurrentProfile is { BasicPlate: not null } plate)
+        {
+            ImGui.SetCursorPosX(ImGui.GetCursorPosX() + EditorWidgets.LabelColumnWidth);
+            if (Domain.Basic.BasicNameColor.IsAutomatic(plate))
+            {
+                ImGui.TextDisabled("Follows the theme");
+            }
+            else if (ImGui.SmallButton("Use Theme Color"))
+            {
+                editorSession.ApplyDocumentEdit(() => Domain.Basic.BasicNameColor.Reset(plate));
+            }
+
+            EditorWidgets.Tooltip("The name's color follows the Basic theme until you pick your own; a custom color stays when the theme changes.");
+        }
+
         var opacity = text.Color.W * 100f;
         EditorWidgets.PropertyLabel("Opacity");
         if (ImGui.SliderFloat("##TextOpacity", ref opacity, 0f, 100f, "%.0f%%"))

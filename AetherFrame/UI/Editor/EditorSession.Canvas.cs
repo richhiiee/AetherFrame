@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Numerics;
 using AetherFrame.Domain.Profiles;
 using AetherFrame.Services;
+using AetherFrame.UI.Rendering;
 
 namespace AetherFrame.UI.Editor;
 
@@ -91,13 +92,19 @@ internal sealed partial class EditorSession
     /// </summary>
     internal void ApplyFitZoom(Vector2 availablePanelSize)
     {
+        // Frames the Plate's visual bounds (canvas plus any intentional Component overflow), so Fit
+        // shows oversized decorations too; with no overflow this is exactly the canvas, centered.
         var canvasSize = CurrentCanvasSize;
+        var bounds = profileService.CurrentProfile is { } profile ? ProfileVisualBounds.Compute(profile) : new CanvasBounds(Vector2.Zero, canvasSize);
+        var boundsSize = bounds.Size.X > 0f && bounds.Size.Y > 0f ? bounds.Size : canvasSize;
         var usableWidth = Math.Max(1f, availablePanelSize.X - (FitPaddingPixels * 2f));
         var usableHeight = Math.Max(1f, availablePanelSize.Y - (FitPaddingPixels * 2f));
 
-        var fitZoom = Math.Min(usableWidth / canvasSize.X, usableHeight / canvasSize.Y);
+        var fitZoom = Math.Min(usableWidth / boundsSize.X, usableHeight / boundsSize.Y);
         Zoom = Math.Clamp(fitZoom, MinZoom, MaxZoom);
-        PanOffset = Vector2.Zero;
+
+        // The layout centers the canvas; this shift centers the visual bounds instead.
+        PanOffset = ((canvasSize / 2f) - bounds.Center) * Zoom;
     }
 
     /// <summary>

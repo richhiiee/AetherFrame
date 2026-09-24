@@ -668,18 +668,18 @@ internal sealed partial class PlateLibraryWindow
             return;
         }
 
-        var scale = Math.Min(available.X / document.CanvasWidth, available.Y / document.CanvasHeight);
-        if (scale <= 0f)
+        // Fits the Plate's visual bounds: its canvas plus any intentional Component overflow.
+        var fit = PlateViewFit.Fit(available, ProfileVisualBounds.Compute(document));
+        if (fit.Scale <= 0f)
         {
             return;
         }
 
-        var canvasScreenSize = new Vector2(document.CanvasWidth, document.CanvasHeight) * scale;
-        var canvasOrigin = ImGui.GetCursorScreenPos() + (available - canvasScreenSize) / 2f;
+        var canvasOrigin = ImGui.GetCursorScreenPos() + fit.CanvasOffset;
         ImGui.Dummy(available);
 
         var drawList = ImGui.GetWindowDrawList();
-        ProfileRenderer.Draw(drawList, document, canvasOrigin, scale, renderResources, ProfileRenderOptions.Finished);
+        ProfileRenderer.Draw(drawList, document, canvasOrigin, fit.Scale, renderResources, ProfileRenderOptions.Finished);
     }
 
     private void DrawTemplateChooserFooter()

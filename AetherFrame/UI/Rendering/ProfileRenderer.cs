@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Numerics;
-using AetherFrame.Domain.Basic;
 using AetherFrame.Domain.Components;
 using AetherFrame.Domain.Profiles;
 using Dalamud.Bindings.ImGui;
@@ -40,6 +39,11 @@ internal static class ProfileRenderer
     private static readonly List<ProfileElement> DrawnBuffer = new(ProfileDocument.MaxElementCount);
     private static readonly List<PaintStep> PaintPlanBuffer = new(ProfileDocument.MaxElementCount + 64);
 
+    // The fonts the paint plan measures identity text with during Draw; a cached delegate so painting never allocates.
+    private static Services.Fonts.ProfileFontService? measureFonts;
+    private static readonly Func<TextProfileElement, float?> MeasureText = static element =>
+        measureFonts is { } fonts && ProfileTextRenderer.TryMeasureNaturalWidth(element, fonts, out var width) ? width : null;
+
     /// <summary>
     /// Draws the full logical canvas starting at <paramref name="canvasOrigin"/> in screen space,
     /// uniformly scaled by <paramref name="scale"/> from the profile's own logical canvas size.
@@ -58,27 +62,25 @@ internal static class ProfileRenderer
 
         var canvasScreenSize = new Vector2(profile.CanvasWidth, profile.CanvasHeight) * scale;
 
-        drawList.AddRectFilled(canvasOrigin, canvasOrigin + canvasScreenSize, ImGui.GetColorU32(CanvasBackdropColor));
+        // The workspace backdrop under the Plate (visible wherever its background is absent or
+        // translucent). Not part of the authored Plate: transparent presentations skip it.
+        if (!options.HideCanvasBackdrop)
+        {
+            drawList.AddRectFilled(canvasOrigin, canvasOrigin + canvasScreenSize, ImGui.GetColorU32(CanvasBackdropColor));
+        }
 
         ProfileBackgroundRenderer.Draw(drawList, profile.Background, canvasOrigin, canvasScreenSize, scale, resources);
 
-        // Hidden elements are skipped here, before any per-element work.
-        ProfilePaintOrder.Fill(profile, PaintOrderBuffer, includeHidden: false);
-        DrawnBuffer.Clear();
-        foreach (var element in PaintOrderBuffer)
-        {
-            if (!options.ShowEmptySectionHeadings && !BasicSections.IsDrawnInFinishedRendering(profile, element))
-            {
-                // A section heading with nothing under it (see BasicSections).
-                continue;
-            }
-
-            DrawnBuffer.Add(element);
-        }
+        // Hidden elements, and (in finished rendering) section headings with nothing under them, are
+        // skipped here, before any per-element work — through the same filter ProfileVisualBounds uses.
+        ProfileVisualBounds.FillDrawnElements(profile, options, PaintOrderBuffer, DrawnBuffer);
 
         // The one paint sequence: elements in their own order, Components in their explicit
         // layers around them (see ComponentPaintPlan). Without Components it is just the elements.
-        ComponentPaintPlan.Build(profile, DrawnBuffer, BuiltInComponentCatalog.Instance, PaintPlanBuffer);
+        // The Name Backing tracks the name's measured text (render thread only, like the buffers).
+        measureFonts = resources.Fonts;
+        ComponentPaintPlan.Build(profile, DrawnBuffer, BuiltInComponentCatalog.Instance, PaintPlanBuffer, MeasureText);
+        measureFonts = null;
         foreach (var step in PaintPlanBuffer)
         {
             if (step.Element is { } element)
@@ -94,6 +96,25 @@ internal static class ProfileRenderer
         PaintPlanBuffer.Clear();
         DrawnBuffer.Clear();
         PaintOrderBuffer.Clear();
+    }
+
+    // Reused per call (render thread only) for simplified text.
+    private static readonly List<(Vector2 Min, Vector2 Max)> TextBarBuffer = new(8);
+
+    /// <summary>Miniature text: soft bars in the text's own color, shaped like its lines (see <see cref="TextBars"/>).</summary>
+    private static void DrawTextBars(ImDrawListPtr drawList, TextProfileElement text, Vector2 canvasOrigin, float scale)
+    {
+        var content = string.Concat(text.Prefix, text.Text, text.Suffix);
+        TextBars.Compute(text.Position, text.Size, content, text.FontSize, text.Wrap, text.Alignment, text.VerticalAlignment, TextProfileElement.LayoutPadding, TextBarBuffer);
+        var color = ImGui.GetColorU32(text.Color with { W = text.Color.W * 0.6f });
+        foreach (var (min, max) in TextBarBuffer)
+        {
+            var screenMin = canvasOrigin + (min * scale);
+            var screenMax = canvasOrigin + (max * scale);
+            drawList.AddRectFilled(screenMin, screenMax, color, (screenMax.Y - screenMin.Y) / 2f);
+        }
+
+        TextBarBuffer.Clear();
     }
 
     /// <summary>Draws a single element at its logical Position/Size, scaled from canvasOrigin.</summary>
@@ -112,6 +133,12 @@ internal static class ProfileRenderer
                     // Editor-only placement guide — never part of the finished profile.
                     drawList.AddRectFilled(screenPos, screenPos + screenSize, ImGui.GetColorU32(TextElementFillColor));
                     drawList.AddRect(screenPos, screenPos + screenSize, ImGui.GetColorU32(TextElementBorderColor));
+                }
+
+                if (options.TextAsBarsBelowPixelSize > 0f && textElement.FontSize * scale < options.TextAsBarsBelowPixelSize)
+                {
+                    DrawTextBars(drawList, textElement, canvasOrigin, scale);
+                    break;
                 }
 
                 var placeholder = options.PlaceholderProvider?.Invoke(textElement);

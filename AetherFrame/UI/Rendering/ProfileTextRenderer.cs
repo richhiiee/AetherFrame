@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Numerics;
+using AetherFrame.Domain.Basic;
 using AetherFrame.Domain.Profiles;
 using AetherFrame.Services.Fonts;
 using Dalamud.Bindings.ImGui;
@@ -189,6 +190,39 @@ internal static class ProfileTextRenderer
         return true;
     }
 
+    /// <summary>
+    /// The number of lines <paramref name="element"/>'s display text word-wraps to at
+    /// <paramref name="fontSize"/> within <paramref name="maxWidth"/> (logical canvas pixels, text
+    /// padding excluded), with the renderer's own line breaking. False (0) while no built face of
+    /// the element's font is available.
+    /// </summary>
+    internal static bool TryCountLines(TextProfileElement element, float fontSize, float maxWidth, ProfileFontService fonts, out int lines)
+    {
+        lines = 0;
+        var text = element.GetDisplayText();
+        if (text.Length == 0)
+        {
+            lines = 1;
+            return true;
+        }
+
+        var handle = fonts.GetHandle(element.FontFamily, MeasureRequestPixels, element.Bold, element.Italic, out var isFallback);
+        if (!IsReady(handle, isFallback))
+        {
+            return false;
+        }
+
+        using (handle.Push())
+        {
+            var metrics = new FontMetrics(ImGui.GetFont(), ImGui.GetFontSize());
+            BuildLines(MeasureLines, text, metrics, Math.Max(1f, fontSize), element.LetterSpacing, Math.Max(1f, maxWidth), keepTrailingSpaces: false);
+        }
+
+        lines = MeasureLines.Count;
+        MeasureLines.Clear();
+        return true;
+    }
+
     private static LayoutEntry GetOrBuildLayout(TextProfileElement element, string content)
     {
         if (Layouts.TryGetValue(element.Id, out var cached) && cached.Matches(element, content))
@@ -214,7 +248,26 @@ internal static class ProfileTextRenderer
         var available = new Vector2(Math.Max(1f, box.X - (2f * PaddingLogical)), Math.Max(1f, box.Y - (2f * PaddingLogical)));
 
         var size = Math.Max(1f, element.FontSize);
-        if (element.EffectiveAutoFit && !Fits(cached, content, metrics, size, available, element))
+        var wrapWidth = element.EffectiveWrap ? available.X : float.PositiveInfinity;
+        if (BasicNameFit.Applies(element))
+        {
+            // The Basic character name: one authoritative size (BasicNameFit, the rule its layout
+            // was built with) instead of the generic auto fit, which would shrink it toward its
+            // tiny auto-fit minimum whenever the box is narrower than the text.
+            BuildLines(cached.Lines, content, metrics, size, element.LetterSpacing, float.PositiveInfinity, keepTrailingSpaces: false);
+            var natural = 0f;
+            foreach (var line in cached.Lines)
+            {
+                natural = Math.Max(natural, line.Width);
+            }
+
+            (size, var wrap) = BasicNameFit.Resolve(size, natural, available.X);
+            if (wrap)
+            {
+                wrapWidth = available.X;
+            }
+        }
+        else if (element.EffectiveAutoFit && !Fits(cached, content, metrics, size, available, element))
         {
             var min = Math.Clamp(element.AutoFitMinimumSize, 1f, size);
             if (!Fits(cached, content, metrics, min, available, element))
@@ -244,7 +297,7 @@ internal static class ProfileTextRenderer
         }
 
         cached.EffectiveFontSize = size;
-        BuildLines(cached.Lines, content, metrics, size, element.LetterSpacing, element.EffectiveWrap ? available.X : float.PositiveInfinity, element.UsesLegacyLayout);
+        BuildLines(cached.Lines, content, metrics, size, element.LetterSpacing, wrapWidth, element.UsesLegacyLayout);
 
         // Legacy layout aligns the whole block (its widest line) as one unit.
         cached.BlockWidth = 0f;

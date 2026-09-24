@@ -146,8 +146,13 @@ public static class ComponentPaintPlan
     /// Fills <paramref name="output"/> (cleared first) with the paint sequence for
     /// <paramref name="drawnElements"/> — the elements that will actually be painted, already in
     /// paint order — plus <paramref name="profile"/>'s drawable components.
+    /// <paramref name="measureText"/> (optional) gives a text element's natural single-line text
+    /// width, or null when it can't be measured; with it the Name Backing tracks the name and
+    /// title's actual text instead of their whole boxes (see <see cref="TextExtent"/>).
     /// </summary>
-    public static void Build(ProfileDocument profile, IReadOnlyList<ProfileElement> drawnElements, IComponentCatalog catalog, List<PaintStep> output)
+    public static void Build(
+        ProfileDocument profile, IReadOnlyList<ProfileElement> drawnElements, IComponentCatalog catalog, List<PaintStep> output,
+        Func<TextProfileElement, float?>? measureText = null)
     {
         output.Clear();
 
@@ -212,7 +217,7 @@ public static class ComponentPaintPlan
             if (element.Role is ProfileElementRole.BasicName or ProfileElementRole.BasicTitle)
             {
                 firstIdentity ??= element;
-                var rect = new ElementRect(element.Position, element.Size);
+                var rect = TextExtent(element, measureText);
                 drawnIdentity = drawnIdentity?.Union(rect) ?? rect;
             }
         }
@@ -308,24 +313,49 @@ public static class ComponentPaintPlan
         var right = canvas.Size.X - inset - size;
         var bottom = canvas.Size.Y - inset - size;
         var box = new Vector2(size);
+        var corners = CornerMasks.Effective(component);
 
-        // Top-left, top-right, bottom-left, bottom-right: the offset mirrors per corner, so one
-        // Offset moves all four ornaments inward or outward symmetrically. The shape mirrors with
-        // it, except for artwork placed by rotation (clockwise, around the square box's center),
-        // which keeps its details' handedness in every corner.
-        if (definition.Art is { CornerPlacement: CornerArtPlacement.Rotate })
+        // Only the selected corners, always in this order: top-left, top-right, bottom-left,
+        // bottom-right. The offset mirrors per corner, so one Offset moves every ornament inward or
+        // outward symmetrically. The shape mirrors with it, except for artwork placed by rotation
+        // (clockwise, around the square box's center), which keeps its details' handedness.
+        var rotate = definition.Art is { CornerPlacement: CornerArtPlacement.Rotate };
+        AddCorner(CornerMask.TopLeft, new Vector2(inset, inset), 0f, false, false);
+        AddCorner(CornerMask.TopRight, new Vector2(right, inset), 90f, true, false);
+        AddCorner(CornerMask.BottomLeft, new Vector2(inset, bottom), 270f, false, true);
+        AddCorner(CornerMask.BottomRight, new Vector2(right, bottom), 180f, true, true);
+
+        void AddCorner(CornerMask corner, Vector2 position, float artRotation, bool flipX, bool flipY)
         {
-            output.Add(ComponentStep(component, definition, new ElementRect(new Vector2(inset, inset), box), 0f, false, false, false));
-            output.Add(ComponentStep(component, definition, new ElementRect(new Vector2(right, inset), box), 90f, true, false, false));
-            output.Add(ComponentStep(component, definition, new ElementRect(new Vector2(inset, bottom), box), 270f, false, true, false));
-            output.Add(ComponentStep(component, definition, new ElementRect(new Vector2(right, bottom), box), 180f, true, true, false));
-            return;
+            if ((corners & corner) != 0)
+            {
+                output.Add(ComponentStep(component, definition, new ElementRect(position, box), rotate ? artRotation : 0f, flipX, flipY, mirrorShape: !rotate));
+            }
+        }
+    }
+
+    /// <summary>
+    /// The logical-canvas bounds of everything <paramref name="component"/> paints in
+    /// <paramref name="plan"/> (from <see cref="Build"/>): the union of its placements, each rotated
+    /// around its own center. Components aren't clipped to the Plate, so this may extend past the
+    /// canvas. Only placements actually in the plan count — an unselected corner, a hidden or
+    /// unresolvable component contributes nothing (null when nothing is painted).
+    /// </summary>
+    public static (Vector2 Min, Vector2 Max)? GetVisualBounds(IReadOnlyList<PaintStep> plan, PlateComponent component)
+    {
+        (Vector2 Min, Vector2 Max)? bounds = null;
+        foreach (var step in plan)
+        {
+            if (!ReferenceEquals(step.Component, component))
+            {
+                continue;
+            }
+
+            var (min, max) = RotationGeometry.GetVisualBounds(step.Placement.Rect.Position, step.Placement.Rect.Size, step.Placement.RotationDegrees);
+            bounds = bounds is { } union ? (Vector2.Min(union.Min, min), Vector2.Max(union.Max, max)) : (min, max);
         }
 
-        output.Add(ComponentStep(component, definition, new ElementRect(new Vector2(inset, inset), box), 0f, false, false));
-        output.Add(ComponentStep(component, definition, new ElementRect(new Vector2(right, inset), box), 0f, true, false));
-        output.Add(ComponentStep(component, definition, new ElementRect(new Vector2(inset, bottom), box), 0f, false, true));
-        output.Add(ComponentStep(component, definition, new ElementRect(new Vector2(right, bottom), box), 0f, true, true));
+        return bounds;
     }
 
     /// <summary>A Corner Ornament's box size relative to <see cref="CornerSize"/>: 1 for procedural
@@ -360,6 +390,34 @@ public static class ComponentPaintPlan
 
         return new PaintStep(LayerOf(component.Kind), null, component, definition, new ComponentPlacement(rect, rotation, mirrorShape && mirrorX, mirrorShape && mirrorY));
     }
+
+    /// <summary>
+    /// The part of an identity element's box its text occupies: a single-line text box narrowed to
+    /// the measured text (plus the text padding and a rounding slack), placed by its alignment, so a
+    /// short name gets a compact backing and a long one a wide backing. The whole box when the text
+    /// can't be measured, wraps, or uses the legacy text layout.
+    /// </summary>
+    internal static ElementRect TextExtent(ProfileElement element, Func<TextProfileElement, float?>? measureText)
+    {
+        var box = new ElementRect(element.Position, element.Size);
+        if (measureText is null || element is not TextProfileElement text || text.EffectiveWrap || text.UsesLegacyLayout
+            || measureText(text) is not { } measured || !float.IsFinite(measured) || measured < 0f)
+        {
+            return box;
+        }
+
+        var width = Math.Min(box.Size.X, measured + (2f * TextProfileElement.LayoutPadding) + TextExtentSlack);
+        var x = text.Alignment switch
+        {
+            TextAlignment.Center => box.Position.X + ((box.Size.X - width) / 2f),
+            TextAlignment.Right => box.Position.X + box.Size.X - width,
+            _ => box.Position.X,
+        };
+
+        return new ElementRect(new Vector2(x, box.Position.Y), new Vector2(width, box.Size.Y));
+    }
+
+    private const float TextExtentSlack = 2f;
 
     private static ElementRect Pad(ElementRect rect, float unit)
     {

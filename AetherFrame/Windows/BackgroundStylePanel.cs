@@ -233,7 +233,7 @@ internal sealed class BackgroundStylePanel
         var font = ImGui.GetFont();
         var sampleSize = MathF.Max(8f, ImGui.GetFontSize() * 0.55f);
         var textX = previewMin.X + 4f;
-        drawList.AddText(font, sampleSize, new Vector2(textX, previewMax.Y - (sampleSize * 2.1f)), ImGui.GetColorU32(preset.TextColor with { W = 1f }), "Name");
+        drawList.AddText(font, sampleSize, new Vector2(textX, previewMax.Y - (sampleSize * 2.1f)), ImGui.GetColorU32(preset.PreferredNameColor with { W = 1f }), "Name");
         drawList.AddText(font, sampleSize * 0.85f, new Vector2(textX, previewMax.Y - sampleSize), ImGui.GetColorU32(preset.AccentTextColor with { W = 1f }), "Title");
         drawList.PopClipRect();
 

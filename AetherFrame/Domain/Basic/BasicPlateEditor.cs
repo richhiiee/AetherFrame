@@ -18,8 +18,10 @@ namespace AetherFrame.Domain.Basic;
 /// <para><b>Basic-managed vs. customized.</b> Every placement Basic makes is recorded
 /// (<see cref="BasicPlateSettings.Placements"/>). An element still exactly there follows the
 /// layout; once moved or resized elsewhere (the Advanced editor) it is customized. Content and
-/// style edits never move anything; only <see cref="ApplyLayout"/>, <see cref="ResetSection"/>,
-/// <see cref="ResetLayout"/> (all explicit), and an orientation change (managed elements only) do.</para>
+/// style edits never move anything — except that a Basic-managed Favorite Job row reflows when the
+/// level's text or visibility changes, so the job keeps its compact gap after the level. Otherwise
+/// only <see cref="ApplyLayout"/>, <see cref="ResetSection"/>, <see cref="ResetLayout"/> (all
+/// explicit), and an orientation change (managed elements only) move anything.</para>
 /// </summary>
 internal sealed class BasicPlateEditor
 {
@@ -244,6 +246,12 @@ internal sealed class BasicPlateEditor
                 element.Visible = visible;
             }
         }
+
+        if (section is BasicSection.Level or BasicSection.Job)
+        {
+            // A shown or hidden level moves the job to follow it (or back to the column's edge).
+            ReflowFavoriteJobRow();
+        }
     }
 
     internal void SetFavoriteJob(uint jobId, string? jobName)
@@ -258,6 +266,7 @@ internal sealed class BasicPlateEditor
         var value = level <= 0 ? 0 : Math.Clamp(level, BasicPlateText.MinLevel, BasicPlateText.MaxLevel);
         Settings.Level = value;
         SetText(ProfileElementRole.BasicLevel, BasicPlateText.Level(value));
+        ReflowFavoriteJobRow();
     }
 
     /// <summary>
@@ -485,11 +494,13 @@ internal sealed class BasicPlateEditor
 
     /// <summary>
     /// Applies a theme preset: the background's colors (an image background keeps showing its
-    /// image), and the matching text color for every Basic text element (opacity kept). Only
+    /// image), and the matching text color for every Basic text element (opacity kept) — except a
+    /// character name with a custom color, which keeps it (see <see cref="BasicNameColor"/>). Only
     /// copies values — every one stays editable, and nothing references the preset afterwards.
     /// </summary>
     internal void ApplyTheme(ProfileThemePreset preset)
     {
+        var previousTheme = AdventurePlateClassicLayout.ResolveTheme(Profile);
         Profile.NormalizeLegacyBackground();
         var background = Profile.Background!;
         var keepImage = background.HasImage;
@@ -503,7 +514,14 @@ internal sealed class BasicPlateEditor
         {
             if (element is TextProfileElement text && BasicSections.SectionOf(text.Role) is not null)
             {
-                text.Color = AdventurePlateClassicLayout.ThemeColorFor(text.Role, preset) with { W = text.Color.W };
+                if (text.Role == ProfileElementRole.BasicName)
+                {
+                    BasicNameColor.ApplyThemeChange(text, previousTheme, preset, Profile);
+                }
+                else
+                {
+                    text.Color = AdventurePlateClassicLayout.ThemeColorFor(text.Role, preset) with { W = text.Color.W };
+                }
             }
         }
 
@@ -525,7 +543,74 @@ internal sealed class BasicPlateEditor
         return element;
     }
 
+    // The job's placement follows the level's rendered text (see AdventurePlateClassicLayout.
+    // LevelJobColumns), so whenever the level is placed, a job Basic still manages follows it.
     private void Place(ProfileElement element)
+    {
+        var jobFollows = element.Role == ProfileElementRole.BasicLevel
+            && BasicSections.Find(Profile, ProfileElementRole.BasicJob) is { } job && IsManaged(Profile, job) ? job : null;
+
+        PlaceCore(element);
+        if (jobFollows is not null)
+        {
+            PlaceCore(jobFollows);
+        }
+    }
+
+    /// <summary>
+    /// Loading: a Favorite Job row Basic still manages, placed by an earlier version of the layout
+    /// (the fixed-width level column), is re-placed by the current compact rule and its placement
+    /// recorded, so it keeps following the layout. A customized (or never-tracked) row is untouched.
+    /// Returns whether anything changed.
+    /// </summary>
+    internal static bool UpgradeFavoriteJobRow(ProfileDocument profile)
+    {
+        if (profile.BasicPlate is not { } settings || IsSectionCustomized(profile, BasicSection.Job))
+        {
+            return false;
+        }
+
+        var changed = false;
+        foreach (var role in (ReadOnlySpan<ProfileElementRole>)[ProfileElementRole.BasicLevel, ProfileElementRole.BasicJob])
+        {
+            if (BasicSections.Find(profile, role) is not { } element
+                || AdventurePlateClassicLayout.GetRect(role, GetOrientation(profile), profile) is not { } rect
+                || rect.Matches(element.Position, element.Size))
+            {
+                continue;
+            }
+
+            element.Position = rect.Position;
+            element.Size = rect.Size;
+            settings.SetPlacement(role, rect);
+            changed = true;
+        }
+
+        return changed;
+    }
+
+    /// <summary>
+    /// After the level's text or visibility changed: re-places the Favorite Job row (level, then job)
+    /// so the job keeps its compact gap after the level — only while Basic manages the row; a
+    /// customized row never moves.
+    /// </summary>
+    private void ReflowFavoriteJobRow()
+    {
+        if (IsSectionCustomized(Profile, BasicSection.Job))
+        {
+            return;
+        }
+
+        foreach (var role in (ReadOnlySpan<ProfileElementRole>)[ProfileElementRole.BasicLevel, ProfileElementRole.BasicJob])
+        {
+            if (BasicSections.Find(Profile, role) is { } element)
+            {
+                PlaceCore(element);
+            }
+        }
+    }
+
+    private void PlaceCore(ProfileElement element)
     {
         if (AdventurePlateClassicLayout.GetRect(element.Role, GetOrientation(Profile), Profile) is not { } rect)
         {

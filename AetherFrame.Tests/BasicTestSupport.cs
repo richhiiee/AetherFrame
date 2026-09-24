@@ -40,6 +40,48 @@ internal sealed class FakeMeasurer : IIdentityTextMeasurer
         width = element.GetDisplayText().Length * element.FontSize * 0.5f;
         return true;
     }
+
+    public bool TryCountLines(TextProfileElement element, float fontSize, float maxWidth, out int lines)
+    {
+        lines = FakeTextWrap.CountLines(element.GetDisplayText(), fontSize * 0.5f, maxWidth);
+        return true;
+    }
+}
+
+/// <summary>Greedy word wrap for a fixed-advance "font" (every character <c>advance</c> wide), like the renderer's.</summary>
+internal static class FakeTextWrap
+{
+    internal static int CountLines(string text, float advance, float maxWidth)
+    {
+        var perLine = Math.Max(1, (int)MathF.Floor(maxWidth / advance));
+        var lines = 1;
+        var used = 0; // characters on the current line
+        foreach (var word in text.Split(' '))
+        {
+            var length = word.Length;
+            if (used > 0 && used + 1 + length <= perLine)
+            {
+                used += 1 + length;
+                continue;
+            }
+
+            if (used > 0)
+            {
+                lines++;
+            }
+
+            // A word longer than a line breaks inside itself.
+            while (length > perLine)
+            {
+                length -= perLine;
+                lines++;
+            }
+
+            used = length;
+        }
+
+        return lines;
+    }
 }
 
 internal sealed class FakeTitles : IGameTitleSource

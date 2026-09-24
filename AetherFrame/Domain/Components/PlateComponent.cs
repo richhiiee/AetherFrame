@@ -59,6 +59,14 @@ public sealed class PlateComponent
     /// <see cref="ComponentDefinition.RequiresAsset"/>). Null for procedural definitions.</summary>
     public Guid? AssetId { get; set; }
 
+    /// <summary>Corner Ornaments only: which corners draw this instance (every selected corner shares
+    /// its color, opacity, offset, scale and rotation). Null — the default, and every Plate saved
+    /// before corners could be chosen — means all four; all four is always stored as null (see
+    /// <see cref="CornerMasks.Normalize"/>), so one look has one representation. Bits this build
+    /// doesn't know are kept. Ignored for every other kind.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CornerMask? Corners { get; set; }
+
     /// <summary>Properties this build doesn't know, kept through clone and save unchanged.</summary>
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? ExtensionData { get; set; }
@@ -76,6 +84,7 @@ public sealed class PlateComponent
         RotationDegrees = RotationDegrees,
         LayerOrder = LayerOrder,
         AssetId = AssetId,
+        Corners = Corners,
         ExtensionData = ProfileElement.CopyExtensionData(ExtensionData),
     };
 
@@ -93,7 +102,8 @@ public sealed class PlateComponent
         && Scale.Equals(other.Scale)
         && RotationDegrees.Equals(other.RotationDegrees)
         && LayerOrder == other.LayerOrder
-        && AssetId == other.AssetId;
+        && AssetId == other.AssetId
+        && Corners == other.Corners;
 
     /// <summary>Element-wise <see cref="ContentEquals(PlateComponent?)"/> of two lists (null and empty are equal: both mean "no components").</summary>
     public static bool ListsEqual(IReadOnlyList<PlateComponent>? a, IReadOnlyList<PlateComponent>? b)
@@ -149,6 +159,33 @@ public enum PlateComponentKind
     CornerOrnament = 5,
     Divider = 6,
     SectionHeader = 7,
+}
+
+/// <summary>
+/// The corners a Corner Ornament is drawn in. Persisted as the numeric value: bit values are frozen,
+/// and bits a newer build might add are carried through untouched (and ignored when drawing).
+/// </summary>
+[Flags]
+public enum CornerMask
+{
+    None = 0,
+    TopLeft = 1,
+    TopRight = 2,
+    BottomLeft = 4,
+    BottomRight = 8,
+
+    /// <summary>Every corner this build knows.</summary>
+    All = TopLeft | TopRight | BottomLeft | BottomRight,
+}
+
+/// <summary>Reading and writing <see cref="PlateComponent.Corners"/>.</summary>
+public static class CornerMasks
+{
+    /// <summary>The corners actually drawn: the stored mask's known bits, or all four when none is stored.</summary>
+    public static CornerMask Effective(PlateComponent component) => (component.Corners ?? CornerMask.All) & CornerMask.All;
+
+    /// <summary>The stored form of a mask: exactly all four (and nothing unknown) is null, the default.</summary>
+    public static CornerMask? Normalize(CornerMask mask) => mask == CornerMask.All ? null : mask;
 }
 
 /// <summary>Bounds for every numeric component value, shared by the editors, the renderer and import validation.</summary>

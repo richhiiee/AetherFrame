@@ -166,6 +166,11 @@ internal static class PlateDocuments
         }
 
         document.NormalizeComponentIds();
+
+        // A Basic name still using its theme's older automatic color gets the current one, and a
+        // Basic-managed Favorite Job row placed by the older fixed-width level column is made compact.
+        Domain.Basic.BasicNameColor.UpgradeLegacy(document);
+        Domain.Basic.BasicPlateEditor.UpgradeFavoriteJobRow(document);
     }
 
     internal static JsonObject ToJson(ProfileDocument document)

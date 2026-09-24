@@ -22,12 +22,13 @@ internal static class IdentityHeaderRules
     // tagline element is ordinary Advanced content that nothing here reads, places, or styles.)
     private const float NameFontSize = 64f;
     private const float NameShadowOffset = 3f;
-    private const float NameShadowOpacity = 0.45f;
+    private const float NameShadowOpacity = BasicNameColor.DarkOutlineShadowOpacity;
     internal const float TitleSizeRatio = 0.5f;
     internal const float BadgeSizeRatio = 0.4f;
     private const float BadgeLetterSpacingRatio = 0.05f;
     private const float AccentLetterSpacingRatio = 0.03f;
     internal const float AutoFitMinimum = 10f;
+
 
     internal static TextProfileElement? Find(ProfileDocument profile, ProfileElementRole role) => BasicSections.FindText(profile, role);
 
@@ -129,6 +130,9 @@ internal static class IdentityHeaderRules
             element.ShadowOpacity = NameShadowOpacity;
             element.ShadowOffsetX = MathF.Round(NameShadowOffset * CanvasScale(profile), 1);
             element.ShadowOffsetY = element.ShadowOffsetX;
+
+            // The theme's dedicated name treatment: display color and subtle contrasting outline.
+            BasicNameColor.ApplyAutomatic(element, theme, profile);
             return;
         }
 
@@ -251,13 +255,46 @@ internal static class IdentityHeaderRules
     }
 
     /// <summary>
+    /// For a header Basic no longer places (customized): after a Basic edit, grows the name's box —
+    /// never moving it, never shrinking it, staying on the canvas — until its text shows by the
+    /// Basic name rule (<see cref="BasicNameFit"/>: full size, or at least 90% and wrapped) without
+    /// being cut. So typing a longer name never leaves it crushed or clipped in a box sized for
+    /// the old one. False when nothing changed (or the name can't be measured yet).
+    /// </summary>
+    internal static bool KeepNameReadable(
+        ProfileDocument profile, Func<TextProfileElement, float?> measure, Func<TextProfileElement, float, float, int?>? countLines = null)
+    {
+        if (Find(profile, ProfileElementRole.BasicName) is not { } name || !BasicNameFit.Applies(name) || measure(name) is not { } natural)
+        {
+            return false;
+        }
+
+        var roomOnCanvas = Math.Max(1f, profile.CanvasWidth - name.Position.X);
+        var width = Math.Max(name.Size.X, Math.Min(natural + (2f * TextProfileElement.LayoutPadding) + 2f, roomOnCanvas));
+        Func<float, float, int>? lines = countLines is null ? null : (size, available) => countLines(name, size, available) ?? 1;
+        var line = new IdentityHeaderLayout.Line(true, true, name.FontSize, natural, IsBasicName: true, name.LineSpacing, lines);
+        var size = new Vector2(width, Math.Max(name.Size.Y, IdentityHeaderLayout.NameBoxHeight(line, width)));
+        if (size == name.Size)
+        {
+            return false;
+        }
+
+        name.Size = size;
+        return true;
+    }
+
+    /// <summary>
     /// Places the header's existing elements for its current layout within its region, and records
     /// where (<see cref="BasicIdentityHeader.AppliedLayout"/>). <paramref name="measure"/> gives an
-    /// element's natural text width for the one-line layouts, or null when it can't be measured yet
-    /// — then the width is estimated and this returns false, so the caller can re-place once it can.
+    /// element's natural single-line text width (the name's, always; the title's, for the one-line
+    /// layouts), or null when it can't be measured yet — then the width is estimated and this
+    /// returns false, so the caller can re-place once it can. <paramref name="countLines"/> (optional)
+    /// gives the lines a text wraps to at a size within a width, for a name too long for the region
+    /// even at its Basic minimum (see <see cref="BasicNameFit"/>); without it they are estimated.
     /// Requires <see cref="ProfileDocument.BasicIdentity"/>.
     /// </summary>
-    internal static bool Place(ProfileDocument profile, Func<TextProfileElement, float?> measure)
+    internal static bool Place(
+        ProfileDocument profile, Func<TextProfileElement, float?> measure, Func<TextProfileElement, float, float, int?>? countLines = null)
     {
         var identity = profile.BasicIdentity ?? throw new InvalidOperationException("The Identity Header has no settings.");
         var name = Find(profile, ProfileElementRole.BasicName);
@@ -269,8 +306,8 @@ internal static class IdentityHeaderRules
             identity.RegionPosition,
             identity.RegionWidth,
             name?.Alignment ?? TextAlignment.Left,
-            LineFor(name, inline, reserveWhenEmpty: true),
-            LineFor(title, inline, reserveWhenEmpty: false));
+            LineFor(name, measureWidth: true, reserveWhenEmpty: true),
+            LineFor(title, measureWidth: inline, reserveWhenEmpty: false));
 
         Assign(name, result.Name);
         Assign(title, result.Title);
@@ -285,7 +322,7 @@ internal static class IdentityHeaderRules
 
         // reserveWhenEmpty is false for the title: with no text yet (e.g. FFXIV Title chosen but no
         // title picked) it draws nothing in the finished profile, so it takes no space either.
-        IdentityHeaderLayout.Line LineFor(TextProfileElement? element, bool inline, bool reserveWhenEmpty)
+        IdentityHeaderLayout.Line LineFor(TextProfileElement? element, bool measureWidth, bool reserveWhenEmpty)
         {
             if (element is null)
             {
@@ -295,7 +332,7 @@ internal static class IdentityHeaderRules
             var takesSpace = element.Visible && (reserveWhenEmpty || element.Text.Length > 0);
 
             var width = 0f;
-            if (inline)
+            if (measureWidth)
             {
                 if (measure(element) is { } measured)
                 {
@@ -308,7 +345,12 @@ internal static class IdentityHeaderRules
                 }
             }
 
-            return new IdentityHeaderLayout.Line(true, takesSpace, element.FontSize, width);
+            // Judged for the current text layout, which placing upgrades the element to (Assign).
+            var isBasicName = element.Role == ProfileElementRole.BasicName && element.AutoFitText && !element.Wrap;
+            Func<float, float, int>? lines = countLines is null
+                ? null
+                : (size, available) => countLines(element, size, available) ?? (int)MathF.Ceiling(width * (size / element.FontSize) / Math.Max(1f, available));
+            return new IdentityHeaderLayout.Line(true, takesSpace, element.FontSize, width, isBasicName, element.LineSpacing, lines);
         }
 
         static void Assign(TextProfileElement? element, ElementRect? rect)

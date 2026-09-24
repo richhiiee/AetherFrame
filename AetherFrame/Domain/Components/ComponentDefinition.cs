@@ -1,3 +1,4 @@
+using System;
 using System.Numerics;
 using AetherFrame.Domain.Profiles;
 
@@ -53,10 +54,28 @@ public sealed record ComponentDefinition(
             ComponentColorSource.ThemeBackground => theme.PrimaryColor,
             ComponentColorSource.Shadow => new Vector4(0f, 0f, 0f, 1f),
             ComponentColorSource.White => Vector4.One,
+            ComponentColorSource.NameBackdrop => NameBackdrop(profile, theme),
             _ => theme.AccentTextColor,
         };
 
         return new Vector4(rgb.X, rgb.Y, rgb.Z, DefaultAlpha);
+    }
+
+    /// <summary>
+    /// A backing that lifts the character name off the background: black behind a light name, white
+    /// behind a dark one — from the name's actual color (custom or automatic), else the theme's.
+    /// </summary>
+    private static Vector4 NameBackdrop(ProfileDocument profile, ProfileThemePreset theme)
+    {
+        var name = Basic.BasicSections.Find(profile, ProfileElementRole.BasicName) is TextProfileElement text ? text.Color : theme.PreferredNameColor;
+        return RelativeLuminance(name) > 0.35f ? new Vector4(0f, 0f, 0f, 1f) : Vector4.One;
+    }
+
+    /// <summary>WCAG relative luminance of a color's RGB (sRGB, alpha ignored).</summary>
+    internal static float RelativeLuminance(Vector4 color)
+    {
+        static float Linear(float c) => c <= 0.03928f ? c / 12.92f : MathF.Pow((c + 0.055f) / 1.055f, 2.4f);
+        return (0.2126f * Linear(color.X)) + (0.7152f * Linear(color.Y)) + (0.0722f * Linear(color.Z));
     }
 }
 
@@ -127,4 +146,7 @@ public enum ComponentColorSource
     ThemeBackground,
     Shadow,
     White,
+
+    /// <summary>Contrasts with the character name: black behind a light name, white behind a dark one.</summary>
+    NameBackdrop,
 }

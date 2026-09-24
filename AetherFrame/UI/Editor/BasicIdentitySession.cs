@@ -513,14 +513,26 @@ internal sealed class BasicIdentitySession
             if (place && !HasNoHeader(Profile))
             {
                 Identity();
-                var exact = IdentityHeaderRules.Place(Profile, element => owner.measurer.TryMeasureNaturalWidth(element, out var width) ? width : null);
+                var exact = IdentityHeaderRules.Place(Profile, Measure, CountLines);
                 if (!exact)
                 {
                     // Font not built yet: estimated now, re-measured once it is (RefineLayout).
                     owner.refineNeeded = true;
                 }
             }
+            else if (!HasNoHeader(Profile))
+            {
+                // A customized header stays where the player put it, but its name is never left in
+                // a box too small for it (e.g. after typing a longer name here).
+                IdentityHeaderRules.KeepNameReadable(Profile, Measure, CountLines);
+            }
         }
+
+        private float? Measure(TextProfileElement element) =>
+            owner.measurer.TryMeasureNaturalWidth(element, out var width) ? width : null;
+
+        private int? CountLines(TextProfileElement element, float fontSize, float maxWidth) =>
+            owner.measurer.TryCountLines(element, fontSize, maxWidth, out var lines) ? lines : null;
 
         private void PlaceBelowExisting(TextProfileElement element)
         {

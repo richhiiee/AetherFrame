@@ -74,5 +74,16 @@ internal sealed partial class BasicProfileEditorWindow
         {
             ToolTip("Uses an image that isn't set. Choose one in the Advanced Editor.");
         }
+
+        // Corner Ornaments: which corners this slot's ornament is drawn in (the same instance's
+        // transforms apply to every chosen corner; per-corner styles are an Advanced refinement).
+        if (current is { Kind: PlateComponentKind.CornerOrnament })
+        {
+            EditorWidgets.PropertyLabel("Corners");
+            if (EditorWidgets.CornerToggles(CornerMasks.Effective(current), out var corner, out var enabled))
+            {
+                editorSession.SetComponentCorner(current.Id, corner, enabled);
+            }
+        }
     }
 }

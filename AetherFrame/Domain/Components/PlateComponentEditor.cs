@@ -179,6 +179,30 @@ public static class PlateComponentEditor
         return true;
     }
 
+    /// <summary>
+    /// Turns one corner of a Corner Ornament on or off, keeping the others (and any bits a newer build
+    /// stored). The last drawn corner can't be turned off — "no corners" is choosing None (Basic) or
+    /// removing the Component (Advanced). Returns false when nothing changed or the change isn't allowed.
+    /// </summary>
+    public static bool SetCorner(ProfileDocument profile, Guid componentId, CornerMask corner, bool enabled)
+    {
+        if (Find(profile, componentId) is not { Kind: PlateComponentKind.CornerOrnament } component
+            || corner is not (CornerMask.TopLeft or CornerMask.TopRight or CornerMask.BottomLeft or CornerMask.BottomRight))
+        {
+            return false;
+        }
+
+        var current = component.Corners ?? CornerMask.All;
+        var next = enabled ? current | corner : current & ~corner;
+        if (next == current || (next & CornerMask.All) == CornerMask.None)
+        {
+            return false;
+        }
+
+        component.Corners = CornerMasks.Normalize(next);
+        return true;
+    }
+
     /// <summary>Resets a Component's Advanced refinements (offset, scale, rotation, opacity, color) to its default placement.</summary>
     public static bool ResetTransform(ProfileDocument profile, Guid componentId) => Update(profile, componentId, component =>
     {

@@ -51,6 +51,11 @@ internal sealed partial class EditorSession
         }
     }
 
+    /// <summary>Turns one corner of a Corner Ornament on or off. One undo step; nothing if unchanged
+    /// or if it would leave no corner (see <see cref="PlateComponentEditor.SetCorner"/>).</summary>
+    internal void SetComponentCorner(Guid componentId, CornerMask corner, bool enabled) =>
+        ApplyDocumentEdit(() => PlateComponentEditor.SetCorner(RequireProfileForComponents(), componentId, corner, enabled));
+
     internal void MoveComponentInLayer(Guid componentId, int direction) =>
         ApplyDocumentEdit(() => PlateComponentEditor.MoveInLayer(RequireProfileForComponents(), componentId, direction));
 

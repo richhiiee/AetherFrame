@@ -128,9 +128,21 @@ public class BasicPlateEditorTests
         editor.SetLevel(80);
         editor.SetPlaystyles(["Casual"]);
 
+        // Nothing moves — except the Favorite Job row, which Basic still manages and which reflows
+        // so the job keeps its compact gap after the new level text.
+        var row = new[] { ProfileElementRole.BasicLevel, ProfileElementRole.BasicJob };
         foreach (var (id, rect) in before)
         {
-            Assert.Equal(rect, BasicDocuments.RectOf(document.Elements.Single(e => e.Id == id)));
+            var element = document.Elements.Single(e => e.Id == id);
+            if (!row.Contains(element.Role))
+            {
+                Assert.Equal(rect, BasicDocuments.RectOf(element));
+            }
+        }
+
+        foreach (var role in row)
+        {
+            Assert.Equal(LayoutRect(document, role), BasicDocuments.RectOf(BasicSections.Find(document, role)!));
         }
 
         Assert.True(BasicPlateEditor.IsSectionCustomized(document, BasicSection.World));
@@ -340,7 +352,7 @@ public class BasicPlateEditorTests
         Assert.Equal(pastel.PrimaryColor, document.Background!.PrimaryColor);
         Assert.Equal(pastel.TextColor with { W = 0.5f }, world.Color);
         Assert.Equal(pastel.AccentTextColor, BasicSections.FindText(document, ProfileElementRole.BasicWorldHeading)!.Color);
-        Assert.Equal(pastel.TextColor, BasicSections.FindText(document, ProfileElementRole.BasicName)!.Color);
+        Assert.Equal(pastel.PreferredNameColor, BasicSections.FindText(document, ProfileElementRole.BasicName)!.Color); // the name's own treatment
         Assert.Equal(new Vector4(1, 0, 0, 1), freeform.Color);
         Assert.Equal(pastel.Id, document.BasicPlate!.ThemeId);
 

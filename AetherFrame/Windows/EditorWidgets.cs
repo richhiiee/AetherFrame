@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Numerics;
+using AetherFrame.Domain.Components;
 using AetherFrame.Services;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
@@ -105,6 +106,54 @@ internal static class EditorWidgets
         }
 
         Tooltip(tooltip);
+        return clicked;
+    }
+
+    private static readonly (CornerMask Corner, string Label)[] CornerToggleLabels =
+    [
+        (CornerMask.TopLeft, "Top Left"), (CornerMask.TopRight, "Top Right"),
+        (CornerMask.BottomLeft, "Bottom Left"), (CornerMask.BottomRight, "Bottom Right"),
+    ];
+
+    /// <summary>
+    /// A Corner Ornament's corners as a 2x2 grid of toggles laid out like the corners themselves.
+    /// Returns true when one was clicked, with the corner and its new state; the last selected corner
+    /// is drawn disabled (a Corner Ornament always has at least one corner).
+    /// </summary>
+    internal static bool CornerToggles(CornerMask selected, out CornerMask corner, out bool enabled)
+    {
+        corner = CornerMask.None;
+        enabled = false;
+        var onlyOne = BitOperations.PopCount((uint)(selected & CornerMask.All)) <= 1;
+        var spacing = ImGui.GetStyle().ItemSpacing.X;
+        var width = (ImGui.GetContentRegionAvail().X - spacing) / 2f;
+        var clicked = false;
+
+        using var pushId = ImRaii.PushId("Corners");
+        for (var i = 0; i < CornerToggleLabels.Length; i++)
+        {
+            var (candidate, label) = CornerToggleLabels[i];
+            var active = (selected & candidate) != 0;
+            if (i % 2 == 1)
+            {
+                ImGui.SameLine();
+            }
+            else if (i > 0)
+            {
+                ImGui.SetCursorPosX(ImGui.GetCursorPosX() + LabelColumnWidth);
+            }
+
+            using (ImRaii.Disabled(active && onlyOne))
+            {
+                if (TextToggle(label, active, new Vector2(width, 0f), active && onlyOne ? "At least one corner stays selected." : null) && !clicked)
+                {
+                    clicked = true;
+                    corner = candidate;
+                    enabled = !active;
+                }
+            }
+        }
+
         return clicked;
     }
 

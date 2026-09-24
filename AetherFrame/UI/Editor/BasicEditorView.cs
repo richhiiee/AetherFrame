@@ -327,14 +327,17 @@ internal static class BasicEditorView
     /// </summary>
     internal static (float Scale, Vector2 Size) ComputePreview(Vector2 available, float canvasWidth, float canvasHeight, PreviewZoom zoom)
     {
-        if (available.X < 1f || available.Y < 1f || canvasWidth <= 0f || canvasHeight <= 0f)
-        {
-            return (0f, Vector2.Zero);
-        }
-
-        var scale = Math.Min(available.X / canvasWidth, available.Y / canvasHeight) * ZoomFactor(zoom);
-        return (scale, new Vector2(canvasWidth, canvasHeight) * scale);
+        var fit = ComputePreview(available, new CanvasBounds(Vector2.Zero, new Vector2(canvasWidth, canvasHeight)), zoom);
+        return (fit.Scale, fit.Size);
     }
+
+    /// <summary>
+    /// The preview fit of a Plate's visual bounds (see <see cref="ProfileVisualBounds"/>): fitted into
+    /// <paramref name="available"/> times the zoom, centered while they fit, at the scroll origin once
+    /// zoomed past it. <see cref="PlateViewFit.CanvasOffset"/> places the canvas inside them.
+    /// </summary>
+    internal static PlateViewFit ComputePreview(Vector2 available, CanvasBounds visualBounds, PreviewZoom zoom) =>
+        PlateViewFit.Fit(available, visualBounds, ZoomFactor(zoom));
 
     /// <summary>Where the drawn Plate starts within the preview area: centered while it fits, else at the scrolled origin.</summary>
     internal static Vector2 PreviewOffset(Vector2 available, Vector2 size) =>
