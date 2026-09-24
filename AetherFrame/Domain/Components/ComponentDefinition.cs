@@ -8,8 +8,9 @@ namespace AetherFrame.Domain.Components;
 /// <see cref="Id"/>. Built-in definitions (see <see cref="BuiltInComponentCatalog"/>) are fixed at
 /// compile time; a Plate stores only the id, never a copy, so a definition can never be edited
 /// through a Plate. Rendering is selected by <see cref="Shape"/> (a closed, compile-time list of
-/// procedural generators — see <see cref="ComponentGeometry"/>), never by <see cref="Name"/> or any
-/// other display text, and never by instantiating a type named in data.
+/// procedural generators — see <see cref="ComponentGeometry"/> — plus <see cref="ComponentShape.Art"/>
+/// for bundled artwork, see <see cref="Art"/>), never by <see cref="Name"/> or any other display
+/// text, and never by instantiating a type named in data.
 /// </summary>
 /// <param name="Id">Stable, frozen-forever id ("af.&lt;kind&gt;.&lt;style&gt;" for built-ins). Never reused.</param>
 /// <param name="Kind">The Component type this definition is for. A component whose stored kind
@@ -31,6 +32,14 @@ public sealed record ComponentDefinition(
     /// <summary>True for definitions drawn from a managed image (<see cref="PlateComponent.AssetId"/>).
     /// Those need an image chosen first, so the Basic editor's constrained slots never offer them.</summary>
     public bool RequiresAsset => Shape == ComponentShape.Image;
+
+    /// <summary>The bundled artwork a <see cref="ComponentShape.Art"/> definition draws; null for every
+    /// other shape. Chosen at compile time, so a Plate stores only <see cref="Id"/>.</summary>
+    public BuiltInArtAsset? Art { get; init; }
+
+    /// <summary>A graphical definition drawing <paramref name="art"/>, tinted from <paramref name="colorSource"/>.</summary>
+    public static ComponentDefinition ForArt(string id, string description, BuiltInArtAsset art, ComponentColorSource colorSource) =>
+        new(id, art.Kind, art.Name, description, ComponentShape.Art, art.Tintable ? colorSource : ComponentColorSource.White, art.DefaultOpacity) { Art = art };
 
     /// <summary>The color a component of this definition uses without an override on <paramref name="profile"/>:
     /// derived from the Plate's Basic theme, so frames and backings follow a theme change.</summary>
@@ -104,6 +113,9 @@ public enum ComponentShape
 
     /// <summary>A small diamond with two short arms (drawn for the top-left corner, mirrored for the others).</summary>
     CornerDiamond,
+
+    /// <summary>Bundled artwork (<see cref="ComponentDefinition.Art"/>) stretched over the placement.</summary>
+    Art,
 }
 
 /// <summary>Where a definition's default color comes from. Not persisted.</summary>

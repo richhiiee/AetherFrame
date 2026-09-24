@@ -51,6 +51,7 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
     private readonly ImageTextureCache imageTextureCache;
     private readonly ProfileFontService fontService;
     private readonly ProceduralTextureCache proceduralTextureCache;
+    private readonly BuiltInArtTextureCache builtInArtTextureCache;
     private readonly PlateThumbnailService thumbnailService;
     private readonly PlateThumbnailTextures thumbnailTextures;
     private readonly PlateThumbnailService templateThumbnailService;
@@ -90,7 +91,8 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
         imageTextureCache = new ImageTextureCache(assetStorageService);
         fontService = new ProfileFontService();
         proceduralTextureCache = new ProceduralTextureCache();
-        var renderResources = new ProfileRenderResources(imageTextureCache, fontService, proceduralTextureCache);
+        builtInArtTextureCache = new BuiltInArtTextureCache();
+        var renderResources = new ProfileRenderResources(imageTextureCache, fontService, proceduralTextureCache, builtInArtTextureCache);
         var fileDialogManager = new FileDialogManager();
         var basicFileDialogManager = new FileDialogManager();
 
@@ -203,6 +205,7 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
         templateThumbnailTextures.Clear();
         templateThumbnailService.Dispose();
         proceduralTextureCache.Dispose();
+        builtInArtTextureCache.Dispose();
         fontService.Dispose();
 
         CommandManager.RemoveHandler(CommandName);

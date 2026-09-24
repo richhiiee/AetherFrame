@@ -41,6 +41,14 @@
     <Compile Include="..\AetherFrame\UI\Rendering\ProfilePaintOrder.cs" Link="Linked\UI\Rendering\ProfilePaintOrder.cs" />
   </ItemGroup>
 
+  <!-- The plugin's bundled artwork under the same manifest resource names, so the resource
+       integrity tests read exactly what BuiltInArtCatalog names. -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\AetherFrame\Assets\**\*.png">
+      <LogicalName>AetherFrame.Assets.$([System.String]::Copy('%(RecursiveDir)').Replace('\', '.'))%(Filename)%(Extension)</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
     <PackageReference Include="xunit" Version="2.9.3" />

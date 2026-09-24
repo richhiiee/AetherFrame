@@ -5,8 +5,9 @@ namespace AetherFrame.Domain.Components;
 
 /// <summary>
 /// The Components AetherFrame ships. Local, compile-time data: no network, no files, no third-party
-/// assets — every built-in is drawn procedurally (<see cref="ComponentShape"/>), except the Custom
-/// Image overlay, which draws an image the user imported into their own managed assets.
+/// assets — built-ins are drawn procedurally (<see cref="ComponentShape"/>) or from artwork bundled
+/// inside the plugin assembly (<see cref="BuiltInArtCatalog"/>), except the Custom Image overlay,
+/// which draws an image the user imported into their own managed assets.
 ///
 /// <para><b>Stable ids.</b> Every <see cref="ComponentDefinition.Id"/> is frozen forever once
 /// shipped: never renamed, never reassigned to a different look, never reused after removal. A
@@ -37,6 +38,7 @@ public static class BuiltInComponentCatalog
 
     public const string CornerOrnamentBracket = "af.corner-ornament.bracket";
     public const string CornerOrnamentDiamond = "af.corner-ornament.diamond";
+    public const string CornerOrnamentAstrolabePivot = "af.corner-ornament.astrolabe-pivot";
 
     public const string DividerLine = "af.divider.line";
     public const string DividerDiamond = "af.divider.diamond";
@@ -64,6 +66,7 @@ public static class BuiltInComponentCatalog
 
         new(CornerOrnamentBracket, PlateComponentKind.CornerOrnament, "Bracket", "An angled mark in each corner.", ComponentShape.CornerL, ComponentColorSource.ThemeAccent, 0.9f),
         new(CornerOrnamentDiamond, PlateComponentKind.CornerOrnament, "Diamond", "A small diamond in each corner.", ComponentShape.CornerDiamond, ComponentColorSource.ThemeAccent, 0.9f),
+        ComponentDefinition.ForArt(CornerOrnamentAstrolabePivot, "Celestial Dream: an astrolabe's arcs and pivot star in each corner.", BuiltInArtCatalog.AstrolabePivot, ComponentColorSource.ThemeAccent),
 
         new(DividerLine, PlateComponentKind.Divider, "Line", "A rule under the name.", ComponentShape.Rule, ComponentColorSource.ThemeAccent, 0.7f),
         new(DividerDiamond, PlateComponentKind.Divider, "Diamond", "A rule with a center diamond under the name.", ComponentShape.DiamondRule, ComponentColorSource.ThemeAccent, 0.8f),

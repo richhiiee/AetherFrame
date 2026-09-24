@@ -302,22 +302,44 @@ public static class ComponentPaintPlan
 
     private static void AddCorners(List<PaintStep> output, ProfileDocument profile, PlateComponent component, ComponentDefinition definition, float unit)
     {
-        var size = CornerSize * unit;
+        var size = CornerSize * unit * CornerSizeFactor(definition);
         var inset = CornerInset * unit;
         var canvas = CanvasRect(profile);
         var right = canvas.Size.X - inset - size;
         var bottom = canvas.Size.Y - inset - size;
+        var box = new Vector2(size);
 
-        // Top-left, top-right, bottom-left, bottom-right: the shape and the offset mirror together,
-        // so one Offset moves all four ornaments inward or outward symmetrically.
-        output.Add(ComponentStep(component, definition, new ElementRect(new Vector2(inset, inset), new Vector2(size)), 0f, false, false));
-        output.Add(ComponentStep(component, definition, new ElementRect(new Vector2(right, inset), new Vector2(size)), 0f, true, false));
-        output.Add(ComponentStep(component, definition, new ElementRect(new Vector2(inset, bottom), new Vector2(size)), 0f, false, true));
-        output.Add(ComponentStep(component, definition, new ElementRect(new Vector2(right, bottom), new Vector2(size)), 0f, true, true));
+        // Top-left, top-right, bottom-left, bottom-right: the offset mirrors per corner, so one
+        // Offset moves all four ornaments inward or outward symmetrically. The shape mirrors with
+        // it, except for artwork placed by rotation (clockwise, around the square box's center),
+        // which keeps its details' handedness in every corner.
+        if (definition.Art is { CornerPlacement: CornerArtPlacement.Rotate })
+        {
+            output.Add(ComponentStep(component, definition, new ElementRect(new Vector2(inset, inset), box), 0f, false, false, false));
+            output.Add(ComponentStep(component, definition, new ElementRect(new Vector2(right, inset), box), 90f, true, false, false));
+            output.Add(ComponentStep(component, definition, new ElementRect(new Vector2(inset, bottom), box), 270f, false, true, false));
+            output.Add(ComponentStep(component, definition, new ElementRect(new Vector2(right, bottom), box), 180f, true, true, false));
+            return;
+        }
+
+        output.Add(ComponentStep(component, definition, new ElementRect(new Vector2(inset, inset), box), 0f, false, false));
+        output.Add(ComponentStep(component, definition, new ElementRect(new Vector2(right, inset), box), 0f, true, false));
+        output.Add(ComponentStep(component, definition, new ElementRect(new Vector2(inset, bottom), box), 0f, false, true));
+        output.Add(ComponentStep(component, definition, new ElementRect(new Vector2(right, bottom), box), 0f, true, true));
     }
 
+    /// <summary>A Corner Ornament's box size relative to <see cref="CornerSize"/>: 1 for procedural
+    /// marks, the artwork's bounded <see cref="BuiltInArtAsset.SizeFactor"/> for bundled art.</summary>
+    public static float CornerSizeFactor(ComponentDefinition definition) =>
+        definition.Art is { SizeFactor: var factor } && float.IsFinite(factor) ? Math.Clamp(factor, 0.25f, 4f) : 1f;
+
     /// <summary>Applies the component's own (bounded) scale and offset to its anchored placement.</summary>
-    private static PaintStep ComponentStep(PlateComponent component, ComponentDefinition definition, ElementRect anchor, float anchorRotation, bool mirrorX, bool mirrorY)
+    private static PaintStep ComponentStep(PlateComponent component, ComponentDefinition definition, ElementRect anchor, float anchorRotation, bool mirrorX, bool mirrorY) =>
+        ComponentStep(component, definition, anchor, anchorRotation, mirrorX, mirrorY, mirrorShape: true);
+
+    /// <summary>As above; <paramref name="mirrorX"/>/<paramref name="mirrorY"/> always flip the
+    /// offset, and flip the shape only when <paramref name="mirrorShape"/>.</summary>
+    private static PaintStep ComponentStep(PlateComponent component, ComponentDefinition definition, ElementRect anchor, float anchorRotation, bool mirrorX, bool mirrorY, bool mirrorShape)
     {
         var scale = PlateComponentLimits.ClampScale(component.Scale);
         var offset = PlateComponentLimits.ClampOffset(component.Offset);
@@ -336,7 +358,7 @@ public static class ComponentPaintPlan
         var rect = new ElementRect(center - (size / 2f), size);
         var rotation = anchorRotation + PlateComponentLimits.ClampRotation(component.RotationDegrees);
 
-        return new PaintStep(LayerOf(component.Kind), null, component, definition, new ComponentPlacement(rect, rotation, mirrorX, mirrorY));
+        return new PaintStep(LayerOf(component.Kind), null, component, definition, new ComponentPlacement(rect, rotation, mirrorShape && mirrorX, mirrorShape && mirrorY));
     }
 
     private static ElementRect Pad(ElementRect rect, float unit)

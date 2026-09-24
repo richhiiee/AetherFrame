@@ -26,4 +26,15 @@
       <LogicalName>AetherFrame.Fonts.%(Filename)%(Extension)</LogicalName>
     </EmbeddedResource>
   </ItemGroup>
+
+  <!-- Built-in Component artwork (optimized runtime copies; the full-size sources live in
+       AetherFrameAssets and are never needed at runtime). Embedded, never copied to the output
+       folder, and addressed only by manifest resource name: "AetherFrame.Assets." + the path
+       below Assets with '.' separators (see BuiltInArtCatalog). Plates store logical ids only. -->
+  <ItemGroup>
+    <None Remove="Assets\**" />
+    <EmbeddedResource Include="Assets\**\*.png">
+      <LogicalName>AetherFrame.Assets.$([System.String]::Copy('%(RecursiveDir)').Replace('\', '.'))%(Filename)%(Extension)</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
 </Project>

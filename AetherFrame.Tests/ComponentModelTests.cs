@@ -93,6 +93,7 @@ public class ComponentCatalogTests
         ("af.name-backing.fade", PlateComponentKind.NameBacking),
         ("af.corner-ornament.bracket", PlateComponentKind.CornerOrnament),
         ("af.corner-ornament.diamond", PlateComponentKind.CornerOrnament),
+        ("af.corner-ornament.astrolabe-pivot", PlateComponentKind.CornerOrnament),
         ("af.divider.line", PlateComponentKind.Divider),
         ("af.divider.diamond", PlateComponentKind.Divider),
         ("af.section-header.underline", PlateComponentKind.SectionHeader),

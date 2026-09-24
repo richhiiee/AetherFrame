@@ -15,6 +15,10 @@ public enum ComponentPrimitiveKind
 
     /// <summary>The component's image over quad A-B-C-D (top-left, top-right, bottom-right, bottom-left).</summary>
     Image,
+
+    /// <summary>The definition's bundled artwork (<see cref="ComponentDefinition.Art"/>) over quad A-B-C-D,
+    /// like <see cref="Image"/>; the color tints it (white/greyscale artwork takes the color exactly).</summary>
+    Art,
 }
 
 /// <summary>One procedural drawing primitive in logical canvas coordinates.</summary>
@@ -43,6 +47,11 @@ public static class ComponentGeometry
 
         var color = PlateComponentLimits.ClampColor(component.Color ?? definition.DefaultColor(profile));
         color.W *= PlateComponentLimits.ClampOpacity(component.Opacity);
+        if (definition.Art is { Tintable: false })
+        {
+            color = new Vector4(1f, 1f, 1f, color.W); // artwork with its own colors: only opacity applies
+        }
+
         if (color.W <= 0f)
         {
             return;
@@ -126,7 +135,11 @@ public static class ComponentGeometry
             }
 
             case ComponentShape.Image:
-                box.Image(color);
+                box.Image(ComponentPrimitiveKind.Image, color);
+                break;
+
+            case ComponentShape.Art when definition.Art is not null:
+                box.Image(ComponentPrimitiveKind.Art, color);
                 break;
 
             case ComponentShape.Bar:
@@ -283,12 +296,13 @@ public static class ComponentGeometry
                 ? new ComponentPrimitive(ComponentPrimitiveKind.Triangle, Map(a), Map(c), Map(b), Map(b), color)
                 : new ComponentPrimitive(ComponentPrimitiveKind.Triangle, Map(a), Map(b), Map(c), Map(c), color));
 
-        internal void Image(Vector4 color)
+        // Mirroring flips the image with the quad (the texture coordinates stay fixed to A-B-C-D).
+        internal void Image(ComponentPrimitiveKind kind, Vector4 color)
         {
             var w = max.X - min.X;
             var h = max.Y - min.Y;
             output.Add(new ComponentPrimitive(
-                ComponentPrimitiveKind.Image,
+                kind,
                 Map(Vector2.Zero), Map(new Vector2(w, 0f)), Map(new Vector2(w, h)), Map(new Vector2(0f, h)), color));
         }
 

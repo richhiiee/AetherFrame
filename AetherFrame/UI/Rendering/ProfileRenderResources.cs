@@ -11,11 +11,12 @@ namespace AetherFrame.UI.Rendering;
 /// </summary>
 internal sealed class ProfileRenderResources
 {
-    internal ProfileRenderResources(ImageTextureCache images, ProfileFontService fonts, ProceduralTextureCache textures)
+    internal ProfileRenderResources(ImageTextureCache images, ProfileFontService fonts, ProceduralTextureCache textures, BuiltInArtTextureCache art)
     {
         Images = images;
         Fonts = fonts;
         Textures = textures;
+        Art = art;
     }
 
     internal ImageTextureCache Images { get; }
@@ -23,4 +24,6 @@ internal sealed class ProfileRenderResources
     internal ProfileFontService Fonts { get; }
 
     internal ProceduralTextureCache Textures { get; }
+
+    internal BuiltInArtTextureCache Art { get; }
 }
