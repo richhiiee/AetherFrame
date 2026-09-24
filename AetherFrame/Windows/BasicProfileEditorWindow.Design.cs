@@ -11,7 +11,7 @@ namespace AetherFrame.Windows;
 /// <summary>
 /// The Design category: the Plate as a whole, in order — layout (orientation), Theme, Pattern (both
 /// first-class visual browsers), Customize Background (detailed color/mode tuning, collapsed by
-/// default), then the layout actions that apply to every Basic section.
+/// default), the Plate Frame and decoration Components, then the layout actions that apply to every Basic section.
 /// </summary>
 internal sealed partial class BasicProfileEditorWindow
 {
@@ -56,6 +56,8 @@ internal sealed partial class BasicProfileEditorWindow
             using var id = ImRaii.PushId("Background");
             backgroundPanel.Draw(profile, applyTheme: null);
         }
+
+        DrawFrameAndDecorations(profile);
 
         DrawPlateLayoutActions(profile);
     }

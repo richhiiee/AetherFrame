@@ -24,6 +24,19 @@ public static class AssetReferenceScanner
             into.Add(backgroundAssetId);
         }
 
+        // Components drawn from an image (whatever their definition: one this build doesn't have
+        // may still come back, e.g. after an update, and must find its image).
+        if (document.Components is { } components)
+        {
+            foreach (var component in components)
+            {
+                if (component?.AssetId is { } componentAssetId && componentAssetId != Guid.Empty)
+                {
+                    into.Add(componentAssetId);
+                }
+            }
+        }
+
         // A never-normalized legacy document still holds its background here.
         if (document.LegacyBackgroundAssetId is { } legacyAssetId && legacyAssetId != Guid.Empty)
         {
@@ -47,6 +60,27 @@ public static class AssetReferenceScanner
             {
                 CollectGuids(element, into);
             }
+        }
+
+        if (document.Components is { } known)
+        {
+            foreach (var component in known)
+            {
+                CollectGuids(component?.ExtensionData, into);
+            }
+        }
+
+        if (document.UnrecognizedComponents is { } unreadable)
+        {
+            foreach (var component in unreadable)
+            {
+                CollectGuids(component, into);
+            }
+        }
+
+        if (document.MalformedComponentsValue is { } malformed)
+        {
+            CollectGuids(malformed, into);
         }
     }
 

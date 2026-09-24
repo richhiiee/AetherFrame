@@ -110,6 +110,11 @@ internal sealed partial class BasicProfileEditorWindow
         // offered until they genuinely work.
         Hint("Source: an image you import. Using your in-game portrait isn't available yet.");
 
+        ImGui.Spacing();
+        Subheading("Frame & Overlay");
+        DrawComponentSlot(profile, Domain.Components.PlateComponentKind.PortraitFrame);
+        DrawComponentSlot(profile, Domain.Components.PlateComponentKind.PortraitOverlay);
+
         DrawLayoutBlock(profile, new LayoutRow("Portrait", [BasicSection.Portrait], "Reset Portrait"));
     }
 

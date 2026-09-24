@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Numerics;
 using AetherFrame.Domain.Basic;
+using AetherFrame.Domain.Components;
 using AetherFrame.Domain.Profiles;
 using Dalamud.Bindings.ImGui;
 
@@ -9,7 +10,8 @@ namespace AetherFrame.UI.Rendering;
 
 /// <summary>
 /// Draws the visual content of a <see cref="ProfileDocument"/> (backdrop, background, then every
-/// visible element in Z order) into an ImGui draw list at an arbitrary screen origin and uniform
+/// visible element in Z order, with the Plate's Components in their explicit layers around them —
+/// see <see cref="ComponentPaintPlan"/>) into an ImGui draw list at an arbitrary screen origin and uniform
 /// scale.
 ///
 /// This is purely a rendering service: it owns no editing state and knows nothing about
@@ -35,6 +37,8 @@ internal static class ProfileRenderer
 
     // Reused every frame (render thread only) so painting never allocates a sorted copy.
     private static readonly List<ProfileElement> PaintOrderBuffer = new(ProfileDocument.MaxElementCount);
+    private static readonly List<ProfileElement> DrawnBuffer = new(ProfileDocument.MaxElementCount);
+    private static readonly List<PaintStep> PaintPlanBuffer = new(ProfileDocument.MaxElementCount + 64);
 
     /// <summary>
     /// Draws the full logical canvas starting at <paramref name="canvasOrigin"/> in screen space,
@@ -60,6 +64,7 @@ internal static class ProfileRenderer
 
         // Hidden elements are skipped here, before any per-element work.
         ProfilePaintOrder.Fill(profile, PaintOrderBuffer, includeHidden: false);
+        DrawnBuffer.Clear();
         foreach (var element in PaintOrderBuffer)
         {
             if (!options.ShowEmptySectionHeadings && !BasicSections.IsDrawnInFinishedRendering(profile, element))
@@ -68,9 +73,26 @@ internal static class ProfileRenderer
                 continue;
             }
 
-            DrawElement(drawList, element, canvasOrigin, scale, resources, options);
+            DrawnBuffer.Add(element);
         }
 
+        // The one paint sequence: elements in their own order, Components in their explicit
+        // layers around them (see ComponentPaintPlan). Without Components it is just the elements.
+        ComponentPaintPlan.Build(profile, DrawnBuffer, BuiltInComponentCatalog.Instance, PaintPlanBuffer);
+        foreach (var step in PaintPlanBuffer)
+        {
+            if (step.Element is { } element)
+            {
+                DrawElement(drawList, element, canvasOrigin, scale, resources, options);
+            }
+            else
+            {
+                ComponentRenderer.Draw(drawList, profile, step, canvasOrigin, scale, resources);
+            }
+        }
+
+        PaintPlanBuffer.Clear();
+        DrawnBuffer.Clear();
         PaintOrderBuffer.Clear();
     }
 

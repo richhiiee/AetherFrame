@@ -9,7 +9,8 @@ namespace AetherFrame.Windows;
 
 /// <summary>
 /// The Inspector's Canvas tab: canvas size (presets / custom, applied through the resize-choice
-/// popup) and the shared <see cref="ProfileBackground"/> (through the shared <see cref="BackgroundStylePanel"/>).
+/// popup), the shared <see cref="ProfileBackground"/> (through the shared <see cref="BackgroundStylePanel"/>),
+/// and the Plate's Components (see <c>.Components.cs</c>).
 /// </summary>
 internal sealed partial class ProfileEditorWindow
 {
@@ -28,6 +29,7 @@ internal sealed partial class ProfileEditorWindow
     {
         DrawCanvasSizeSection(profile);
         DrawBackgroundSection(profile);
+        DrawComponentsSection(profile);
     }
 
     /// <summary>

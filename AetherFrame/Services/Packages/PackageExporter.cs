@@ -209,6 +209,14 @@ internal static class PackageExporter
             known.Add(backgroundId);
         }
 
+        foreach (var component in document.Components ?? [])
+        {
+            if (component.AssetId is { } componentAssetId && componentAssetId != Guid.Empty)
+            {
+                known.Add(componentAssetId);
+            }
+        }
+
         var candidates = new HashSet<Guid>(known);
         AssetReferenceScanner.Collect(document, candidates);
 

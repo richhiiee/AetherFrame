@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using AetherFrame.Domain.Components;
 using AetherFrame.Domain.Profiles;
 
 namespace AetherFrame.Persistence;
@@ -33,40 +34,114 @@ internal static class PlateDocuments
     /// <summary>
     /// The one way a document is read from JSON. Elements whose type this build doesn't know are
     /// set aside verbatim in <see cref="ProfileDocument.UnrecognizedElements"/> instead of failing
-    /// the whole document (or being forced into a guessed type); <see cref="ToJson"/> writes them
-    /// back. <paramref name="raw"/> itself is never modified.
+    /// the whole document (or being forced into a guessed type); Components are read one at a time,
+    /// so a malformed one is set aside verbatim in <see cref="ProfileDocument.UnrecognizedComponents"/>
+    /// without affecting the rest. <see cref="ToJson"/> writes both back. <paramref name="raw"/>
+    /// itself is never modified.
     /// </summary>
     internal static ProfileDocument? Deserialize(JsonObject raw)
     {
-        if (raw[nameof(ProfileDocument.Elements)] is not JsonArray elements || elements.All(IsKnownElement))
+        var elements = raw[nameof(ProfileDocument.Elements)] as JsonArray;
+        var hasUnknownElements = elements is not null && !elements.All(IsKnownElement);
+        var componentsNode = raw[nameof(ProfileDocument.Components)];
+
+        if (!hasUnknownElements && componentsNode is null)
         {
             return raw.Deserialize<ProfileDocument>(JsonOptions.Default);
         }
 
-        var known = new JsonArray();
-        var unrecognized = new List<JsonElement>();
-        foreach (var element in elements)
-        {
-            if (IsKnownElement(element))
-            {
-                known.Add(element!.DeepClone());
-            }
-            else if (element is not null)
-            {
-                unrecognized.Add(JsonSerializer.SerializeToElement(element, JsonOptions.Default));
-            }
-        }
-
         var filtered = (JsonObject)raw.DeepClone();
-        filtered[nameof(ProfileDocument.Elements)] = known;
+        filtered.Remove(nameof(ProfileDocument.Components));
+
+        var unrecognized = new List<JsonElement>();
+        if (hasUnknownElements)
+        {
+            var known = new JsonArray();
+            foreach (var element in elements!)
+            {
+                if (IsKnownElement(element))
+                {
+                    known.Add(element!.DeepClone());
+                }
+                else if (element is not null)
+                {
+                    unrecognized.Add(JsonSerializer.SerializeToElement(element, JsonOptions.Default));
+                }
+            }
+
+            filtered[nameof(ProfileDocument.Elements)] = known;
+        }
 
         var document = filtered.Deserialize<ProfileDocument>(JsonOptions.Default);
         if (document is not null)
         {
-            document.UnrecognizedElements = unrecognized;
+            if (hasUnknownElements)
+            {
+                document.UnrecognizedElements = unrecognized;
+            }
+
+            ReadComponents(componentsNode, document);
         }
 
         return document;
+    }
+
+    /// <summary>
+    /// Reads each Component on its own: a readable one becomes a <see cref="PlateComponent"/> (its
+    /// unknown fields kept in its extension data, an unknown kind or definition kept as-is); anything
+    /// else — not an object, a wrong-typed value, no definition id — is kept verbatim as raw JSON.
+    /// A "Components" value that isn't an array is kept verbatim as a whole.
+    /// </summary>
+    private static void ReadComponents(JsonNode? node, ProfileDocument document)
+    {
+        if (node is null)
+        {
+            return;
+        }
+
+        if (node is not JsonArray array)
+        {
+            document.MalformedComponentsValue = JsonSerializer.SerializeToElement(node, JsonOptions.Default);
+            return;
+        }
+
+        var components = new List<PlateComponent>(array.Count);
+        List<JsonElement>? malformed = null;
+        foreach (var item in array)
+        {
+            var component = TryReadComponent(item);
+            if (component is not null)
+            {
+                components.Add(component);
+            }
+            else
+            {
+                (malformed ??= new List<JsonElement>()).Add(item is null
+                    ? JsonSerializer.SerializeToElement<object?>(null, JsonOptions.Default)
+                    : JsonSerializer.SerializeToElement(item, JsonOptions.Default));
+            }
+        }
+
+        document.Components = components;
+        document.UnrecognizedComponents = malformed;
+    }
+
+    private static PlateComponent? TryReadComponent(JsonNode? item)
+    {
+        if (item is not JsonObject)
+        {
+            return null;
+        }
+
+        try
+        {
+            var component = item.Deserialize<PlateComponent>(JsonOptions.Default);
+            return component is { DefinitionId: not null } ? component : null;
+        }
+        catch (Exception ex) when (ex is JsonException or NotSupportedException or InvalidOperationException or FormatException or ArgumentException or OverflowException)
+        {
+            return null;
+        }
     }
 
     private static bool IsKnownElement(JsonNode? element) =>
@@ -89,6 +164,8 @@ internal static class PlateDocuments
         {
             element.NormalizeLegacyLayout(document.CanvasWidth, document.CanvasHeight);
         }
+
+        document.NormalizeComponentIds();
     }
 
     internal static JsonObject ToJson(ProfileDocument document)
@@ -102,6 +179,24 @@ internal static class PlateDocuments
             {
                 elements.Add(JsonNode.Parse(element.GetRawText()));
             }
+        }
+
+        if (document.UnrecognizedComponents is { Count: > 0 } unreadable)
+        {
+            if (json[nameof(ProfileDocument.Components)] is not JsonArray components)
+            {
+                components = new JsonArray();
+                json[nameof(ProfileDocument.Components)] = components;
+            }
+
+            foreach (var component in unreadable)
+            {
+                components.Add(JsonNode.Parse(component.GetRawText()));
+            }
+        }
+        else if (document.MalformedComponentsValue is { } whole && (document.Components is null || document.Components.Count == 0))
+        {
+            json[nameof(ProfileDocument.Components)] = JsonNode.Parse(whole.GetRawText());
         }
 
         return json;
