@@ -48,7 +48,8 @@ public static class AssetReferenceScanner
         // as a reference: over-protecting an image costs a little disk, under-protecting loses it.
         CollectGuids(document.ExtensionData, into);
         CollectGuids(document.Background?.ExtensionData, into);
-        CollectGuids(document.BasicIdentity?.ExtensionData, into);
+        CollectBasicIdentity(document.BasicIdentity, into);
+        CollectBasicPlate(document.BasicPlate, into);
         foreach (var element in document.Elements)
         {
             CollectGuids(element.ExtensionData, into);
@@ -81,6 +82,50 @@ public static class AssetReferenceScanner
         if (document.MalformedComponentsValue is { } malformed)
         {
             CollectGuids(malformed, into);
+        }
+    }
+
+    /// <summary>
+    /// Every preserved extension bag of the Identity Header, nested ones included: none of its known
+    /// fields holds an asset today, but a newer build's fields anywhere in it might.
+    /// </summary>
+    private static void CollectBasicIdentity(BasicIdentityHeader? identity, ISet<Guid> into)
+    {
+        if (identity is null)
+        {
+            return;
+        }
+
+        CollectGuids(identity.ExtensionData, into);
+        CollectGuids(identity.AppliedLayout?.ExtensionData, into);
+        if (identity.LayoutStyle is { } style)
+        {
+            CollectGuids(style.ExtensionData, into);
+            CollectGuids(style.Applied?.ExtensionData, into);
+            CollectGuids(style.Previous?.ExtensionData, into);
+        }
+    }
+
+    /// <summary>
+    /// Every preserved extension bag of the Basic Plate settings (the settings themselves, each
+    /// section placement, Active Hours). Its known fields hold no asset today (the Basic portrait is
+    /// an ordinary image element), but a newer build may store one in a field this build doesn't know.
+    /// </summary>
+    private static void CollectBasicPlate(BasicPlateSettings? plate, ISet<Guid> into)
+    {
+        if (plate is null)
+        {
+            return;
+        }
+
+        CollectGuids(plate.ExtensionData, into);
+        CollectGuids(plate.ActiveHours?.ExtensionData, into);
+        if (plate.Placements is { } placements)
+        {
+            foreach (var placement in placements)
+            {
+                CollectGuids(placement?.ExtensionData, into);
+            }
         }
     }
 
