@@ -131,7 +131,7 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
         packageImportWindow = new PackageImportWindow(packageService, renderResources, (plateId, name) => plateLibraryWindow!.OnPlateImported(plateId, name));
         plateLibraryWindow = new PlateLibraryWindow(
             plateLibrary, templateLibrary, profileService, editorSession, characterIdentityService, thumbnailService, thumbnailTextures,
-            templateThumbnailService, templateThumbnailTextures, OpenBasicEditor, OpenAdvancedEditor, profileViewWindow.ShowPlate, profileViewWindow.ShowDocument,
+            templateThumbnailService, templateThumbnailTextures, renderResources, OpenBasicEditor, OpenAdvancedEditor, profileViewWindow.ShowPlate, profileViewWindow.ShowDocument,
             packageService, new FileDialogManager(), packageImportWindow.Begin);
 
         WindowSystem.AddWindow(plateLibraryWindow);

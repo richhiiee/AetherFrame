@@ -49,117 +49,15 @@ internal sealed partial class PlateLibraryWindow
     /// <summary>Shown instead of the grid when the Library failed to load at startup.</summary>
     internal void MarkLoadFailed() => libraryLoadFailed = true;
 
-    // ---------------------------------------------------------------- action bar
+    // ---------------------------------------------------------------- status footer
 
-    private void DrawActionBar(CharacterContext? character, Guid? activePlateId)
+    /// <summary>What's happening (busy/error/status), or the selected Plate's own info, plus a
+    /// quiet reminder that actions now live on each card's right-click menu (see
+    /// <see cref="DrawPlateContextMenuItems"/>) — the persistent action button row is gone.</summary>
+    private void DrawStatusFooter()
     {
         var selected = selectedPlateId is { } id ? library.FindPlate(id) : null;
-        var ready = selected is { IsReady: true };
 
-        using (ImRaii.Disabled(!ready))
-        {
-            if (ImGui.Button("Preview"))
-            {
-                showInViewer(selected!.PlateId);
-            }
-
-            EditorWidgets.Tooltip("Show this Plate in the Plate Viewer. Nothing about it changes.");
-
-            ImGui.SameLine();
-            if (ImGui.Button("Edit"))
-            {
-                RequestOpen(selected!.PlateId, basic: true);
-            }
-
-            EditorWidgets.Tooltip("Open in the Basic Editor. Editing never changes which Plate is Active.");
-
-            ImGui.SameLine();
-            if (ImGui.Button("Advanced"))
-            {
-                RequestOpen(selected!.PlateId, basic: false);
-            }
-
-            EditorWidgets.Tooltip("Open in the Advanced Editor.");
-        }
-
-        ImGui.SameLine();
-        var isActive = selected is not null && selected.PlateId == activePlateId;
-        using (ImRaii.Disabled(!ready || character is null || isActive || IsBusy))
-        {
-            if (ImGui.Button("Set Active") && character is { } who)
-            {
-                var plateId = selected!.PlateId;
-                var name = selected.DisplayName;
-                RunOperation("set the Active Plate", () => library.SetActivePlateAsync(who, plateId),
-                    () => statusMessage = $"\"{name}\" is now {DescribeCharacter(who)}'s Active Plate.");
-            }
-        }
-
-        if (character is null)
-        {
-            EditorWidgets.Tooltip("Log in to a character to choose its Active Plate.");
-        }
-        else if (isActive)
-        {
-            EditorWidgets.Tooltip($"Already {DescribeCharacter(character.Value)}'s Active Plate.");
-        }
-        else
-        {
-            EditorWidgets.Tooltip($"Make this {DescribeCharacter(character.Value)}'s Active Plate.");
-        }
-
-        ImGui.SameLine();
-        using (ImRaii.Disabled(!ready || IsBusy))
-        {
-            if (ImGui.Button("Duplicate"))
-            {
-                var sourceId = selected!.PlateId;
-                RunOperation<Guid>("duplicate the Plate", () => library.DuplicatePlateAsync(sourceId),
-                    newId => selectedPlateId = newId);
-            }
-
-            EditorWidgets.Tooltip("Make an independent copy of this Plate as last saved. Images are shared, not copied.");
-
-            ImGui.SameLine();
-            if (ImGui.Button("Save as Template"))
-            {
-                saveAsTemplateSourcePlateId = selected!.PlateId;
-                saveAsTemplateBuffer = selected.DisplayName;
-                saveAsTemplateError = null;
-                pendingSaveAsTemplatePopup = true;
-            }
-
-            EditorWidgets.Tooltip("Saves this Plate's last saved state as a new Template.\nChanges you haven't saved yet won't be included.");
-
-            ImGui.SameLine();
-            if (ImGui.Button("Export"))
-            {
-                OpenExportDialog(selected!.PlateId, selected.DisplayName);
-            }
-
-            EditorWidgets.Tooltip("Save this Plate as it was last saved, with its images, as one .aetherframe file.\nNothing about your characters is included. Nothing is uploaded.");
-
-            ImGui.SameLine();
-            if (ImGui.Button("Rename"))
-            {
-                renameTargetId = selected!.PlateId;
-                renameBuffer = selected.DisplayName;
-                renameError = null;
-                pendingRenamePopup = true;
-            }
-        }
-
-        ImGui.SameLine();
-        using (ImRaii.Disabled(selected is null || IsBusy))
-        {
-            if (ImGui.Button("Delete"))
-            {
-                deleteTargetId = selected!.PlateId;
-                pendingDeletePopup = true;
-            }
-        }
-
-        // Second row: what's happening, or what went wrong.
         if (IsBusy)
         {
             ImGui.TextDisabled("Working...");
@@ -182,6 +80,98 @@ internal sealed partial class PlateLibraryWindow
         else
         {
             ImGui.TextDisabled("Select a Plate. Double-click to edit; drag to reorder.");
+        }
+
+        ImGui.TextDisabled("Right click a Plate for actions");
+    }
+
+    /// <summary>
+    /// The selected-Plate action menu: Preview, Edit, Open Advanced Editor, Set Active, Duplicate,
+    /// Save as Template, Export, Rename, Delete — one reusable menu shown on a card's right-click,
+    /// replacing the old persistent action bar. Every item reuses the exact same service calls,
+    /// <see cref="RunOperation{T}"/> plumbing, and existing Rename/Delete/Save-as-Template popups
+    /// the old buttons already used (matching their exact enabled/disabled rules) — nothing here
+    /// is a second copy of that logic, and nothing is keyed off <see cref="PlateSummary.DisplayName"/>
+    /// beyond pre-filling a text field. Must be called between a matching BeginPopup/EndPopup.
+    /// </summary>
+    private void DrawPlateContextMenuItems(PlateSummary plate, CharacterContext? character, Guid? activePlateId)
+    {
+        var ready = plate.IsReady;
+        var isActive = plate.PlateId == activePlateId;
+
+        using (ImRaii.Disabled(!ready))
+        {
+            if (ImGui.MenuItem("Preview"))
+            {
+                showInViewer(plate.PlateId);
+            }
+
+            if (ImGui.MenuItem("Edit"))
+            {
+                RequestOpen(plate.PlateId, basic: true);
+            }
+
+            if (ImGui.MenuItem("Open Advanced Editor"))
+            {
+                RequestOpen(plate.PlateId, basic: false);
+            }
+        }
+
+        ImGui.Separator();
+
+        using (ImRaii.Disabled(!ready || character is null || isActive || IsBusy))
+        {
+            if (ImGui.MenuItem("Set Active") && character is { } who)
+            {
+                var plateId = plate.PlateId;
+                var name = plate.DisplayName;
+                RunOperation("set the Active Plate", () => library.SetActivePlateAsync(who, plateId),
+                    () => statusMessage = $"\"{name}\" is now {DescribeCharacter(who)}'s Active Plate.");
+            }
+        }
+
+        ImGui.Separator();
+
+        using (ImRaii.Disabled(!ready || IsBusy))
+        {
+            if (ImGui.MenuItem("Duplicate"))
+            {
+                var sourceId = plate.PlateId;
+                RunOperation<Guid>("duplicate the Plate", () => library.DuplicatePlateAsync(sourceId),
+                    newId => selectedPlateId = newId);
+            }
+
+            if (ImGui.MenuItem("Save as Template"))
+            {
+                saveAsTemplateSourcePlateId = plate.PlateId;
+                saveAsTemplateBuffer = plate.DisplayName;
+                saveAsTemplateError = null;
+                pendingSaveAsTemplatePopup = true;
+            }
+
+            if (ImGui.MenuItem("Export"))
+            {
+                OpenExportDialog(plate.PlateId, plate.DisplayName);
+            }
+
+            ImGui.Separator();
+
+            if (ImGui.MenuItem("Rename"))
+            {
+                renameTargetId = plate.PlateId;
+                renameBuffer = plate.DisplayName;
+                renameError = null;
+                pendingRenamePopup = true;
+            }
+        }
+
+        using (ImRaii.Disabled(IsBusy))
+        {
+            if (ImGui.MenuItem("Delete"))
+            {
+                deleteTargetId = plate.PlateId;
+                pendingDeletePopup = true;
+            }
         }
     }
 

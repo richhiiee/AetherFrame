@@ -53,6 +53,7 @@ internal sealed partial class PlateLibraryWindow : Window, IDisposable
     private readonly PlateThumbnailTextures thumbnailTextures;
     private readonly PlateThumbnailService templateThumbnails;
     private readonly PlateThumbnailTextures templateThumbnailTextures;
+    private readonly ProfileRenderResources renderResources;
     private readonly Action openBasicEditor;
     private readonly Action openAdvancedEditor;
     private readonly Action<Guid> showInViewer;
@@ -77,6 +78,7 @@ internal sealed partial class PlateLibraryWindow : Window, IDisposable
         PlateThumbnailTextures thumbnailTextures,
         PlateThumbnailService templateThumbnails,
         PlateThumbnailTextures templateThumbnailTextures,
+        ProfileRenderResources renderResources,
         Action openBasicEditor,
         Action openAdvancedEditor,
         Action<Guid> showInViewer,
@@ -101,6 +103,7 @@ internal sealed partial class PlateLibraryWindow : Window, IDisposable
         this.thumbnailTextures = thumbnailTextures;
         this.templateThumbnails = templateThumbnails;
         this.templateThumbnailTextures = templateThumbnailTextures;
+        this.renderResources = renderResources;
         this.openBasicEditor = openBasicEditor;
         this.openAdvancedEditor = openAdvancedEditor;
         this.showInViewer = showInViewer;
@@ -157,8 +160,21 @@ internal sealed partial class PlateLibraryWindow : Window, IDisposable
         DrawUnsavedChangesPopup();
         DrawOverwritePopup();
         DrawSaveAsTemplatePopup();
-        DrawTemplateRenamePopup();
-        DrawTemplateDeletePopup();
+
+        // While the Create Plate chooser is open, its own Rename/Delete requests (from a row's
+        // context menu) are drawn from inside the chooser's popup scope instead — see
+        // DrawTemplateChooserPopup for why: ImGui.OpenPopup() picks its stack level from how many
+        // BeginPopup/EndPopup blocks it's lexically nested inside at the moment it's called, and
+        // opening a second popup at the SAME level the chooser occupies closes the chooser first.
+        // Calling these two from here too whenever that happens would open Rename/Delete twice in
+        // one frame for the same popup id, which is unsafe — so exactly one of the two call sites
+        // ever runs on a given frame.
+        if (!ImGui.IsPopupOpen(TemplateChooserPopupId))
+        {
+            DrawTemplateRenamePopup();
+            DrawTemplateDeletePopup();
+        }
+
         fileDialogManager.Draw();
     }
 
@@ -177,17 +193,18 @@ internal sealed partial class PlateLibraryWindow : Window, IDisposable
         DrawHeader(character, allPlates.Count);
         ImGui.Separator();
 
-        var footerHeight = (ImGui.GetFrameHeightWithSpacing() * 2f) + ImGui.GetStyle().ItemSpacing.Y + 4f;
+        // Two plain text lines now (status/info, then the right-click hint) — no button row.
+        var footerHeight = (ImGui.GetTextLineHeightWithSpacing() * 2f) + 4f;
         using (var grid = ImRaii.Child("##PlateGrid", new Vector2(-1, -footerHeight), false))
         {
             if (grid.Success)
             {
-                DrawGrid(plates, allPlates.Count, activePlateId);
+                DrawGrid(plates, allPlates.Count, activePlateId, character);
             }
         }
 
         ImGui.Separator();
-        DrawActionBar(character, activePlateId);
+        DrawStatusFooter();
     }
 
     // ---------------------------------------------------------------- header
@@ -234,7 +251,7 @@ internal sealed partial class PlateLibraryWindow : Window, IDisposable
 
     // ---------------------------------------------------------------- card grid
 
-    private void DrawGrid(IReadOnlyList<PlateSummary> plates, int totalCount, Guid? activePlateId)
+    private void DrawGrid(IReadOnlyList<PlateSummary> plates, int totalCount, Guid? activePlateId, CharacterContext? character)
     {
         if (totalCount == 0)
         {
@@ -260,7 +277,7 @@ internal sealed partial class PlateLibraryWindow : Window, IDisposable
                 ImGui.SameLine();
             }
 
-            DrawCard(plates[i], plates[i].PlateId == activePlateId, canReorder);
+            DrawCard(plates[i], plates[i].PlateId == activePlateId, canReorder, character, activePlateId);
         }
 
         if (!ImGui.IsMouseDown(ImGuiMouseButton.Left))
@@ -287,7 +304,7 @@ internal sealed partial class PlateLibraryWindow : Window, IDisposable
         }
     }
 
-    private void DrawCard(PlateSummary plate, bool isActive, bool canReorder)
+    private void DrawCard(PlateSummary plate, bool isActive, bool canReorder, CharacterContext? character, Guid? activePlateId)
     {
         if (!cardIds.TryGetValue(plate.PlateId, out var id))
         {
@@ -312,6 +329,19 @@ internal sealed partial class PlateLibraryWindow : Window, IDisposable
         if (hovered && ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left) && plate.IsReady)
         {
             RequestOpen(plate.PlateId, basic: true);
+        }
+
+        var contextMenuId = $"##PlateCardMenu{plate.PlateId:N}";
+        if (ImGui.IsItemClicked(ImGuiMouseButton.Right))
+        {
+            selectedPlateId = plate.PlateId;
+            ImGui.OpenPopup(contextMenuId);
+        }
+
+        if (ImGui.BeginPopup(contextMenuId))
+        {
+            DrawPlateContextMenuItems(plate, character, activePlateId);
+            ImGui.EndPopup();
         }
 
         if (hovered && plate.Problem is { } problem)
