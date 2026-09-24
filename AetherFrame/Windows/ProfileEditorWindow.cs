@@ -49,6 +49,7 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable, IEditor
     private readonly Action openBasicEditor;
     private readonly Action openLibrary;
     private readonly EditorSurfaceCoordinator surfaces;
+    private readonly BackgroundStylePanel backgroundPanel;
 
     // Reused per frame (render thread only) for paint-order walks, so none of them allocate.
     private readonly List<ProfileElement> paintOrderBuffer = new(ProfileDocument.MaxElementCount);
@@ -108,6 +109,7 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable, IEditor
         this.openBasicEditor = openBasicEditor;
         this.openLibrary = openLibrary;
         this.surfaces = surfaces;
+        backgroundPanel = new BackgroundStylePanel(editorSession, renderResources, OpenImageFileDialog);
 
         // The native close button can't be intercepted, so it's replaced by one that goes through
         // the unsaved-changes prompt. (Other close paths are caught in OnClose.)

@@ -4,7 +4,7 @@ using System.Numerics;
 using System.Threading.Tasks;
 using AetherFrame.Domain.Profiles;
 using AetherFrame.Services;
-using Dalamud.Bindings.ImGui;
+using AetherFrame.Services.Diagnostics;
 
 namespace AetherFrame.UI.Editor;
 
@@ -57,7 +57,11 @@ internal sealed partial class EditorSession
 
     private readonly ProfileService profileService;
     private readonly AssetStorageService assetStorage;
-    private readonly ImageTextureCache imageTextureCache;
+    private readonly IEditorImageInfo imageTextureCache;
+    private readonly IAetherFrameLog log;
+
+    // The UI frame number (ImGui's frame count in the plugin): dirty state is compared at most once per frame.
+    private readonly Func<int> frameCounter;
 
     // A slider/color/text edit in progress: the element's state before the first change of this
     // "session" of edits, committed to history as a single entry once the widget deactivates.
@@ -84,11 +88,14 @@ internal sealed partial class EditorSession
     private int dirtyMemoFrame = -1;
     private bool dirtyMemo;
 
-    internal EditorSession(ProfileService profileService, AssetStorageService assetStorage, ImageTextureCache imageTextureCache)
+    internal EditorSession(
+        ProfileService profileService, AssetStorageService assetStorage, IEditorImageInfo imageTextureCache, IAetherFrameLog log, Func<int> frameCounter)
     {
         this.profileService = profileService;
         this.assetStorage = assetStorage;
         this.imageTextureCache = imageTextureCache;
+        this.log = log;
+        this.frameCounter = frameCounter;
     }
 
     internal string? ErrorMessage { get; private set; }
@@ -115,7 +122,7 @@ internal sealed partial class EditorSession
                 return true;
             }
 
-            var frame = ImGui.GetFrameCount();
+            var frame = frameCounter();
             if (frame != dirtyMemoFrame)
             {
                 dirtyMemoFrame = frame;
@@ -558,7 +565,7 @@ internal sealed partial class EditorSession
         catch (Exception ex)
         {
             ErrorMessage = ex.Message;
-            DalamudServices.Log.Error(ex, "AetherFrame failed to save the current profile.");
+            log.Error(ex, "AetherFrame failed to save the current profile.");
             return false;
         }
     }
@@ -813,15 +820,21 @@ internal sealed partial class EditorSession
             return baseline is null && profile is null;
         }
 
-        return StateMatches(baseline, profile.CanvasWidth, profile.CanvasHeight, profile.Background, profile.BasicIdentity, profile.Elements);
+        return StateMatches(baseline, profile.CanvasWidth, profile.CanvasHeight, profile.Background, profile.BasicIdentity, profile.BasicPlate, profile.Elements);
     }
 
     private static bool StatesEqual(ProfileService.DocumentState a, ProfileService.DocumentState b) =>
-        StateMatches(a, b.CanvasWidth, b.CanvasHeight, b.Background, b.BasicIdentity, b.Elements);
+        StateMatches(a, b.CanvasWidth, b.CanvasHeight, b.Background, b.BasicIdentity, b.BasicPlate, b.Elements);
 
     /// <summary>Value equality of a captured state against another state's (or the live profile's) parts.</summary>
     private static bool StateMatches(
-        ProfileService.DocumentState state, float canvasWidth, float canvasHeight, ProfileBackground? background, BasicIdentityHeader? identity, List<ProfileElement> live)
+        ProfileService.DocumentState state,
+        float canvasWidth,
+        float canvasHeight,
+        ProfileBackground? background,
+        BasicIdentityHeader? identity,
+        BasicPlateSettings? basicPlate,
+        List<ProfileElement> live)
     {
         if (!state.CanvasWidth.Equals(canvasWidth) || !state.CanvasHeight.Equals(canvasHeight))
         {
@@ -834,6 +847,11 @@ internal sealed partial class EditorSession
         }
 
         if (state.BasicIdentity is null ? identity is not null : !state.BasicIdentity.ContentEquals(identity))
+        {
+            return false;
+        }
+
+        if (state.BasicPlate is null ? basicPlate is not null : !state.BasicPlate.ContentEquals(basicPlate))
         {
             return false;
         }

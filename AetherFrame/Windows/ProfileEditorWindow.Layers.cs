@@ -247,7 +247,8 @@ internal sealed partial class ProfileEditorWindow
         using var tooltip = ImRaii.Tooltip();
         ImGui.TextUnformatted(ProfileElementNames.GetDisplayName(element));
 
-        if (ProfileElementNames.GetRoleLabel(element.Role) is { } role)
+        // Only elements Basic mode still owns (a legacy tagline is ordinary Advanced content now).
+        if (ProfileElementNames.GetRoleLabel(element.Role) is { } role && Domain.Basic.BasicSections.SectionOf(element.Role) is not null)
         {
             ImGui.TextDisabled($"Basic: {role}");
         }

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Numerics;
+using AetherFrame.Domain.Basic;
 using AetherFrame.Domain.Profiles;
 using Dalamud.Bindings.ImGui;
 
@@ -61,6 +62,12 @@ internal static class ProfileRenderer
         ProfilePaintOrder.Fill(profile, PaintOrderBuffer, includeHidden: false);
         foreach (var element in PaintOrderBuffer)
         {
+            if (!options.ShowEmptySectionHeadings && !BasicSections.IsDrawnInFinishedRendering(profile, element))
+            {
+                // A section heading with nothing under it (see BasicSections).
+                continue;
+            }
+
             DrawElement(drawList, element, canvasOrigin, scale, resources, options);
         }
 

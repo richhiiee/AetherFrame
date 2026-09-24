@@ -82,6 +82,14 @@ public sealed class ProfileDocument
     /// </summary>
     public BasicIdentityHeader? BasicIdentity { get; set; }
 
+    /// <summary>
+    /// Basic mode's Adventure Plate settings (orientation, where Basic last placed each section,
+    /// playstyle and active hours data...), or null when never configured — every older profile.
+    /// Like <see cref="BasicIdentity"/>, only ever created by an explicit Basic edit (or by
+    /// creating a new Adventure Plate Classic), never by loading or opening.
+    /// </summary>
+    public BasicPlateSettings? BasicPlate { get; set; }
+
     // Legacy background fields (image + fit + opacity), from before ProfileBackground existed.
     // Read only so NormalizeLegacyBackground can migrate an old profile in memory; nulled once
     // migrated, so they are never written back (WhenWritingNull). JSON names are unchanged.

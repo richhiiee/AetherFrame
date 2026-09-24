@@ -11,6 +11,7 @@ using AetherFrame.Services.Thumbnails;
 using AetherFrame.UI.Editor;
 using AetherFrame.UI.Rendering;
 using AetherFrame.Windows;
+using Dalamud.Bindings.ImGui;
 using Dalamud.Game.Command;
 using Dalamud.Interface.ImGuiFileDialog;
 using Dalamud.Interface.Windowing;
@@ -33,6 +34,7 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
     [PluginService] internal static ITextureProvider TextureProvider { get; private set; } = null!;
     [PluginService] internal static IDataManager DataManager { get; private set; } = null!;
     [PluginService] internal static IUnlockState UnlockState { get; private set; } = null!;
+    [PluginService] internal static IObjectTable ObjectTable { get; private set; } = null!;
 
     private const string CommandName = "/aetherframe";
 
@@ -41,6 +43,7 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
     public readonly WindowSystem WindowSystem = new("AetherFrame");
 
     private readonly PlateLibraryService plateLibrary;
+    private readonly CharacterIdentityService characterIdentityService;
     private readonly KeyboardShortcutService keyboardShortcutService;
     private readonly ImageTextureCache imageTextureCache;
     private readonly ProfileFontService fontService;
@@ -55,7 +58,7 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
 
     public Plugin()
     {
-        DalamudServices.Initialize(PluginInterface, CommandManager, ClientState, PlayerState, Framework, FileStorage, Log, KeyState, TextureProvider, DataManager, UnlockState);
+        DalamudServices.Initialize(PluginInterface, CommandManager, ClientState, PlayerState, Framework, FileStorage, Log, KeyState, TextureProvider, DataManager, UnlockState, ObjectTable);
 
         Configuration = PluginInterface.GetPluginConfig() as PluginConfiguration ?? new PluginConfiguration();
 
@@ -65,7 +68,13 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
         // All Library persistence runs on the framework thread, as profile IO always has.
         plateLibrary = new PlateLibraryService(paths, new ReliablePlateFileStore(FileStorage), log, dispatch: work => Framework.Run(work));
 
-        var characterIdentityService = new CharacterIdentityService();
+        var jobCatalog = new JobCatalog();
+        characterIdentityService = new CharacterIdentityService(jobCatalog);
+
+        // Character details refresh on their own every half second; a login or logout also
+        // refreshes them immediately.
+        ClientState.Login += OnLogin;
+        ClientState.Logout += OnLogout;
         var profileService = new ProfileService(plateLibrary);
 
         var assetStorageService = new AssetStorageService(
@@ -83,19 +92,21 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
         plateLibrary.PlateSaved += thumbnailService.Invalidate;
         plateLibrary.PlateDeleted += thumbnailService.Remove;
 
-        var editorSession = new EditorSession(profileService, assetStorageService, imageTextureCache);
+        var editorSession = new EditorSession(profileService, assetStorageService, imageTextureCache, log, () => ImGui.GetFrameCount());
         editorSurfaces = new EditorSurfaceCoordinator(() =>
         {
             editorSession.CommitPendingEdits();
             editorSession.EndInteraction();
         });
         var gameTitleCatalog = new GameTitleCatalog();
-        var basicIdentitySession = new BasicIdentitySession(profileService, editorSession, characterIdentityService, fontService, gameTitleCatalog);
-        var basicEditorSession = new BasicEditorSession(profileService, editorSession, assetStorageService, basicIdentitySession);
+        var basicIdentitySession = new BasicIdentitySession(
+            profileService, editorSession, characterIdentityService, new ProfileTextMeasurer(fontService), gameTitleCatalog);
+        var basicEditorSession = new BasicEditorSession(profileService, editorSession, assetStorageService, basicIdentitySession, characterIdentityService);
         keyboardShortcutService = new KeyboardShortcutService();
 
         basicProfileEditorWindow = new BasicProfileEditorWindow(
-            profileService, editorSession, basicEditorSession, imageTextureCache, renderResources, basicFileDialogManager, OpenAdvancedEditor, OpenMyPlates, editorSurfaces);
+            profileService, editorSession, basicEditorSession, imageTextureCache, renderResources, basicFileDialogManager, gameTitleCatalog, jobCatalog,
+            OpenAdvancedEditor, OpenMyPlates, editorSurfaces);
         profileEditorWindow = new ProfileEditorWindow(
             profileService, editorSession, keyboardShortcutService, renderResources, fileDialogManager, ToggleOpenPlateInViewer, OpenBasicEditor, OpenMyPlates, editorSurfaces);
         editorSurfaces.Attach(basicProfileEditorWindow, profileEditorWindow);
@@ -141,6 +152,9 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
         PluginInterface.UiBuilder.OpenMainUi -= ToggleMainUi;
         PluginInterface.UiBuilder.OpenConfigUi -= ToggleMainUi;
 
+        ClientState.Login -= OnLogin;
+        ClientState.Logout -= OnLogout;
+
         WindowSystem.RemoveAllWindows();
 
         plateLibraryWindow.Dispose();
@@ -160,6 +174,10 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
     }
 
     private void OnCommand(string command, string args) => ToggleMainUi();
+
+    private void OnLogin() => characterIdentityService.InvalidateCharacterInfo();
+
+    private void OnLogout(int type, int code) => characterIdentityService.InvalidateCharacterInfo();
 
     /// <summary>The main entry point is My Plates.</summary>
     public void ToggleMainUi() => plateLibraryWindow.Toggle();

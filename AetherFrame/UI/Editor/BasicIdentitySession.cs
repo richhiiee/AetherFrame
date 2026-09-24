@@ -1,15 +1,14 @@
 using System;
 using System.Numerics;
+using AetherFrame.Domain.Basic;
 using AetherFrame.Domain.Profiles;
 using AetherFrame.Services;
-using AetherFrame.Services.Fonts;
-using AetherFrame.UI.Rendering;
 
 namespace AetherFrame.UI.Editor;
 
 /// <summary>
-/// The Basic editor's Identity Header: Character Name, Title, and optional Tagline — three
-/// separate role-tagged <see cref="TextProfileElement"/>s plus the profile's
+/// The Basic editor's Identity Header: Character Name and Title — two separate role-tagged
+/// <see cref="TextProfileElement"/>s plus the profile's
 /// <see cref="BasicIdentityHeader"/> settings (title source, curated layout, header region).
 ///
 /// <para><b>Binding, never resetting.</b> Role elements that already exist are always bound
@@ -21,70 +20,53 @@ namespace AetherFrame.UI.Editor;
 /// and style edits reflow the header (e.g. a longer title pushes an inline name along). Once any
 /// has been moved or resized elsewhere — the Advanced editor — the header is customized: Basic
 /// edits still change text and style, but placement changes only when the user explicitly picks
-/// a layout or presses Apply Layout.</para>
+/// a layout, presses Apply Layout, or resets.</para>
 ///
 /// <para><b>History.</b> Every action goes through <see cref="EditorSession.ApplyDocumentEdit"/>
 /// (discrete) or <see cref="EditorSession.BeginOrContinueDocumentEdit"/> (sliders, colors,
 /// typing: one entry per drag/typing run), so each is exactly one undo step no matter how many
 /// elements it touched, and dirty state/save/revert see it like any other edit.</para>
+///
+/// The pure rules (default styles, placement math, customization) live in
+/// <see cref="IdentityHeaderRules"/>; this class decides when they apply.
 /// </summary>
 internal sealed class BasicIdentitySession
 {
-    // Default header geometry and sizes are defined for the legacy 1920x1080 canvas and scaled to
-    // the actual canvas (the Adventure Plate default is 1280x720).
-    private const float ReferenceCanvasWidth = 1920f;
-    private const float ReferenceCanvasHeight = 1080f;
-    private static readonly Vector2 DefaultRegionPosition = new(740f, 80f);
-    private const float DefaultRegionWidth = 1120f;
-    private const float DefaultNameFontSize = 56f;
-    private const float DefaultTaglineFontSize = 22f;
-    private const float TitleSizeRatio = 0.5f;
-    private const float BadgeSizeRatio = 0.4f;
-    private const float BadgeLetterSpacingRatio = 0.05f;
-    private const float AutoFitMinimum = 10f;
-
-    internal const string AccentDecoration = "✦";
-
-    /// <summary>Curated decoration symbols (Unicode text; "" = none).</summary>
-    internal static readonly string[] DecorationSymbols = ["", "♥", "♡", "★", "☆", "✦", "✧", "◆", "◇", "•", "♪"];
-
-    internal static readonly Vector4 DefaultNameColor = new(0.96f, 0.96f, 0.97f, 1f);
-    internal static readonly Vector4 DefaultTitleColor = new(0.85f, 0.68f, 0.25f, 1f);
-    internal static readonly Vector4 DefaultTaglineColor = new(0.78f, 0.78f, 0.82f, 1f);
+    /// <summary>The decoration symbols offered for the title (all drawable by the Plate's fonts; "" = none).</summary>
+    internal static readonly string[] DecorationSymbols = IdentityHeaderRules.DecorationSymbols;
 
     private readonly ProfileService profileService;
     private readonly EditorSession editorSession;
-    private readonly CharacterIdentityService characterIdentity;
-    private readonly ProfileFontService fonts;
+    private readonly ICharacterInfoSource characterInfo;
+    private readonly IIdentityTextMeasurer measurer;
+    private readonly IGameTitleSource titles;
 
     // An inline layout was last computed with estimated widths because a font face wasn't built
     // yet; RefineLayout re-measures and folds the exact placement into that same undo entry.
     private bool refineNeeded;
 
     internal BasicIdentitySession(
-        ProfileService profileService, EditorSession editorSession, CharacterIdentityService characterIdentity, ProfileFontService fonts, GameTitleCatalog titles)
+        ProfileService profileService,
+        EditorSession editorSession,
+        ICharacterInfoSource characterInfo,
+        IIdentityTextMeasurer measurer,
+        IGameTitleSource titles)
     {
         this.profileService = profileService;
         this.editorSession = editorSession;
-        this.characterIdentity = characterIdentity;
-        this.fonts = fonts;
-        Titles = titles;
+        this.characterInfo = characterInfo;
+        this.measurer = measurer;
+        this.titles = titles;
     }
 
-    internal GameTitleCatalog Titles { get; }
-
-    internal string? CharacterName => characterIdentity.CurrentCharacterName;
+    internal string? CharacterName => characterInfo.CurrentInfo?.Name is { Length: > 0 } name ? name : null;
 
     // ---------------------------------------------------------------- read-only state
 
-    internal static TextProfileElement? Find(ProfileDocument profile, ProfileElementRole role) =>
-        profile.Elements.Find(e => e.Role == role) as TextProfileElement;
+    internal static TextProfileElement? Find(ProfileDocument profile, ProfileElementRole role) => IdentityHeaderRules.Find(profile, role);
 
-    /// <summary>True when none of the three identity elements exist yet (a fresh profile).</summary>
-    internal static bool HasNoHeader(ProfileDocument profile) =>
-        Find(profile, ProfileElementRole.BasicName) is null
-        && Find(profile, ProfileElementRole.BasicTitle) is null
-        && Find(profile, ProfileElementRole.BasicTagline) is null;
+    /// <summary>True when neither identity element (name, title) exists yet (a fresh profile).</summary>
+    internal static bool HasNoHeader(ProfileDocument profile) => IdentityHeaderRules.HasNoHeader(profile);
 
     /// <summary>
     /// The title source to show: the stored one, or — for a profile whose header predates these
@@ -117,25 +99,7 @@ internal sealed class BasicIdentitySession
     /// True when Basic mode isn't (or is no longer) managing the header's placement: it was never
     /// applied, or an element has since been moved/resized (e.g. in the Advanced editor).
     /// </summary>
-    internal static bool IsCustomized(ProfileDocument profile)
-    {
-        if (HasNoHeader(profile))
-        {
-            return false;
-        }
-
-        if (profile.BasicIdentity?.AppliedLayout is not { } applied)
-        {
-            return true;
-        }
-
-        return !Matches(Find(profile, ProfileElementRole.BasicName), applied.Name)
-            || !Matches(Find(profile, ProfileElementRole.BasicTitle), applied.Title)
-            || !Matches(Find(profile, ProfileElementRole.BasicTagline), applied.Tagline);
-
-        static bool Matches(TextProfileElement? element, ElementRect? rect) =>
-            element is null || (rect is { } r && r.Matches(element.Position, element.Size));
-    }
+    internal static bool IsCustomized(ProfileDocument profile) => IdentityHeaderRules.IsCustomized(profile);
 
     /// <summary>
     /// For an FFXIV title: true when the title element's text no longer matches the chosen game
@@ -143,7 +107,7 @@ internal sealed class BasicIdentitySession
     /// </summary>
     internal bool IsGameTitleTextEdited(ProfileDocument profile) =>
         profile.BasicIdentity is { TitleSource: IdentityTitleSource.GameTitle, GameTitleId: > 0 } identity
-        && Titles.Find(identity.GameTitleId) is { } title
+        && titles.Find(identity.GameTitleId) is { } title
         && Find(profile, ProfileElementRole.BasicTitle) is { } element
         && element.Text != title.Masculine && element.Text != title.Feminine;
 
@@ -151,7 +115,7 @@ internal sealed class BasicIdentitySession
 
     /// <summary>
     /// Creates the header for a profile that has none: the Character Name, filled from the
-    /// logged-in character, placed by the default layout. Title and Tagline are created later,
+    /// logged-in character, placed by the default layout. The title is created later,
     /// when first turned on. One undo step.
     /// </summary>
     internal void CreateHeader() => Edit(ctx =>
@@ -160,17 +124,13 @@ internal sealed class BasicIdentitySession
         ctx.RequestLayout(force: true);
     });
 
-    /// <summary>Explicitly (re)places the header with its current layout — the one way a customized header moves.</summary>
-    internal void ApplyLayout() => Edit(ctx => ctx.RequestLayout(force: true));
-
     /// <summary>
-    /// The explicit Reset Basic Layout: runs <paramref name="alsoReset"/> (the other Basic
-    /// elements) and, if a header exists, moves it back to the default region and re-places it —
-    /// all as one undo step.
+    /// Explicitly re-places the header in the Adventure Plate layout's header region (for the
+    /// current orientation) with its current title layout — the one way, besides a reset, that a
+    /// customized header moves. Style and content are kept.
     /// </summary>
-    internal void ResetLayout(Action<ProfileDocument> alsoReset) => Edit(ctx =>
+    internal void ApplyLayout() => Edit(ctx =>
     {
-        alsoReset(ctx.Profile);
         if (!HasNoHeader(ctx.Profile))
         {
             ctx.ResetRegion();
@@ -178,17 +138,63 @@ internal sealed class BasicIdentitySession
         }
     });
 
-    /// <summary>Chooses a curated layout: applies its title style defaults and places the header (explicit, so always).</summary>
+    /// <summary>
+    /// Reset Section: the header back to the Adventure Plate Classic defaults — the layout's
+    /// region, default typography and colors for each identity element — then placed with its
+    /// current title layout. Creates the name if missing; keeps every text, the title source and
+    /// layout choice, and visibility. One undo step.
+    /// </summary>
+    internal void ResetSection() => Edit(ctx =>
+    {
+        ctx.EnsureElement(ProfileElementRole.BasicName);
+
+        // The name first: the title follows its size and alignment. (A legacy tagline is Advanced
+        // content now, and is left exactly as it is.)
+        foreach (var role in (ReadOnlySpan<ProfileElementRole>)[ProfileElementRole.BasicName, ProfileElementRole.BasicTitle])
+        {
+            if (Find(ctx.Profile, role) is { } element)
+            {
+                IdentityHeaderRules.ApplyDefaultStyle(element, ctx.Profile);
+            }
+        }
+
+        ctx.ResetRegion();
+        ctx.RequestLayout(force: true);
+    });
+
+    /// <summary>
+    /// A plate-wide Basic layout action (Apply Layout, Reset Basic Layout, an orientation change)
+    /// as ONE undo step: <paramref name="plateEdit"/> on the sections, then — if a header exists —
+    /// the header moved to the layout's region for the resulting orientation and re-placed.
+    /// <paramref name="onlyIfManaged"/> leaves a customized header exactly where it is.
+    /// </summary>
+    internal void EditPlateLayout(Action<BasicPlateEditor> plateEdit, bool onlyIfManaged) => Edit(ctx =>
+    {
+        plateEdit(BasicEditorSession.CreatePlateEditor(profileService, ctx.Profile));
+        if (!HasNoHeader(ctx.Profile) && !(onlyIfManaged && ctx.WasCustomized))
+        {
+            ctx.ResetRegion();
+            ctx.RequestLayout(force: true);
+        }
+    });
+
+    /// <summary>
+    /// Chooses a curated layout and places the header (explicit, so always). The title swaps the
+    /// previous layout's look for this one's (see <see cref="IdentityHeaderRules.ChangeLayoutLook"/>);
+    /// its text, prefix, and suffix are never touched.
+    /// </summary>
     internal void SetLayout(IdentityTitleLayout layout) => Edit(ctx =>
     {
         var identity = ctx.Identity();
         var previous = identity.Layout;
         identity.Layout = layout;
 
-        if (Find(ctx.Profile, ProfileElementRole.BasicTitle) is { } title)
-        {
-            ApplyLayoutStyle(title, previous, layout, Find(ctx.Profile, ProfileElementRole.BasicName)?.FontSize ?? ctx.ScaledNameSize);
-        }
+        IdentityHeaderRules.ChangeLayoutLook(
+            identity,
+            Find(ctx.Profile, ProfileElementRole.BasicTitle),
+            previous,
+            layout,
+            Find(ctx.Profile, ProfileElementRole.BasicName)?.FontSize ?? IdentityHeaderRules.ScaledNameSize(ctx.Profile));
 
         ctx.RequestLayout(force: true);
     });
@@ -221,7 +227,7 @@ internal sealed class BasicIdentitySession
     /// <summary>Fills the name from the logged-in character (explicit; never done silently).</summary>
     internal void UseCharacterName()
     {
-        if (CharacterName is { Length: > 0 } characterName)
+        if (CharacterName is { } characterName)
         {
             Edit(ctx =>
             {
@@ -280,7 +286,7 @@ internal sealed class BasicIdentitySession
 
         var title = ctx.EnsureElement(ProfileElementRole.BasicTitle);
         title.Visible = true;
-        title.Text = gameTitle.GetText(GameTitleCatalog.UseFeminineForms);
+        title.Text = gameTitle.GetText(titles.FeminineForms);
         ctx.RequestLayout(force: false);
     });
 
@@ -310,21 +316,15 @@ internal sealed class BasicIdentitySession
         ctx.RequestLayout(force: false);
     });
 
-    // ---------------------------------------------------------------- tagline
-
-    internal void SetTaglineVisible(bool visible) => Edit(ctx =>
+    /// <summary>Removes both title decorations (one undo step). An explicit choice: nothing removes them on its own.</summary>
+    internal void ClearDecoration() => Edit(ctx =>
     {
-        ctx.EnsureElement(ProfileElementRole.BasicTagline).Visible = visible;
-        ctx.RequestLayout(force: false);
-    });
-
-    /// <summary>Live tagline typing; commit with <see cref="Commit"/>.</summary>
-    internal void SetTaglineText(string text) => EditContinuous(ctx =>
-    {
-        var tagline = ctx.EnsureElement(ProfileElementRole.BasicTagline);
-        tagline.Text = Limit(text.Replace('\n', ' '), BasicIdentityHeader.MaxTaglineLength);
-        tagline.Visible = true;
-        ctx.RequestLayout(force: false);
+        if (Find(ctx.Profile, ProfileElementRole.BasicTitle) is { } title)
+        {
+            title.Prefix = string.Empty;
+            title.Suffix = string.Empty;
+            ctx.RequestLayout(force: false);
+        }
     });
 
     // ---------------------------------------------------------------- styling (shared typography)
@@ -355,26 +355,6 @@ internal sealed class BasicIdentitySession
             Edit(Change);
         }
     }
-
-    /// <summary>
-    /// Populates the name/title/tagline colors from a shared theme preset (primary text, accent,
-    /// soft text). Only copies values: every color stays individually editable afterwards.
-    /// </summary>
-    internal void ApplyThemeColors(ProfileThemePreset preset) => Edit(ctx =>
-    {
-        SetColor(Find(ctx.Profile, ProfileElementRole.BasicName), preset.TextColor);
-        SetColor(Find(ctx.Profile, ProfileElementRole.BasicTitle), preset.AccentTextColor);
-        SetColor(Find(ctx.Profile, ProfileElementRole.BasicTagline), preset.SoftTextColor);
-
-        // Opacity (the color's alpha) is kept; only the hue changes.
-        static void SetColor(TextProfileElement? element, Vector4 color)
-        {
-            if (element is not null)
-            {
-                element.Color = color with { W = element.Color.W };
-            }
-        }
-    });
 
     /// <summary>Ends the current continuous (slider/color/typing) edit, recording its single undo step.</summary>
     internal void Commit() => editorSession.CommitPendingDocumentEdit();
@@ -432,13 +412,13 @@ internal sealed class BasicIdentitySession
     }
 
     private string? ResolveGameTitleText(uint titleId) =>
-        titleId > 0 && Titles.Find(titleId) is { } title ? title.GetText(GameTitleCatalog.UseFeminineForms) : null;
+        titleId > 0 && titles.Find(titleId) is { } title ? title.GetText(titles.FeminineForms) : null;
 
     private bool TryMeasureAll(ProfileDocument profile)
     {
         foreach (var role in (ReadOnlySpan<ProfileElementRole>)[ProfileElementRole.BasicName, ProfileElementRole.BasicTitle])
         {
-            if (Find(profile, role) is { } element && !ProfileTextRenderer.TryMeasureNaturalWidth(element, fonts, out _))
+            if (Find(profile, role) is { } element && !measurer.TryMeasureNaturalWidth(element, out _))
             {
                 return false;
             }
@@ -446,43 +426,6 @@ internal sealed class BasicIdentitySession
 
         return true;
     }
-
-    /// <summary>
-    /// Style defaults that define the Badge and Accent looks, applied only on entering/leaving
-    /// those layouts (so switching between the plain layouts never disturbs the user's styling).
-    /// </summary>
-    private static void ApplyLayoutStyle(TextProfileElement title, IdentityTitleLayout previous, IdentityTitleLayout next, float nameSize)
-    {
-        if (next == IdentityTitleLayout.Badge && previous != IdentityTitleLayout.Badge)
-        {
-            title.FontSize = ClampFont(nameSize * BadgeSizeRatio);
-            title.Bold = true;
-            title.LetterSpacing = MathF.Round(Math.Max(1.5f, nameSize * BadgeLetterSpacingRatio), 1);
-        }
-        else if (previous == IdentityTitleLayout.Badge && next != IdentityTitleLayout.Badge)
-        {
-            title.FontSize = ClampFont(nameSize * TitleSizeRatio);
-            title.Bold = false;
-            title.LetterSpacing = 0f;
-        }
-
-        if (next == IdentityTitleLayout.Accent && previous != IdentityTitleLayout.Accent)
-        {
-            title.Italic = true;
-            if (title.Prefix.Length == 0 && title.Suffix.Length == 0)
-            {
-                title.Prefix = AccentDecoration;
-                title.Suffix = AccentDecoration;
-            }
-        }
-        else if (previous == IdentityTitleLayout.Accent && next != IdentityTitleLayout.Accent)
-        {
-            title.Italic = false;
-        }
-    }
-
-    private static float ClampFont(float size) =>
-        Math.Clamp(MathF.Round(size), TextProfileElement.MinFontSize, TextProfileElement.MaxFontSize);
 
     private static string Limit(string? text, int maxLength)
     {
@@ -497,7 +440,6 @@ internal sealed class BasicIdentitySession
     private sealed class EditContext
     {
         private readonly BasicIdentitySession owner;
-        private readonly bool wasCustomized;
         private readonly bool hadNoHeader;
         private bool layoutRequested;
         private bool forceLayout;
@@ -509,15 +451,14 @@ internal sealed class BasicIdentitySession
             Profile = profile;
 
             // Judged BEFORE this edit touches anything, so its own changes can't read as customization.
-            wasCustomized = IsCustomized(profile);
+            WasCustomized = IsCustomized(profile);
             hadNoHeader = HasNoHeader(profile);
         }
 
         internal ProfileDocument Profile { get; }
 
-        private float CanvasScale => Profile.CanvasHeight / ReferenceCanvasHeight;
-
-        internal float ScaledNameSize => ClampFont(DefaultNameFontSize * CanvasScale);
+        /// <summary>Whether the header was customized when this edit began.</summary>
+        internal bool WasCustomized { get; }
 
         internal BasicIdentityHeader Identity()
         {
@@ -525,13 +466,11 @@ internal sealed class BasicIdentitySession
             return Profile.BasicIdentity!;
         }
 
-        /// <summary>Moves the header region back to the default (scaled to the canvas).</summary>
+        /// <summary>Moves the header region to the Adventure Plate layout's (for the current orientation).</summary>
         internal void ResetRegion()
         {
             var identity = Identity();
-            var scaleX = Profile.CanvasWidth / ReferenceCanvasWidth;
-            identity.RegionPosition = DefaultRegionPosition * new Vector2(scaleX, CanvasScale);
-            identity.RegionWidth = DefaultRegionWidth * scaleX;
+            (identity.RegionPosition, identity.RegionWidth) = IdentityHeaderRules.DefaultRegion(Profile);
         }
 
         internal void RequestLayout(bool force)
@@ -549,37 +488,7 @@ internal sealed class BasicIdentitySession
             }
 
             Identity();
-
-            var nameSize = Find(Profile, ProfileElementRole.BasicName)?.FontSize ?? ScaledNameSize;
-            var element = new TextProfileElement
-            {
-                Role = role,
-                FontFamily = ProfileFontFamilies.AetherFrameSans,
-                Wrap = false,
-                AutoFitText = true,
-                AutoFitMinimumSize = AutoFitMinimum,
-                Alignment = Find(Profile, ProfileElementRole.BasicName)?.Alignment ?? TextAlignment.Left,
-            };
-
-            switch (role)
-            {
-                case ProfileElementRole.BasicName:
-                    element.Text = owner.CharacterName ?? string.Empty;
-                    element.FontSize = nameSize;
-                    element.Color = DefaultNameColor;
-                    break;
-                case ProfileElementRole.BasicTitle:
-                    var layout = Profile.BasicIdentity!.Layout;
-                    element.FontSize = ClampFont(nameSize * (layout == IdentityTitleLayout.Badge ? BadgeSizeRatio : TitleSizeRatio));
-                    element.Color = DefaultTitleColor;
-                    ApplyLayoutStyle(element, IdentityTitleLayout.Subtitle, layout, nameSize);
-                    break;
-                default:
-                    element.FontSize = ClampFont(DefaultTaglineFontSize * CanvasScale);
-                    element.Color = DefaultTaglineColor;
-                    element.Italic = true;
-                    break;
-            }
+            var element = IdentityHeaderRules.Create(role, Profile, owner.CharacterName);
 
             // A reasonable spot for a piece added to a header Basic isn't managing (customized or
             // from an earlier version): just below the existing identity elements, without moving
@@ -600,73 +509,16 @@ internal sealed class BasicIdentitySession
 
             // Placement rules: explicit layout actions always place; a brand-new header gets its
             // first placement; a Basic-managed header reflows; a customized one never moves.
-            var place = forceLayout || hadNoHeader || (!wasCustomized && Profile.BasicIdentity?.AppliedLayout is not null);
-            if (place)
+            var place = forceLayout || hadNoHeader || (!WasCustomized && Profile.BasicIdentity?.AppliedLayout is not null);
+            if (place && !HasNoHeader(Profile))
             {
-                ApplyLayout();
-            }
-        }
-
-        private void ApplyLayout()
-        {
-            var identity = Identity();
-            var name = Find(Profile, ProfileElementRole.BasicName);
-            var title = Find(Profile, ProfileElementRole.BasicTitle);
-            var tagline = Find(Profile, ProfileElementRole.BasicTagline);
-
-            var inline = identity.Layout is IdentityTitleLayout.InlineBefore or IdentityTitleLayout.InlineAfter;
-            var result = IdentityHeaderLayout.Compute(
-                identity.Layout,
-                identity.RegionPosition,
-                identity.RegionWidth,
-                name?.Alignment ?? TextAlignment.Left,
-                LineFor(name, inline, reserveWhenEmpty: true),
-                LineFor(title, inline, reserveWhenEmpty: false),
-                LineFor(tagline, inline: false, reserveWhenEmpty: false));
-
-            Assign(name, result.Name);
-            Assign(title, result.Title);
-            Assign(tagline, result.Tagline);
-
-            identity.AppliedLayout = new IdentityLayoutSnapshot { Name = result.Name, Title = result.Title, Tagline = result.Tagline };
-        }
-
-        /// <param name="reserveWhenEmpty">
-        /// False for the title and tagline: with no text yet (e.g. FFXIV Title chosen but no title
-        /// picked) they draw nothing in the finished profile, so they take no space either — only
-        /// their editor placeholder shows where they'll go.
-        /// </param>
-        private IdentityHeaderLayout.Line LineFor(TextProfileElement? element, bool inline, bool reserveWhenEmpty)
-        {
-            if (element is null)
-            {
-                return default;
-            }
-
-            var takesSpace = element.Visible && (reserveWhenEmpty || element.Text.Length > 0);
-
-            var width = 0f;
-            if (inline && !ProfileTextRenderer.TryMeasureNaturalWidth(element, owner.fonts, out width))
-            {
-                // Font not built yet: estimate now, re-measure once it is (RefineLayout).
-                width = element.GetDisplayText().Length * element.FontSize * 0.5f;
-                owner.refineNeeded = true;
-            }
-
-            return new IdentityHeaderLayout.Line(true, takesSpace, element.FontSize, width);
-        }
-
-        private static void Assign(TextProfileElement? element, ElementRect? rect)
-        {
-            if (element is not null && rect is { } r)
-            {
-                element.Position = r.Position;
-                element.Size = r.Size;
-
-                // Placed by Basic (an explicit Identity action), so it uses the current text
-                // layout the placement math assumes (canvas-unit padding, auto fit) — an element
-                // from an earlier version is only ever upgraded here, never on load.
-                element.LayoutVersion = TextProfileElement.CurrentLayoutVersion;
+                Identity();
+                var exact = IdentityHeaderRules.Place(Profile, element => owner.measurer.TryMeasureNaturalWidth(element, out var width) ? width : null);
+                if (!exact)
+                {
+                    // Font not built yet: estimated now, re-measured once it is (RefineLayout).
+                    owner.refineNeeded = true;
+                }
             }
         }
 
@@ -677,7 +529,7 @@ internal sealed class BasicIdentitySession
             var width = identity.RegionWidth;
             var y = identity.RegionPosition.Y;
 
-            foreach (var role in (ReadOnlySpan<ProfileElementRole>)[ProfileElementRole.BasicName, ProfileElementRole.BasicTitle, ProfileElementRole.BasicTagline])
+            foreach (var role in (ReadOnlySpan<ProfileElementRole>)[ProfileElementRole.BasicName, ProfileElementRole.BasicTitle])
             {
                 if (Find(Profile, role) is { } other)
                 {
@@ -693,22 +545,16 @@ internal sealed class BasicIdentitySession
 
         /// <summary>
         /// New settings: the header region follows an existing name element if there is one (so
-        /// nothing jumps), otherwise the default region scaled to the canvas.
+        /// nothing jumps), otherwise the Adventure Plate layout's region.
         /// </summary>
         private BasicIdentityHeader CreateIdentity()
         {
-            var scaleX = Profile.CanvasWidth / ReferenceCanvasWidth;
-            var identity = new BasicIdentityHeader
-            {
-                Layout = IdentityTitleLayout.Subtitle,
-                RegionPosition = DefaultRegionPosition * new Vector2(scaleX, CanvasScale),
-                RegionWidth = DefaultRegionWidth * scaleX,
-            };
+            var identity = IdentityHeaderRules.CreateSettings(Profile);
 
             // Legacy header: bind to where it already is, and keep its existing title visible.
             var existingName = Find(Profile, ProfileElementRole.BasicName);
             var existingTitle = Find(Profile, ProfileElementRole.BasicTitle);
-            var anchor = existingName ?? existingTitle ?? Find(Profile, ProfileElementRole.BasicTagline);
+            var anchor = existingName ?? existingTitle;
             if (anchor is not null)
             {
                 identity.RegionPosition = anchor.Position;

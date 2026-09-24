@@ -69,10 +69,18 @@ public sealed class ProfileBackground
     /// <summary>True when this style would actually draw an image (Image mode with an asset set).</summary>
     public bool HasImage => Mode == ProfileBackgroundMode.Image && ImageAssetId is not null;
 
-    /// <summary>True for texture kinds where rotating the pattern is visually meaningful.</summary>
+    /// <summary>True for texture kinds where rotating the pattern is visually meaningful. Isotropic
+    /// patterns (noise, or radially symmetric ones like Ripples) look the same at every rotation, so
+    /// they're left out — there'd be nothing for the slider to do.</summary>
     public static bool SupportsRotation(ProfileBackgroundTexture texture) =>
         texture is ProfileBackgroundTexture.Dots or ProfileBackgroundTexture.Grid
-            or ProfileBackgroundTexture.DiagonalLines or ProfileBackgroundTexture.Crosshatch;
+            or ProfileBackgroundTexture.DiagonalLines or ProfileBackgroundTexture.Crosshatch
+            or ProfileBackgroundTexture.Checkerboard or ProfileBackgroundTexture.Stripes
+            or ProfileBackgroundTexture.Waves or ProfileBackgroundTexture.Herringbone
+            or ProfileBackgroundTexture.Honeycomb or ProfileBackgroundTexture.Scales
+            or ProfileBackgroundTexture.Diamonds or ProfileBackgroundTexture.Chevron
+            or ProfileBackgroundTexture.Sparkle or ProfileBackgroundTexture.Linen
+            or ProfileBackgroundTexture.Quatrefoil or ProfileBackgroundTexture.Brick;
 
     public ProfileBackground Clone() => new()
     {
@@ -149,4 +157,27 @@ public enum ProfileBackgroundTexture
     DiagonalLines = 4,
     Crosshatch = 5,
     SubtlePaper = 6,
+    Checkerboard = 7,
+    Stripes = 8,
+    Waves = 9,
+    Herringbone = 10,
+    Honeycomb = 11,
+    Scales = 12,
+    Speckle = 13,
+    Diamonds = 14,
+    Chevron = 15,
+    Sparkle = 16,
+
+    /// <summary>
+    /// A simple woven-fabric look (alternating horizontal/vertical thread dominance, no diagonals).
+    /// This numeric slot originally shipped in this uncommitted development state as "Basketweave",
+    /// a diagonal-brick weave later found to be able to read as resembling extremist symbolism at
+    /// Plate scale — replaced outright (not tweaked) before it was ever committed. Nothing persisted
+    /// depended on the old display name, only this numeric value, which is unchanged.
+    /// </summary>
+    Linen = 17,
+
+    Ripples = 18,
+    Quatrefoil = 19,
+    Brick = 20,
 }

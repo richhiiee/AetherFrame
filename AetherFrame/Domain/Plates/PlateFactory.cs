@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using AetherFrame.Domain.Basic;
 using AetherFrame.Domain.Profiles;
 
 namespace AetherFrame.Domain.Plates;
@@ -15,6 +16,10 @@ public enum PlateStartingLayout
     Blank,
 }
 
+/// <summary>What a newly created Plate starts with, beyond its layout's bare document.</summary>
+/// <param name="Character">The logged-in character's current details, or null when none is loaded.</param>
+public sealed record PlateStarterContent(BasicCharacterInfo? Character);
+
 public static class PlateFactory
 {
     public static string DefaultNameFor(PlateStartingLayout layout) => layout switch
@@ -25,6 +30,23 @@ public static class PlateFactory
 
     /// <summary>Whether a new Plate from this layout opens in the Basic Editor (else Advanced).</summary>
     public static bool OpensInBasicEditor(PlateStartingLayout layout) => layout == PlateStartingLayout.AdventurePlateClassic;
+
+    /// <summary>
+    /// <see cref="Create(PlateStartingLayout, Guid, string, DateTime)"/> plus the layout's starter
+    /// content: an Adventure Plate Classic given <paramref name="starter"/> starts with its Identity
+    /// Header and every section in place, filled from the character where known (see
+    /// <see cref="AdventurePlateStarter"/>). Null — or any other layout — gives the bare document.
+    /// </summary>
+    public static ProfileDocument Create(PlateStartingLayout layout, Guid plateId, string name, DateTime nowUtc, PlateStarterContent? starter)
+    {
+        var document = Create(layout, plateId, name, nowUtc);
+        if (layout == PlateStartingLayout.AdventurePlateClassic && starter is not null)
+        {
+            AdventurePlateStarter.Populate(document, starter.Character);
+        }
+
+        return document;
+    }
 
     /// <summary>
     /// A complete, valid document ready to save: current schema version, the Adventure Plate

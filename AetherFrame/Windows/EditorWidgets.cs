@@ -143,24 +143,6 @@ internal static class EditorWidgets
         return clicked;
     }
 
-    /// <summary>A clickable two-color (left to right) swatch for a theme preset.</summary>
-    internal static bool GradientSwatch(string id, Vector4 left, Vector4 right, Vector2 size, string? tooltip = null)
-    {
-        var clicked = ImGui.InvisibleButton(id, size);
-        var min = ImGui.GetItemRectMin();
-        var max = ImGui.GetItemRectMax();
-        var drawList = ImGui.GetWindowDrawList();
-
-        var l = ImGui.GetColorU32(left with { W = 1f });
-        var r = ImGui.GetColorU32(right with { W = 1f });
-        drawList.AddRectFilledMultiColor(min, max, l, r, r, l);
-
-        var border = ImGui.IsItemHovered() ? AccentColor : new Vector4(1f, 1f, 1f, 0.25f);
-        drawList.AddRect(min, max, ImGui.GetColorU32(border), 3f, ImDrawFlags.None, ImGui.IsItemHovered() ? 2f : 1f);
-
-        Tooltip(tooltip);
-        return clicked;
-    }
 
     internal static void Tooltip(string? text)
     {

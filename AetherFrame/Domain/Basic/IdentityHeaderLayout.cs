@@ -2,14 +2,16 @@ using System;
 using System.Numerics;
 using AetherFrame.Domain.Profiles;
 
-namespace AetherFrame.UI.Editor;
+namespace AetherFrame.Domain.Basic;
 
 /// <summary>
 /// Computes where the Identity Header's elements go for a curated <see cref="IdentityTitleLayout"/>:
 /// pure geometry (no ImGui, no profile mutation), from the header region, each element's font
 /// size, and — for the one-line layouts — each element's measured text width.
 ///
-/// It only ever positions and sizes the three separate elements; it never composes their text.
+/// The header is the Character Name and the Title (the Tagline is no longer part of Basic mode;
+/// an older Plate's tagline is ordinary Advanced content and is never placed here). It only ever
+/// positions and sizes those two separate elements; it never composes their text.
 /// Stacked layouts give every line the full region width (each element's own alignment then
 /// places its text); inline layouts size each box to its text and place them side by side,
 /// aligned as a group by the name's alignment, with their baselines lined up.
@@ -23,9 +25,10 @@ internal static class IdentityHeaderLayout
     private const float LineHeightRatio = 1.2f;
     private const float BaselineRatio = 0.8f;
 
-    // Vertical gap between stacked lines, and the visible gap between inline title and name,
-    // both relative to the name's size.
-    private const float LineGapRatio = 0.08f;
+    // Vertical gap between the stacked name and title (enough air that the title reads as its own
+    // line under the bold name), and the visible gap between an inline title and name, both
+    // relative to the larger font size.
+    private const float LineGapRatio = 0.2f;
     private const float InlineGapRatio = 0.3f;
 
     // A little extra width on measured inline boxes so rounding can never clip the last glyph.
@@ -38,28 +41,26 @@ internal static class IdentityHeaderLayout
     /// <param name="TextWidth">Natural text width (needed only by the inline layouts).</param>
     internal readonly record struct Line(bool Exists, bool Visible, float FontSize, float TextWidth);
 
-    internal readonly record struct Result(ElementRect? Name, ElementRect? Title, ElementRect? Tagline);
+    internal readonly record struct Result(ElementRect? Name, ElementRect? Title);
 
     internal static float BoxHeight(float fontSize) => MathF.Ceiling((fontSize * LineHeightRatio) + (2f * Padding));
 
     internal static Result Compute(
-        IdentityTitleLayout layout, Vector2 regionPosition, float regionWidth, TextAlignment groupAlignment, Line name, Line title, Line tagline)
+        IdentityTitleLayout layout, Vector2 regionPosition, float regionWidth, TextAlignment groupAlignment, Line name, Line title)
     {
         regionWidth = Math.Max(1f, regionWidth);
         var gap = MathF.Round(Math.Max(name.FontSize, title.FontSize) * LineGapRatio);
 
         ElementRect? nameRect = null, titleRect = null;
-        float y;
 
         if (layout is IdentityTitleLayout.InlineBefore or IdentityTitleLayout.InlineAfter)
         {
-            (nameRect, titleRect, y) = ComputeInline(layout, regionPosition, regionWidth, groupAlignment, name, title);
-            y += gap;
+            (nameRect, titleRect) = ComputeInline(layout, regionPosition, regionWidth, groupAlignment, name, title);
         }
         else
         {
             // Classic puts the title above the name; every other stacked layout puts it below.
-            y = regionPosition.Y;
+            var y = regionPosition.Y;
             if (layout == IdentityTitleLayout.Classic)
             {
                 titleRect = Stack(title, regionPosition.X, regionWidth, gap, ref y);
@@ -72,8 +73,7 @@ internal static class IdentityHeaderLayout
             }
         }
 
-        var taglineRect = Stack(tagline, regionPosition.X, regionWidth, gap, ref y);
-        return new Result(nameRect, titleRect, taglineRect);
+        return new Result(nameRect, titleRect);
     }
 
     private static ElementRect? Stack(Line line, float x, float width, float gap, ref float y)
@@ -93,7 +93,7 @@ internal static class IdentityHeaderLayout
         return rect;
     }
 
-    private static (ElementRect? Name, ElementRect? Title, float Bottom) ComputeInline(
+    private static (ElementRect? Name, ElementRect? Title) ComputeInline(
         IdentityTitleLayout layout, Vector2 region, float regionWidth, TextAlignment groupAlignment, Line name, Line title)
     {
         var showTitle = title.Exists && title.Visible;
@@ -129,7 +129,6 @@ internal static class IdentityHeaderLayout
 
         var titleFirst = layout == IdentityTitleLayout.InlineBefore;
         ElementRect? nameRect = null, titleRect = null;
-        var bottom = region.Y;
 
         void Place(bool isTitle)
         {
@@ -153,12 +152,11 @@ internal static class IdentityHeaderLayout
             if (line.Visible)
             {
                 x += width + boxGap;
-                bottom = Math.Max(bottom, rect.Position.Y + rect.Size.Y);
             }
         }
 
         Place(isTitle: titleFirst);
         Place(isTitle: !titleFirst);
-        return (nameRect, titleRect, bottom);
+        return (nameRect, titleRect);
     }
 }

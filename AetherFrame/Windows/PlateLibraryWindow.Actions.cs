@@ -326,7 +326,7 @@ internal sealed partial class PlateLibraryWindow
         ImGui.Spacing();
 
         DrawLayoutChoice(PlateStartingLayout.AdventurePlateClassic, "Adventure Plate Classic",
-            "The Adventure Plate canvas with a theme background.\nOpens in the Basic Editor.");
+            "A ready-to-fill Adventure Plate with every section in place, filled from\nyour character where the game provides it. Opens in the Basic Editor.");
         DrawLayoutChoice(PlateStartingLayout.Blank, "Blank Plate",
             "An empty Adventure Plate canvas.\nOpens in the Advanced Editor.");
 
@@ -342,7 +342,9 @@ internal sealed partial class PlateLibraryWindow
             if (ImGui.Button("Create", new Vector2(110f, 0f)))
             {
                 var layout = createLayout;
-                RunOperation<PlateCreationResult>("create the Plate", () => library.CreatePlateAsync(layout, character), result =>
+                // Read now, on the draw thread: the character details the new Plate starts with.
+                var starter = new PlateStarterContent(characterIdentity.CurrentInfo);
+                RunOperation<PlateCreationResult>("create the Plate", () => library.CreatePlateAsync(layout, character, starter: starter), result =>
                 {
                     selectedPlateId = result.PlateId;
                     searchText = string.Empty;

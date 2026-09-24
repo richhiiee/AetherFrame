@@ -1,5 +1,6 @@
 using System;
 using AetherFrame.Services.Caching;
+using AetherFrame.UI.Editor;
 using Dalamud.Interface.Textures;
 using Dalamud.Interface.Textures.TextureWraps;
 
@@ -20,7 +21,7 @@ namespace AetherFrame.Services;
 /// Plate can show (a Plate holds at most 256 elements, and in practice a handful of images), yet
 /// small enough that previewing many Plates in the Plate Viewer can't grow it without limit.</para>
 /// </summary>
-internal sealed class ImageTextureCache
+internal sealed class ImageTextureCache : IEditorImageInfo
 {
     internal const int MaxCachedAssets = 256;
 
@@ -112,6 +113,10 @@ internal sealed class ImageTextureCache
         loggedFailures.Clear();
         headerSizes.Clear();
     }
+
+    (int Width, int Height)? IEditorImageInfo.GetNativeSize(Guid assetId) => GetNativeSize(assetId);
+
+    void IEditorImageInfo.Clear() => Clear();
 
     private void LogFailureOnce(Guid assetId, string reason)
     {

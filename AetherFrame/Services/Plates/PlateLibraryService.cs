@@ -497,8 +497,11 @@ internal sealed class PlateLibraryService
     /// Creates and saves a new Plate first in the Library. With a character, the Plate is
     /// associated with it — and becomes its Active Plate only if the character had no Plates yet.
     /// Without one, the Plate stays unbound.
+    /// <paramref name="starter"/> is the layout's starter content (see <see cref="PlateFactory"/>); null
+    /// creates the bare document.
     /// </summary>
-    internal Task<PlateCreationResult> CreatePlateAsync(PlateStartingLayout layout, CharacterContext? character, string? name = null) =>
+    internal Task<PlateCreationResult> CreatePlateAsync(
+        PlateStartingLayout layout, CharacterContext? character, string? name = null, PlateStarterContent? starter = null) =>
         RunExclusiveAsync(async () =>
         {
             RequireLoaded();
@@ -511,7 +514,7 @@ internal sealed class PlateLibraryService
                 plateName = ResolveNewName(name, PlateFactory.DefaultNameFor(layout));
             }
 
-            var document = PlateFactory.Create(layout, plateId, plateName, now);
+            var document = PlateFactory.Create(layout, plateId, plateName, now, starter);
             var raw = PlateDocuments.ToJson(document);
             await WritePlateAsync(plateId, raw).ConfigureAwait(false);
 

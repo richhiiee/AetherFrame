@@ -31,7 +31,12 @@
     <Compile Include="..\AetherFrame\Services\AssetStorageService.cs" Link="Linked\Services\AssetStorageService.cs" />
     <Compile Include="..\AetherFrame\Services\ImageDimensionReader.cs" Link="Linked\Services\ImageDimensionReader.cs" />
     <Compile Include="..\AetherFrame\Services\ProfileService.cs" Link="Linked\Services\ProfileService.cs" />
-    <Compile Include="..\AetherFrame\UI\Editor\EditorSurfaceCoordinator.cs" Link="Linked\UI\Editor\EditorSurfaceCoordinator.cs" />
+    <Compile Include="..\AetherFrame\Services\CharacterInfoCache.cs" Link="Linked\Services\CharacterInfoCache.cs" />
+    <!-- The editor sessions (history, dirty state, Basic mode) reach the game and the renderer only
+         through the narrow interfaces in UI/Editor/EditorServices.cs, so they build here too. -->
+    <Compile Include="..\AetherFrame\UI\Editor\*.cs" Link="Linked\UI\Editor\%(Filename)%(Extension)" />
+    <Compile Include="..\AetherFrame\UI\Rendering\ProfileRenderOptions.cs" Link="Linked\UI\Rendering\ProfileRenderOptions.cs" />
+    <Compile Include="..\AetherFrame\UI\Rendering\ProfilePaintOrder.cs" Link="Linked\UI\Rendering\ProfilePaintOrder.cs" />
   </ItemGroup>
 
   <ItemGroup>

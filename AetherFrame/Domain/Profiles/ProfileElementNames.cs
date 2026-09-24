@@ -36,6 +36,18 @@ public static class ProfileElementNames
         ProfileElementRole.BasicTitle => "Title",
         ProfileElementRole.BasicMessage => "Message",
         ProfileElementRole.BasicTagline => "Tagline",
+        ProfileElementRole.BasicWorld => "Home World",
+        ProfileElementRole.BasicWorldHeading => "Home World Heading",
+        ProfileElementRole.BasicJob => "Favorite Job",
+        ProfileElementRole.BasicJobHeading => "Favorite Job Heading",
+        ProfileElementRole.BasicLevel => "Level",
+        ProfileElementRole.BasicFreeCompany => "Free Company",
+        ProfileElementRole.BasicFreeCompanyHeading => "Free Company Heading",
+        ProfileElementRole.BasicPlaystyle => "Playstyle",
+        ProfileElementRole.BasicPlaystyleHeading => "Playstyle Heading",
+        ProfileElementRole.BasicActiveHours => "Active Hours",
+        ProfileElementRole.BasicActiveHoursHeading => "Active Hours Heading",
+        ProfileElementRole.BasicMessageHeading => "Message Heading",
         _ => null,
     };
 

@@ -1,0 +1,569 @@
+using System;
+using System.Linq;
+using System.Numerics;
+using AetherFrame.Domain.Profiles;
+using AetherFrame.Domain.Rendering;
+using AetherFrame.UI.Editor;
+using AetherFrame.UI.Rendering;
+using Dalamud.Bindings.ImGui;
+using Dalamud.Interface;
+using Dalamud.Interface.Utility.Raii;
+
+namespace AetherFrame.Windows;
+
+/// <summary>
+/// Controls for the shared <see cref="ProfileBackground"/> — mode, theme presets, colors,
+/// gradient, texture, image, and opacity — used by both the Advanced editor's Canvas tab and the
+/// Basic editor, so there is one background editor, not two. Every mode's settings are kept while
+/// switching modes; every edit goes through <see cref="EditorSession"/> (sliders and colors are
+/// one undo step per drag).
+/// </summary>
+internal sealed class BackgroundStylePanel
+{
+    private static readonly string[] BackgroundModeLabels = ["None", "Solid Color", "Linear Gradient", "Textured Fill", "Image"];
+    private static readonly string[] TextureLabels =
+    [
+        "None", "Fine Noise", "Dots", "Grid", "Diagonal Lines", "Crosshatch", "Subtle Paper",
+        "Checkerboard", "Stripes", "Waves", "Herringbone", "Honeycomb", "Scales", "Speckle",
+        "Diamonds", "Chevron", "Sparkle", "Linen", "Ripples", "Quatrefoil", "Brick",
+    ];
+    private static readonly string[] ImageFitLabels = ["Fit", "Fill", "Stretch"];
+    private static readonly ProfileImageFit[] ImageFitOrder = [ProfileImageFit.Fit, ProfileImageFit.Fill, ProfileImageFit.Stretch];
+
+    private readonly EditorSession editorSession;
+    private readonly ProfileRenderResources renderResources;
+    private readonly Action<string, Action<string>> openImageFileDialog;
+
+    /// <param name="editorSession">The shared editing session.</param>
+    /// <param name="renderResources">For the background image's native size.</param>
+    /// <param name="openImageFileDialog">Opens the owning window's image picker (title, on-selected).</param>
+    internal BackgroundStylePanel(EditorSession editorSession, ProfileRenderResources renderResources, Action<string, Action<string>> openImageFileDialog)
+    {
+        this.editorSession = editorSession;
+        this.renderResources = renderResources;
+        this.openImageFileDialog = openImageFileDialog;
+    }
+
+    /// <summary>
+    /// Draws the controls. <paramref name="applyTheme"/> is what a theme swatch does (the Advanced
+    /// editor recolors the background); the theme row is left out in Image mode (where a background
+    /// preset would replace the image), or entirely when null — the Basic editor draws its own
+    /// theme row (<see cref="DrawThemePresets"/>) first.
+    /// </summary>
+    internal void Draw(ProfileDocument profile, Action<ProfileThemePreset>? applyTheme)
+    {
+        if (profile.Background is not { } background)
+        {
+            EditorWidgets.Hint("Background unavailable.");
+            return;
+        }
+
+        var modeIndex = (int)background.Mode;
+        EditorWidgets.PropertyLabel("Mode");
+        if (ImGui.Combo("##BackgroundMode", ref modeIndex, BackgroundModeLabels, BackgroundModeLabels.Length))
+        {
+            var newMode = (ProfileBackgroundMode)modeIndex;
+            editorSession.ApplyBackgroundEdit(style => style.Mode = newMode);
+        }
+
+        if (applyTheme is not null && background.Mode != ProfileBackgroundMode.Image)
+        {
+            DrawThemePresets(profile, applyTheme);
+        }
+
+        switch (background.Mode)
+        {
+            case ProfileBackgroundMode.None:
+                EditorWidgets.Hint("No background. Choose a mode or a theme.");
+                return;
+
+            case ProfileBackgroundMode.SolidColor:
+                DrawBackgroundColor("Color", "##BgPrimary", background.PrimaryColor, primary: true);
+                DrawSolidSwatches();
+                break;
+
+            case ProfileBackgroundMode.LinearGradient:
+                DrawGradientControls(background);
+                break;
+
+            case ProfileBackgroundMode.TexturedFill:
+                DrawTextureControls(background);
+                break;
+
+            case ProfileBackgroundMode.Image:
+                DrawBackgroundImageControls(background);
+                break;
+        }
+
+        ImGui.Spacing();
+        var opacity = background.Opacity * 100f;
+        EditorWidgets.PropertyLabel("Opacity");
+        if (ImGui.SliderFloat("##BgOpacity", ref opacity, 0f, 100f, "%.0f%%"))
+        {
+            var value = opacity / 100f;
+            editorSession.BeginOrContinueBackgroundEdit(style => style.Opacity = value);
+        }
+
+        CommitBackgroundOnRelease();
+    }
+
+    private const float ThemeCardWidth = 118f;
+    private const float ThemeCardPadding = 6f;
+    private const float PatternCardSize = 68f;
+
+    private static readonly Vector4 CardColor = new(1f, 1f, 1f, 0.04f);
+    private static readonly Vector4 CardHoverColor = new(1f, 1f, 1f, 0.08f);
+    private static readonly Vector4 CardBorderColor = new(1f, 1f, 1f, 0.15f);
+
+    /// <summary>
+    /// Truthful preview cards grouped into <see cref="ThemeFamily"/> sections (Classic, Pastel,
+    /// Vibrant, Gradient, Special) rather than one long undifferentiated grid. The current theme is
+    /// always named in a summary line above every section, and its own card carries an accent
+    /// border — both stay visible/legible even while its family is collapsed or scrolled away. Each
+    /// card shows exactly what the profile's own background would become if applied (colors,
+    /// gradient angle, and any texture the theme sets — an image background keeps showing its image,
+    /// same as <see cref="BasicPlateEditor.ApplyTheme"/>), plus sample Name/Title text in the
+    /// theme's own colors. Applying one only copies values — everything stays editable.
+    /// </summary>
+    internal void DrawThemePresets(ProfileDocument profile, Action<ProfileThemePreset> applyTheme)
+    {
+        EditorWidgets.PropertyLabel("Theme", 0f);
+
+        var current = ProfileThemePresets.Find(profile.BasicPlate?.ThemeId);
+        ImGui.TextDisabled(current is { } selected ? $"Current: {selected.Name} ({selected.Family})" : "Current: none chosen yet");
+
+        foreach (var family in ProfileThemePresets.FamilyOrder)
+        {
+            var members = ProfileThemePresets.All.Where(p => p.Family == family).ToArray();
+            if (members.Length == 0)
+            {
+                continue;
+            }
+
+            var containsCurrent = current is { } c && c.Family == family;
+            var flags = containsCurrent ? ImGuiTreeNodeFlags.DefaultOpen : ImGuiTreeNodeFlags.None;
+
+            using var id = ImRaii.PushId($"ThemeFamily{family}");
+            if (ImGui.CollapsingHeader($"{family} ({members.Length})", flags))
+            {
+                DrawThemeCardGrid(profile, members, current, applyTheme);
+                ImGui.Spacing();
+            }
+        }
+    }
+
+    private void DrawThemeCardGrid(ProfileDocument profile, ProfileThemePreset[] members, ProfileThemePreset? current, Action<ProfileThemePreset> applyTheme)
+    {
+        var spacing = ImGui.GetStyle().ItemSpacing.X;
+        var available = ImGui.GetContentRegionAvail().X;
+        var columns = Math.Max(1, (int)((available + spacing) / (ThemeCardWidth + spacing)));
+        var rowStartX = ImGui.GetCursorPosX();
+
+        for (var i = 0; i < members.Length; i++)
+        {
+            if (i > 0)
+            {
+                if (i % columns == 0)
+                {
+                    ImGui.SetCursorPosX(rowStartX);
+                }
+                else
+                {
+                    ImGui.SameLine();
+                }
+            }
+
+            if (DrawThemeCard(profile, members[i], selected: current?.Id == members[i].Id))
+            {
+                applyTheme(members[i]);
+            }
+        }
+    }
+
+    /// <summary>One theme's card: the profile's background as it would look with the theme applied,
+    /// sample text in its Name/Title colors, and its name below. An accent border marks the theme
+    /// currently applied to this profile.</summary>
+    private bool DrawThemeCard(ProfileDocument profile, ProfileThemePreset preset, bool selected)
+    {
+        var previewHeight = ThemeCardWidth * profile.CanvasHeight / MathF.Max(1f, profile.CanvasWidth);
+        var textHeight = ImGui.GetTextLineHeight();
+        var cardSize = new Vector2(ThemeCardWidth, previewHeight + (ThemeCardPadding * 3f) + textHeight);
+
+        ImGui.InvisibleButton($"##Theme{preset.Id}", cardSize);
+        var min = ImGui.GetItemRectMin();
+        var max = ImGui.GetItemRectMax();
+        var hovered = ImGui.IsItemHovered();
+        var clicked = ImGui.IsItemClicked(ImGuiMouseButton.Left);
+        EditorWidgets.Tooltip($"{preset.Name}\n{preset.Description}");
+
+        var drawList = ImGui.GetWindowDrawList();
+        drawList.AddRectFilled(min, max, ImGui.GetColorU32(hovered ? CardHoverColor : CardColor), 6f);
+
+        var previewMin = min + new Vector2(ThemeCardPadding);
+        var previewSize = new Vector2(ThemeCardWidth - (ThemeCardPadding * 2f), previewHeight);
+        var previewMax = previewMin + previewSize;
+
+        var preview = profile.Background?.Clone() ?? new ProfileBackground();
+        var keepImage = preview.HasImage;
+        preset.ApplyTo(preview);
+        if (keepImage)
+        {
+            preview.Mode = ProfileBackgroundMode.Image;
+        }
+
+        drawList.PushClipRect(previewMin, previewMax, true);
+        var scale = previewSize.X / MathF.Max(1f, profile.CanvasWidth);
+        ProfileBackgroundRenderer.Draw(drawList, preview, previewMin, previewSize, scale, renderResources);
+
+        var font = ImGui.GetFont();
+        var sampleSize = MathF.Max(8f, ImGui.GetFontSize() * 0.55f);
+        var textX = previewMin.X + 4f;
+        drawList.AddText(font, sampleSize, new Vector2(textX, previewMax.Y - (sampleSize * 2.1f)), ImGui.GetColorU32(preset.TextColor with { W = 1f }), "Name");
+        drawList.AddText(font, sampleSize * 0.85f, new Vector2(textX, previewMax.Y - sampleSize), ImGui.GetColorU32(preset.AccentTextColor with { W = 1f }), "Title");
+        drawList.PopClipRect();
+
+        var borderColor = selected ? EditorWidgets.AccentColor : hovered ? EditorWidgets.AccentColor : CardBorderColor;
+        drawList.AddRect(previewMin, previewMax, ImGui.GetColorU32(borderColor), 3f, ImDrawFlags.None, selected || hovered ? 2f : 1f);
+
+        var textPos = new Vector2(previewMin.X, previewMax.Y + ThemeCardPadding);
+        drawList.PushClipRect(textPos, new Vector2(previewMax.X, max.Y), true);
+        drawList.AddText(textPos, ImGui.GetColorU32(ImGuiCol.Text), preset.Name);
+        drawList.PopClipRect();
+
+        return clicked;
+    }
+
+    private void DrawSolidSwatches()
+    {
+        EditorWidgets.PropertyLabel("Swatches", 0f);
+
+        const int perRow = 8;
+        var spacing = 3f;
+        var size = MathF.Floor((ImGui.GetContentRegionAvail().X - (spacing * (perRow - 1))) / perRow);
+        var rowStartX = ImGui.GetCursorPosX();
+
+        for (var i = 0; i < ProfileThemePresets.SolidSwatches.Length; i++)
+        {
+            if (i > 0)
+            {
+                if (i % perRow == 0)
+                {
+                    ImGui.SetCursorPosX(rowStartX);
+                }
+                else
+                {
+                    ImGui.SameLine(0f, spacing);
+                }
+            }
+
+            var swatch = ProfileThemePresets.SolidSwatches[i];
+            if (EditorWidgets.Swatch($"##Swatch{i}", swatch, size))
+            {
+                editorSession.ApplyBackgroundEdit(style => style.PrimaryColor = swatch);
+            }
+        }
+    }
+
+    private void DrawGradientControls(ProfileBackground background)
+    {
+        DrawBackgroundColor("From", "##BgPrimary", background.PrimaryColor, primary: true);
+        DrawBackgroundColor("To", "##BgSecondary", background.SecondaryColor, primary: false);
+
+        ImGui.SetCursorPosX(ImGui.GetCursorPosX() + EditorWidgets.LabelColumnWidth);
+        if (ImGui.Button("Swap Colors", new Vector2(-1, 0f)))
+        {
+            editorSession.ApplyBackgroundEdit(style => (style.PrimaryColor, style.SecondaryColor) = (style.SecondaryColor, style.PrimaryColor));
+        }
+
+        var angle = background.GradientAngle;
+        var buttonSize = ImGui.GetFrameHeight();
+        EditorWidgets.PropertyLabel("Angle", ImGui.GetContentRegionAvail().X - EditorWidgets.LabelColumnWidth - ((buttonSize + 2f) * 2f) - 2f);
+        if (ImGui.SliderFloat("##GradientAngle", ref angle, 0f, 360f, "%.0f deg"))
+        {
+            var value = angle;
+            editorSession.BeginOrContinueBackgroundEdit(style => style.GradientAngle = value);
+        }
+
+        CommitBackgroundOnRelease();
+
+        ImGui.SameLine(0f, 4f);
+        if (EditorWidgets.IconButton("AngleMinus", FontAwesomeIcon.UndoAlt, "Rotate -45", buttonSize))
+        {
+            editorSession.ApplyBackgroundEdit(style => style.GradientAngle = WrapAngle(style.GradientAngle - 45f));
+        }
+
+        ImGui.SameLine(0f, 2f);
+        if (EditorWidgets.IconButton("AnglePlus", FontAwesomeIcon.RedoAlt, "Rotate +45", buttonSize))
+        {
+            editorSession.ApplyBackgroundEdit(style => style.GradientAngle = WrapAngle(style.GradientAngle + 45f));
+        }
+    }
+
+    /// <summary>
+    /// Pattern as its own first-class browser (not hidden behind discovering Textured Fill first):
+    /// truthful preview cards, each rendering the exact pattern definition
+    /// (<see cref="PatternPreview"/>) at a standardized, always-legible size and contrast — never the
+    /// profile's own colors, intensity, or scale, which could make a candidate invisible (nearly
+    /// matching Base/Pattern colors, a theme's low intensity, a canvas-relative scale too small to
+    /// clear the shared renderer's tiling threshold). Picking a card switches the background to
+    /// Textured Fill if it wasn't already and sets that pattern — exactly the one thing choosing a
+    /// pattern always needs to do — as one undo step, leaving the profile's own color/intensity/scale
+    /// untouched. Detailed tuning stays under Customize Background's Textured Fill controls
+    /// (<see cref="DrawTextureControls"/>), reachable once a pattern is chosen.
+    /// </summary>
+    internal void DrawPatternPresets(ProfileDocument profile)
+    {
+        if (profile.Background is not { } background)
+        {
+            EditorWidgets.Hint("Background unavailable.");
+            return;
+        }
+
+        EditorWidgets.PropertyLabel("Pattern", 0f);
+        var currentLabel = background.Mode == ProfileBackgroundMode.TexturedFill
+            ? TextureLabels[(int)background.Texture]
+            : "None";
+        ImGui.TextDisabled($"Current: {currentLabel}");
+
+        DrawPatternCardGrid(background, texture =>
+        {
+            editorSession.ApplyBackgroundEdit(style =>
+            {
+                style.Mode = ProfileBackgroundMode.TexturedFill;
+                style.Texture = texture;
+            });
+        });
+
+        EditorWidgets.Hint("Colors, intensity, scale, and rotation are under Customize Background.");
+    }
+
+    private void DrawPatternCardGrid(ProfileBackground background, Action<ProfileBackgroundTexture> onPick)
+    {
+        var spacing = ImGui.GetStyle().ItemSpacing.X;
+        var available = ImGui.GetContentRegionAvail().X;
+        var columns = Math.Max(1, (int)((available + spacing) / (PatternCardSize + spacing)));
+        var rowStartX = ImGui.GetCursorPosX();
+
+        for (var i = 0; i < TextureLabels.Length; i++)
+        {
+            if (i > 0)
+            {
+                if (i % columns == 0)
+                {
+                    ImGui.SetCursorPosX(rowStartX);
+                }
+                else
+                {
+                    ImGui.SameLine();
+                }
+            }
+
+            var texture = (ProfileBackgroundTexture)i;
+            if (DrawPatternCard(background, texture))
+            {
+                onPick(texture);
+            }
+        }
+    }
+
+    // Fixed regardless of card size or the profile's canvas dimensions: with the shared renderer's
+    // tile size formula (TextureScale * PeriodsPerTile * scale), a scale of 1 keeps every valid
+    // TextureScale (4-128) comfortably above DrawTexture's own "too small to actually tile" fallback
+    // threshold (which is what made every card render as a flat, near-invisible average tint before
+    // this was fixed) — worst case, the minimum Scale of 4 still yields an on-screen tile of 32px,
+    // well clear of that threshold. This only changes how a small card renders the real Scale value;
+    // it never changes what Scale means or what's saved.
+    private const float PatternCardRenderScale = 1f;
+
+    /// <summary>
+    /// One pattern's card. Render order: card fill/pattern first, the legibility scrim and label,
+    /// then the selection/hover border last — nothing is drawn after the border that could cover
+    /// anything beneath it. Every card — including None — is built from the profile's own current
+    /// Base color, Pattern color, Intensity, Scale, and Rotation via <see cref="PatternPreview"/>, so
+    /// the only thing that differs between cards is the candidate pattern: a deliberately truthful
+    /// side-by-side comparison, not a standardized swatch. If the current colors are close, a card is
+    /// meant to look subtle — legibility of the selector itself comes from the border, selection
+    /// outline, and name label below, never from altering the rendered pattern colors.
+    /// </summary>
+    private bool DrawPatternCard(ProfileBackground background, ProfileBackgroundTexture texture)
+    {
+        var size = new Vector2(PatternCardSize);
+        ImGui.InvisibleButton($"##Pattern{texture}", size);
+        var min = ImGui.GetItemRectMin();
+        var max = ImGui.GetItemRectMax();
+        var hovered = ImGui.IsItemHovered();
+        var clicked = ImGui.IsItemClicked(ImGuiMouseButton.Left);
+        var selected = background.Texture == texture;
+        var label = TextureLabels[(int)texture];
+        EditorWidgets.Tooltip(label);
+
+        var drawList = ImGui.GetWindowDrawList();
+
+        if (texture == ProfileBackgroundTexture.None)
+        {
+            // The direct comparison point: the current Base color with no pattern overlay at all.
+            drawList.AddRectFilled(min, max, ImGui.GetColorU32(background.PrimaryColor with { W = 1f }), 4f);
+        }
+        else
+        {
+            var preview = PatternPreview.Create(background, texture);
+
+            drawList.PushClipRect(min, max, true);
+            ProfileBackgroundRenderer.Draw(drawList, preview, min, size, PatternCardRenderScale, renderResources);
+            drawList.PopClipRect();
+        }
+
+        // A legibility scrim + label, independent of whatever the current colors render as — this is
+        // how the card stays identifiable when a subtle color pairing makes the pattern itself hard
+        // to make out at a glance, without touching the rendered colors themselves.
+        var labelHeight = MathF.Min(16f, size.Y * 0.32f);
+        var scrimMin = new Vector2(min.X, max.Y - labelHeight);
+        drawList.AddRectFilled(scrimMin, max, ImGui.GetColorU32(new Vector4(0f, 0f, 0f, 0.55f)));
+        drawList.PushClipRect(scrimMin, max, true);
+        var labelSize = ImGui.CalcTextSize(label);
+        var labelPos = new Vector2(min.X + MathF.Max(2f, (size.X - labelSize.X) / 2f), scrimMin.Y + ((labelHeight - labelSize.Y) / 2f));
+        drawList.AddText(labelPos, ImGui.GetColorU32(new Vector4(1f, 1f, 1f, 0.92f)), label);
+        drawList.PopClipRect();
+
+        var borderColor = selected ? EditorWidgets.AccentColor : hovered ? new Vector4(1f, 1f, 1f, 0.4f) : CardBorderColor;
+        drawList.AddRect(min, max, ImGui.GetColorU32(borderColor), 4f, ImDrawFlags.None, selected ? 2f : 1f);
+
+        return clicked;
+    }
+
+    /// <summary>Detailed tuning for the pattern chosen in <see cref="DrawPatternPresets"/>: base and
+    /// pattern colors, intensity, scale, and (when meaningful) rotation. The pattern picker itself
+    /// lives in the Design category's own first-class Pattern section, not here.</summary>
+    private void DrawTextureControls(ProfileBackground background)
+    {
+        DrawBackgroundColor("Base", "##BgPrimary", background.PrimaryColor, primary: true);
+        DrawBackgroundColor("Pattern", "##BgSecondary", background.SecondaryColor, primary: false);
+
+        if (background.Texture == ProfileBackgroundTexture.None)
+        {
+            return;
+        }
+
+        var intensity = background.TextureIntensity * 100f;
+        EditorWidgets.PropertyLabel("Intensity");
+        if (ImGui.SliderFloat("##TextureIntensity", ref intensity, 0f, 100f, "%.0f%%"))
+        {
+            var value = intensity / 100f;
+            editorSession.BeginOrContinueBackgroundEdit(style => style.TextureIntensity = value);
+        }
+
+        CommitBackgroundOnRelease();
+
+        var scale = background.TextureScale;
+        EditorWidgets.PropertyLabel("Scale");
+        if (ImGui.SliderFloat("##TextureScale", ref scale, ProfileBackground.MinTextureScale, ProfileBackground.MaxTextureScale, "%.0f px", ImGuiSliderFlags.AlwaysClamp))
+        {
+            var value = scale;
+            editorSession.BeginOrContinueBackgroundEdit(style => style.TextureScale = value);
+        }
+
+        CommitBackgroundOnRelease();
+
+        if (ProfileBackground.SupportsRotation(background.Texture))
+        {
+            var rotation = background.TextureRotation;
+            EditorWidgets.PropertyLabel("Rotation");
+            if (ImGui.SliderFloat("##TextureRotation", ref rotation, 0f, 360f, "%.0f deg"))
+            {
+                var value = rotation;
+                editorSession.BeginOrContinueBackgroundEdit(style => style.TextureRotation = value);
+            }
+
+            CommitBackgroundOnRelease();
+        }
+    }
+
+    private void DrawBackgroundImageControls(ProfileBackground background)
+    {
+        var halfButton = new Vector2((ImGui.GetContentRegionAvail().X - ImGui.GetStyle().ItemSpacing.X) / 2f, 0f);
+
+        if (ImGui.Button(background.ImageAssetId is null ? "Choose Image..." : "Replace Image...", halfButton))
+        {
+            openImageFileDialog("Background Image", path => editorSession.SetBackground(path));
+        }
+
+        ImGui.SameLine();
+        using (ImRaii.Disabled(background.ImageAssetId is null))
+        {
+            if (ImGui.Button("Remove Image", halfButton))
+            {
+                editorSession.RemoveBackground();
+            }
+        }
+
+        if (background.ImageAssetId is not { } assetId)
+        {
+            EditorWidgets.Hint("No image chosen yet.");
+            return;
+        }
+
+        if (renderResources.Images.GetNativeSize(assetId) is { } native)
+        {
+            EditorWidgets.PropertyLabel("Native", 0f);
+            ImGui.TextUnformatted($"{native.Width} x {native.Height} px");
+        }
+
+        EditorWidgets.PropertyLabel("Fit", 0f);
+        var fitClicked = EditorWidgets.Segmented("BgFit", ImageFitLabels, Array.IndexOf(ImageFitOrder, background.ImageFit));
+        if (fitClicked >= 0)
+        {
+            var newFit = ImageFitOrder[fitClicked];
+            editorSession.ApplyBackgroundEdit(style => style.ImageFit = newFit);
+        }
+
+        EditorWidgets.PropertyLabel("Flip", 0f);
+        if (EditorWidgets.TextToggle("Flip X##Bg", background.ImageFlipX, tooltip: "Mirror horizontally"))
+        {
+            editorSession.ApplyBackgroundEdit(style => style.ImageFlipX = !style.ImageFlipX);
+        }
+
+        ImGui.SameLine();
+        if (EditorWidgets.TextToggle("Flip Y##Bg", background.ImageFlipY, tooltip: "Mirror vertically"))
+        {
+            editorSession.ApplyBackgroundEdit(style => style.ImageFlipY = !style.ImageFlipY);
+        }
+    }
+
+    /// <summary>A background color picker (RGB; the background's own Opacity controls transparency).</summary>
+    private void DrawBackgroundColor(string label, string id, Vector4 current, bool primary)
+    {
+        var color = current;
+        EditorWidgets.PropertyLabel(label);
+        if (ImGui.ColorEdit4(id, ref color, ImGuiColorEditFlags.NoAlpha))
+        {
+            var value = color with { W = 1f };
+            editorSession.BeginOrContinueBackgroundEdit(style =>
+            {
+                if (primary)
+                {
+                    style.PrimaryColor = value;
+                }
+                else
+                {
+                    style.SecondaryColor = value;
+                }
+            });
+        }
+
+        CommitBackgroundOnRelease();
+    }
+
+    private void CommitBackgroundOnRelease()
+    {
+        if (ImGui.IsItemDeactivatedAfterEdit())
+        {
+            editorSession.CommitPendingBackgroundEdit();
+        }
+    }
+
+    private static float WrapAngle(float degrees)
+    {
+        var wrapped = degrees % 360f;
+        return wrapped < 0f ? wrapped + 360f : wrapped;
+    }
+}

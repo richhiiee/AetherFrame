@@ -169,7 +169,8 @@ internal sealed partial class ProfileEditorWindow
             editorSession.SetElementLocked(element.Id, locked);
         }
 
-        if (ProfileElementNames.GetRoleLabel(element.Role) is { } role)
+        // Only elements Basic mode still owns (a legacy tagline is ordinary Advanced content now).
+        if (ProfileElementNames.GetRoleLabel(element.Role) is { } role && Domain.Basic.BasicSections.SectionOf(element.Role) is not null)
         {
             EditorWidgets.Hint($"Basic editor: {role}");
         }

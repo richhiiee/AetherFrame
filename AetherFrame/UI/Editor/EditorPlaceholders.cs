@@ -7,11 +7,12 @@ namespace AetherFrame.UI.Editor;
 /// Editor-only placeholder text for elements with no content yet, drawn dimmed by
 /// <see cref="ProfileTextRenderer"/> in place of the (empty) content. Lives in the editor layer
 /// and only reaches the renderer through <see cref="ProfileRenderOptions.PlaceholderProvider"/>,
-/// which finished rendering (Profile View, Clean Preview) never sets — so a placeholder can't
-/// appear in a finished profile, and nothing like "(empty)" is hardcoded into rendering.
+/// which finished rendering (Profile View, Clean Preview, the Basic preview) never sets — so a
+/// placeholder can't appear in a finished profile, and nothing like "(empty)" is hardcoded into
+/// rendering.
 ///
-/// Semantic Basic slots show their role ("Character Name", "Message"), which is what a future
-/// Basic layout's placeholders build on; an ordinary empty text element shows a generic hint.
+/// Semantic Basic sections show a friendly hint for their role ("Character Name", "Add a
+/// message"); an ordinary empty text element shows a generic hint.
 /// </summary>
 internal static class EditorPlaceholders
 {
@@ -20,6 +21,7 @@ internal static class EditorPlaceholders
     {
         ShowElementBounds = true,
         PlaceholderProvider = GetPlaceholder,
+        ShowEmptySectionHeadings = true,
     };
 
     /// <summary>Advanced editor canvas with Guides off: no placement boxes, still placeholders
@@ -28,10 +30,8 @@ internal static class EditorPlaceholders
     {
         ShowElementBounds = false,
         PlaceholderProvider = GetPlaceholder,
+        ShowEmptySectionHeadings = true,
     };
-
-    /// <summary>An editor's embedded preview (e.g. the Basic editor): finished look plus placeholders.</summary>
-    internal static readonly ProfileRenderOptions PreviewOptions = CanvasOptionsWithoutGuides;
 
     internal static string? GetPlaceholder(ProfileElement element) => element switch
     {
@@ -40,6 +40,13 @@ internal static class EditorPlaceholders
             ProfileElementRole.BasicName => "Character Name",
             ProfileElementRole.BasicTitle => "Choose a title",
             ProfileElementRole.BasicTagline => "Add a tagline",
+            ProfileElementRole.BasicWorld => "Home World",
+            ProfileElementRole.BasicJob => "Favorite Job",
+            ProfileElementRole.BasicLevel => "Level",
+            ProfileElementRole.BasicFreeCompany => "Free Company",
+            ProfileElementRole.BasicPlaystyle => "Playstyle",
+            ProfileElementRole.BasicActiveHours => "Active Hours",
+            ProfileElementRole.BasicMessage => "Add a message",
             _ => ProfileElementNames.GetRoleLabel(element.Role) ?? "Empty text",
         },
         _ => null,

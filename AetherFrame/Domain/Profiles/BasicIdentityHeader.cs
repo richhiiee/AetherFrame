@@ -57,6 +57,15 @@ public sealed class BasicIdentityHeader
     /// </summary>
     public IdentityLayoutSnapshot? AppliedLayout { get; set; }
 
+    /// <summary>
+    /// The title look the current layout applied when it was chosen (Badge: size, weight, spacing;
+    /// Accent: italic, spacing) and what the title had before, so leaving the layout undoes exactly
+    /// what the layout changed — and nothing the user has changed since. Null when the current layout
+    /// applied no look (or for a header from an earlier build; see <c>IdentityHeaderRules</c>).
+    /// Layouts never write the title's text, prefix, or suffix: those are always the user's.
+    /// </summary>
+    public IdentityLayoutStyle? LayoutStyle { get; set; }
+
     /// <summary>Properties this build doesn't know, kept through clone and save unchanged.</summary>
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? ExtensionData { get; set; }
@@ -71,6 +80,7 @@ public sealed class BasicIdentityHeader
         RegionPosition = RegionPosition,
         RegionWidth = RegionWidth,
         AppliedLayout = AppliedLayout?.Clone(),
+        LayoutStyle = LayoutStyle?.Clone(),
         ExtensionData = ProfileElement.CopyExtensionData(ExtensionData),
     };
 
@@ -83,7 +93,8 @@ public sealed class BasicIdentityHeader
         && Layout == other.Layout
         && RegionPosition == other.RegionPosition
         && RegionWidth.Equals(other.RegionWidth)
-        && (AppliedLayout is null ? other.AppliedLayout is null : AppliedLayout.ContentEquals(other.AppliedLayout));
+        && (AppliedLayout is null ? other.AppliedLayout is null : AppliedLayout.ContentEquals(other.AppliedLayout))
+        && (LayoutStyle is null ? other.LayoutStyle is null : LayoutStyle.ContentEquals(other.LayoutStyle));
 }
 
 /// <summary>The rectangles Basic mode last assigned to the Identity Header's elements.</summary>
@@ -110,6 +121,19 @@ public readonly record struct ElementRect(Vector2 Position, Vector2 Size)
     /// <summary>Equality with a small tolerance, so float round-off never reads as "customized".</summary>
     public bool Matches(Vector2 position, Vector2 size) =>
         Vector2.DistanceSquared(Position, position) < 0.01f && Vector2.DistanceSquared(Size, size) < 0.01f;
+
+    /// <summary>The smallest rectangle containing both.</summary>
+    public ElementRect Union(ElementRect other)
+    {
+        var min = Vector2.Min(Position, other.Position);
+        var max = Vector2.Max(Position + Size, other.Position + other.Size);
+        return new ElementRect(min, max - min);
+    }
+
+    /// <summary>True when the two share any area (touching edges don't count).</summary>
+    public bool Intersects(ElementRect other) =>
+        Position.X < other.Position.X + other.Size.X && other.Position.X < Position.X + Size.X
+        && Position.Y < other.Position.Y + other.Size.Y && other.Position.Y < Position.Y + Size.Y;
 }
 
 /// <summary>Where the title text comes from. Persisted numerically; append only.</summary>

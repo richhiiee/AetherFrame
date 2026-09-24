@@ -440,6 +440,7 @@ internal sealed class ProfileService
             profile.CanvasHeight = state.CanvasHeight;
             profile.Background = state.Background?.Clone();
             profile.BasicIdentity = state.BasicIdentity?.Clone();
+            profile.BasicPlate = state.BasicPlate?.Clone();
 
             profile.Elements.Clear();
             foreach (var element in state.Elements)
@@ -617,6 +618,7 @@ internal sealed class ProfileService
         CanvasHeight = source.CanvasHeight,
         Background = source.Background?.Clone(),
         BasicIdentity = source.BasicIdentity?.Clone(),
+        BasicPlate = source.BasicPlate?.Clone(),
 
         // Deep copies: the snapshot is serialized on the framework thread, so it must not share
         // element instances the render thread could still be mutating.
@@ -665,13 +667,19 @@ internal sealed class ProfileService
     /// editable part of a profile: canvas size, background, and independent element clones.
     /// </summary>
     internal sealed record DocumentState(
-        float CanvasWidth, float CanvasHeight, ProfileBackground? Background, BasicIdentityHeader? BasicIdentity, List<ProfileElement> Elements)
+        float CanvasWidth,
+        float CanvasHeight,
+        ProfileBackground? Background,
+        BasicIdentityHeader? BasicIdentity,
+        BasicPlateSettings? BasicPlate,
+        List<ProfileElement> Elements)
     {
         internal static DocumentState Capture(ProfileDocument profile) => new(
             profile.CanvasWidth,
             profile.CanvasHeight,
             profile.Background?.Clone(),
             profile.BasicIdentity?.Clone(),
+            profile.BasicPlate?.Clone(),
             profile.Elements.Select(e => e.Clone()).ToList());
     }
 

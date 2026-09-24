@@ -185,4 +185,32 @@ public enum ProfileElementRole
 
     /// <summary>Identity Header: an optional freeform tagline, separate from the title.</summary>
     BasicTagline = 5,
+
+    // Adventure Plate Classic sections. Each "...Heading" is the small caption above its section's
+    // value; see Domain.Basic.BasicSections for how roles group into sections.
+
+    /// <summary>Home World and Data Center.</summary>
+    BasicWorld = 6,
+    BasicWorldHeading = 7,
+
+    /// <summary>Favorite Job (its name).</summary>
+    BasicJob = 8,
+    BasicJobHeading = 9,
+
+    /// <summary>Level (shown beside the Favorite Job; its own section, without a heading).</summary>
+    BasicLevel = 10,
+
+    BasicFreeCompany = 11,
+    BasicFreeCompanyHeading = 12,
+
+    /// <summary>Playstyle entries, as one line of text (see BasicPlateSettings.Playstyles).</summary>
+    BasicPlaystyle = 13,
+    BasicPlaystyleHeading = 14,
+
+    /// <summary>Active Hours, as text (see BasicPlateSettings.ActiveHours).</summary>
+    BasicActiveHours = 15,
+    BasicActiveHoursHeading = 16,
+
+    /// <summary>The caption above <see cref="BasicMessage"/>.</summary>
+    BasicMessageHeading = 17,
 }
