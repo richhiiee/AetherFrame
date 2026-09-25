@@ -155,7 +155,8 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
         WindowSystem.AddWindow(profileViewWindow);
         WindowSystem.AddWindow(packageImportWindow);
 
-        CommandManager.AddHandler(AetherFrameCommand.Name, new CommandInfo(OnCommand)
+        var commandHandler = new AetherFrameCommandHandler(ToggleMainUi, profileViewWindow.ShowActivePlate);
+        CommandManager.AddHandler(AetherFrameCommand.Name, new CommandInfo(commandHandler.Handle)
         {
             HelpMessage = AetherFrameCommand.HelpMessage
         });
@@ -224,19 +225,6 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
         CommandManager.RemoveHandler(AetherFrameCommand.Name);
 
         return ValueTask.CompletedTask;
-    }
-
-    private void OnCommand(string command, string args)
-    {
-        switch (AetherFrameCommand.Parse(args))
-        {
-            case AetherFrameCommandAction.ViewActivePlate:
-                profileViewWindow.ShowActivePlate();
-                break;
-            default:
-                ToggleMainUi();
-                break;
-        }
     }
 
     private void OnLogin() => characterIdentityService.InvalidateCharacterInfo();
