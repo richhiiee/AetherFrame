@@ -65,6 +65,10 @@ public class AetherFrameVersionTests
     }
 
     [Fact]
+    public void Readme_StatesTheCurrentProductVersion() =>
+        Assert.Contains($"AetherFrame {ProductVersion()}", File.ReadAllText(Path.Combine(RepositoryRoot().FullName, "README.md")));
+
+    [Fact]
     public void AssemblyMetadata_BuiltFromVersionProps_CarriesTheProductVersion()
     {
         // This test assembly imports Version.props exactly as the plugin does, so its metadata is

@@ -1,6 +1,10 @@
 # AetherFrame
 
+[![Build and test](https://github.com/richhiiee/AetherFrame/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/richhiiee/AetherFrame/actions/workflows/build.yml)
+
 **Enhanced character Plates for Final Fantasy XIV.**
+
+**AetherFrame 0.1.0 Alpha** · [Versioning](docs/Versioning.md)
 
 AetherFrame is a [Dalamud](https://github.com/goatcorp/Dalamud) plugin for designing character Plates: profile cards that start from the familiar shape of the in-game Adventure Plate and can grow into fully freeform layouts.
 
@@ -146,7 +150,17 @@ dotnet test AetherFrame.Tests/AetherFrame.Tests.csproj
 
 1. Open `/xlsettings` → **Experimental** and add the full path to the built `AetherFrame.dll` under **Dev Plugin Locations**.
 2. Open `/xlplugins` → **Dev Tools → Installed Dev Plugins** and enable AetherFrame.
-3. Use **`/aetherframe`** (or the short **`/af`**) to open My Plates, or **`/aetherframe view`** (**`/af view`**) to view your character's Active Plate.
+3. Use **`/aetherframe`** (or **`/af`**) to open My Plates. See [Commands](#commands).
+
+### Commands
+
+`/af` is the short form of `/aetherframe`. Both accept the same arguments.
+
+| Command | What it does |
+|---|---|
+| `/aetherframe`, `/af` | Opens or closes My Plates |
+| `/aetherframe view`, `/af view` | Shows your character's Active Plate |
+| `/aetherframe version`, `/af version` | Prints the running AetherFrame version and build in chat |
 
 ---
 
