@@ -13,7 +13,11 @@ namespace AetherFrame.Windows;
 
 /// <summary>
 /// Inspector panel: an Element tab (the selected element's properties in compact, collapsible
-/// sections) and a Canvas tab (canvas size and background — see <c>.CanvasSettings.cs</c>).
+/// sections) and a Canvas tab (canvas size, background and Components — see <c>.CanvasSettings.cs</c>).
+///
+/// The Element tab answers "what can I do to the selected thing?", in one order for every kind of
+/// element — Content, Position &amp; Size, Appearance, Typography (text only), then Layer (name,
+/// stacking order, visibility, lock) — showing only the sections that apply to it.
 ///
 /// Every control follows one of two undo patterns: discrete controls (checkbox, toggle, combo,
 /// button) apply immediately as one history entry; continuous controls (slider, drag, color,
@@ -23,8 +27,9 @@ internal sealed partial class ProfileEditorWindow
 {
     private static readonly string[] FontFamilyLabels = ProfileFontCatalog.All.Select(f => f.DisplayName).ToArray();
     private static readonly string[] VerticalAlignmentLabels = ["Top", "Middle", "Bottom"];
-    private static readonly string[] DisplayModeLabels = ["Fit", "Fill", "Stretch"];
-    private static readonly ProfileImageFit[] DisplayModeOrder = [ProfileImageFit.Fit, ProfileImageFit.Fill, ProfileImageFit.Stretch];
+    // The same order and words as the Basic editor's portrait (Image Fit: Fill, Fit, Stretch).
+    private static readonly string[] DisplayModeLabels = ["Fill", "Fit", "Stretch"];
+    private static readonly ProfileImageFit[] DisplayModeOrder = [ProfileImageFit.Fill, ProfileImageFit.Fit, ProfileImageFit.Stretch];
 
     private string nameEditBuffer = string.Empty;
     private Guid nameEditElementId;
@@ -91,44 +96,54 @@ internal sealed partial class ProfileEditorWindow
             ImGui.Spacing();
             EditorWidgets.Hint("Select an element on the canvas or in the Layers panel to edit it.");
             ImGui.Spacing();
-            EditorWidgets.Hint("The Canvas tab holds the canvas size and background.");
+            EditorWidgets.Hint("The Canvas tab holds the canvas size, background and Components.");
             return;
         }
 
         using var id = ImRaii.PushId(selected.Id.GetHashCode());
 
-        DrawGeneralSection(selected);
+        // Only elements Basic mode still owns (a legacy tagline is ordinary Advanced content now).
+        if (ProfileElementNames.GetRoleLabel(selected.Role) is { } role && Domain.Basic.BasicSections.SectionOf(selected.Role) is not null)
+        {
+            EditorWidgets.Hint($"Basic editor: {role}");
+        }
 
-        // Locking only freezes the transform (the Transform section); content, typography,
-        // appearance, and image display settings stay editable while locked.
+        // Locking only freezes Position & Size; content, appearance, typography, and the layer's
+        // own settings stay editable while locked.
         switch (selected)
         {
             case TextProfileElement text:
                 DrawTextContentSection(text);
-                DrawTransformSection(profile, text);
-                DrawTypographySection(text);
+                DrawPositionAndSizeSection(profile, text);
                 DrawTextAppearanceSection(text);
+                DrawTypographySection(text);
                 break;
 
             case ImageProfileElement image:
-                DrawTransformSection(profile, image);
-                DrawImageSection(image);
+                DrawImageContentSection(image);
+                DrawPositionAndSizeSection(profile, image);
+                DrawImageAppearanceSection(image);
                 break;
         }
+
+        DrawLayerSection(selected);
 
         if (selected.Locked)
         {
             ImGui.Spacing();
-            EditorWidgets.Hint("Locked: position, size, rotation, and alignment can't change until it's unlocked (General, or the lock in Layers). Other properties stay editable.");
+            EditorWidgets.Hint("Locked: position, size, rotation, and alignment can't change until it's unlocked (Layer, or the lock in the Layers panel). Everything else stays editable.");
         }
     }
 
     // ---------------------------------------------------------------- shared sections
 
-    /// <summary>Name / Visible / Locked — always editable, even while locked (so it can be unlocked).</summary>
-    private void DrawGeneralSection(ProfileElement element)
+    /// <summary>
+    /// The element as a layer: its name, its place in the stacking order, whether it's shown, and
+    /// whether it's locked — always editable, even while locked (so it can be unlocked).
+    /// </summary>
+    private void DrawLayerSection(ProfileElement element)
     {
-        if (!EditorWidgets.Section("General"))
+        if (!EditorWidgets.Section("Layer"))
         {
             return;
         }
@@ -148,6 +163,16 @@ internal sealed partial class ProfileEditorWindow
         {
             editorSession.RenameElement(element.Id, nameEditBuffer);
         }
+
+        // The same moves as the Layers panel's right-click menu (and dragging in its list).
+        EditorWidgets.PropertyLabel("Order", 0f);
+        OrderButton("ToBack", FontAwesomeIcon.AngleDoubleDown, "Move to Back", () => editorSession.SendToBack(element.Id));
+        ImGui.SameLine(0f, 2f);
+        OrderButton("Backward", FontAwesomeIcon.AngleDown, "Move Backward", () => editorSession.SendBackward(element.Id));
+        ImGui.SameLine(0f, 2f);
+        OrderButton("Forward", FontAwesomeIcon.AngleUp, "Move Forward", () => editorSession.BringForward(element.Id));
+        ImGui.SameLine(0f, 2f);
+        OrderButton("ToFront", FontAwesomeIcon.AngleDoubleUp, "Move to Front", () => editorSession.BringToFront(element.Id));
 
         EditorWidgets.PropertyLabel("Visible", 0f);
         var visible = element.Visible;
@@ -169,16 +194,19 @@ internal sealed partial class ProfileEditorWindow
             editorSession.SetElementLocked(element.Id, locked);
         }
 
-        // Only elements Basic mode still owns (a legacy tagline is ordinary Advanced content now).
-        if (ProfileElementNames.GetRoleLabel(element.Role) is { } role && Domain.Basic.BasicSections.SectionOf(element.Role) is not null)
+        static void OrderButton(string id, FontAwesomeIcon icon, string tooltip, Action move)
         {
-            EditorWidgets.Hint($"Basic editor: {role}");
+            if (EditorWidgets.IconButton(id, icon, tooltip))
+            {
+                move();
+            }
         }
     }
 
-    private void DrawTransformSection(ProfileDocument profile, ProfileElement element)
+    /// <summary>Where the element sits and how large it is (frozen while locked).</summary>
+    private void DrawPositionAndSizeSection(ProfileDocument profile, ProfileElement element)
     {
-        if (!EditorWidgets.Section("Transform"))
+        if (!EditorWidgets.Section("Position & Size"))
         {
             return;
         }
@@ -239,9 +267,34 @@ internal sealed partial class ProfileEditorWindow
         if (element is ImageProfileElement image)
         {
             DrawRotationRow(image);
+            DrawImageRatioRow(image);
         }
 
         DrawAlignmentRow();
+    }
+
+    /// <summary>Keep Ratio while resizing, and the one-click fix back to the image's own proportions.</summary>
+    private void DrawImageRatioRow(ImageProfileElement image)
+    {
+        EditorWidgets.PropertyLabel("Keep Ratio", 0f);
+        var preserveAspectRatio = image.PreserveAspectRatio;
+        if (ImGui.Checkbox("##PreserveRatio", ref preserveAspectRatio))
+        {
+            ApplyImmediateImageEdit(image.Id, element => element.PreserveAspectRatio = preserveAspectRatio);
+        }
+
+        EditorWidgets.Tooltip("Keep the box's proportions while resizing");
+
+        ImGui.SameLine();
+        using (ImRaii.Disabled(renderResources.Images.GetNativeSize(image.AssetId) is null || image.Locked))
+        {
+            if (ImGui.Button("Original Ratio", new Vector2(-1, 0f)))
+            {
+                editorSession.ResetImageToNativeAspect(image.Id);
+            }
+        }
+
+        EditorWidgets.Tooltip("Reset the box to the image's original aspect ratio (keeps width and center)");
     }
 
     private void DrawRotationRow(ImageProfileElement image)
@@ -315,9 +368,10 @@ internal sealed partial class ProfileEditorWindow
 
     // ---------------------------------------------------------------- text
 
+    /// <summary>What the text says, and the symbols drawn around it.</summary>
     private void DrawTextContentSection(TextProfileElement text)
     {
-        if (!EditorWidgets.Section("Text"))
+        if (!EditorWidgets.Section("Content"))
         {
             return;
         }
@@ -354,10 +408,11 @@ internal sealed partial class ProfileEditorWindow
             editorSession.CommitPendingEdit();
         }
 
-        // Decorations drawn around the text (stored separately; the text itself never contains them).
+        // Symbols drawn before and after the text (stored separately; the text itself never
+        // contains them) — the Basic editor's "Title symbols".
         var halfWidth = (ImGui.GetContentRegionAvail().X - EditorWidgets.LabelColumnWidth - ImGui.GetStyle().ItemSpacing.X) / 2f;
         var prefix = text.Prefix;
-        EditorWidgets.PropertyLabel("Decoration", halfWidth);
+        EditorWidgets.PropertyLabel("Symbols", halfWidth);
         if (ImGui.InputTextWithHint("##Prefix", "Prefix", ref prefix, TextProfileElement.MaxAffixLength))
         {
             ContinueTextEdit(text.Id, element => element.Prefix = prefix);
@@ -701,14 +756,37 @@ internal sealed partial class ProfileEditorWindow
 
     // ---------------------------------------------------------------- image
 
-    private void DrawImageSection(ImageProfileElement image)
+    /// <summary>Which image this is: its original size, and replacing it.</summary>
+    private void DrawImageContentSection(ImageProfileElement image)
     {
-        if (!EditorWidgets.Section("Image"))
+        if (!EditorWidgets.Section("Content"))
         {
             return;
         }
 
-        EditorWidgets.PropertyLabel("Display", 0f);
+        EditorWidgets.PropertyLabel("Original", 0f);
+        var native = renderResources.Images.GetNativeSize(image.AssetId);
+        ImGui.TextUnformatted(native is { } n ? $"{n.Width} x {n.Height} px" : "Unavailable");
+
+        ImGui.SetCursorPosX(ImGui.GetCursorPosX() + EditorWidgets.LabelColumnWidth);
+        if (ImGui.Button("Replace Image...", new Vector2(-1, 0f)))
+        {
+            var elementId = image.Id;
+            OpenImageFileDialog("Replace Image", path => editorSession.ReplaceImage(elementId, path));
+        }
+
+        EditorWidgets.Tooltip("Keeps position, size, rotation, flips, and image fit");
+    }
+
+    /// <summary>How the image is drawn in its box: fit, mirroring, opacity.</summary>
+    private void DrawImageAppearanceSection(ImageProfileElement image)
+    {
+        if (!EditorWidgets.Section("Appearance"))
+        {
+            return;
+        }
+
+        EditorWidgets.PropertyLabel("Image Fit", 0f);
         var modeClicked = EditorWidgets.Segmented("DisplayMode", DisplayModeLabels, Array.IndexOf(DisplayModeOrder, image.DisplayMode));
         if (modeClicked >= 0)
         {
@@ -716,14 +794,7 @@ internal sealed partial class ProfileEditorWindow
             ApplyImmediateImageEdit(image.Id, element => element.DisplayMode = newMode);
         }
 
-        EditorWidgets.PropertyLabel("Keep Ratio", 0f);
-        var preserveAspectRatio = image.PreserveAspectRatio;
-        if (ImGui.Checkbox("##PreserveRatio", ref preserveAspectRatio))
-        {
-            ApplyImmediateImageEdit(image.Id, element => element.PreserveAspectRatio = preserveAspectRatio);
-        }
-
-        EditorWidgets.Tooltip("Keep the box's proportions while resizing");
+        EditorWidgets.Tooltip("Fill covers the box (cropping edges), Fit shows the whole image, Stretch fills it exactly.");
 
         EditorWidgets.PropertyLabel("Flip", 0f);
         if (EditorWidgets.TextToggle("Flip X", image.FlipX, tooltip: "Mirror horizontally"))
@@ -746,31 +817,6 @@ internal sealed partial class ProfileEditorWindow
         }
 
         CommitOnRelease();
-
-        EditorWidgets.PropertyLabel("Native", 0f);
-        var native = renderResources.Images.GetNativeSize(image.AssetId);
-        ImGui.TextUnformatted(native is { } n ? $"{n.Width} x {n.Height} px" : "Unavailable");
-
-        ImGui.Spacing();
-        var halfButton = new Vector2((ImGui.GetContentRegionAvail().X - ImGui.GetStyle().ItemSpacing.X) / 2f, 0f);
-        if (ImGui.Button("Replace Image...", halfButton))
-        {
-            var elementId = image.Id;
-            OpenImageFileDialog("Replace Image", path => editorSession.ReplaceImage(elementId, path));
-        }
-
-        EditorWidgets.Tooltip("Keeps position, size, rotation, flips, and display mode");
-
-        ImGui.SameLine();
-        using (ImRaii.Disabled(native is null || image.Locked))
-        {
-            if (ImGui.Button("Native Ratio", halfButton))
-            {
-                editorSession.ResetImageToNativeAspect(image.Id);
-            }
-        }
-
-        EditorWidgets.Tooltip("Reset the box to the image's native aspect ratio (keeps width and center)");
     }
 
     // ---------------------------------------------------------------- edit routing helpers

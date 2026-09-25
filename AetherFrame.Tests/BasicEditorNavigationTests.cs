@@ -144,8 +144,8 @@ public class BasicEditorNavigationTests
             [BasicEditorCategory.Design, BasicEditorCategory.Portrait, BasicEditorCategory.Identity, BasicEditorCategory.Details, BasicEditorCategory.Playstyle, BasicEditorCategory.Message],
             BasicEditorView.Categories);
         Assert.Equal(BasicEditorView.PanelOrder, BasicEditorView.Categories.SelectMany(BasicEditorView.PanelsOf));
-        Assert.Equal([BasicEditorPanel.PlateLayout, BasicEditorPanel.BackgroundTheme], BasicEditorView.PanelsOf(BasicEditorCategory.Design));
-        Assert.Equal(["Design", "Portrait", "Identity", "Details", "Playstyle", "Message"], BasicEditorView.Categories.Select(BasicEditorView.Title));
+        Assert.Equal([BasicEditorPanel.BackgroundTheme, BasicEditorPanel.PlateLayout], BasicEditorView.PanelsOf(BasicEditorCategory.Design));
+        Assert.Equal(["Design", "Portrait", "Identity", "Character Details", "Activity", "Message"], BasicEditorView.Categories.Select(BasicEditorView.Title));
     }
 
     // ---------------------------------------------------------------- status

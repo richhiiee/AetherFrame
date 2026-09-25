@@ -9,9 +9,10 @@ using Dalamud.Interface.Utility.Raii;
 namespace AetherFrame.Windows;
 
 /// <summary>
-/// The Design category: the Plate as a whole, in order — layout (orientation), Theme, Pattern (both
+/// The Design category: choices about the Plate as a whole, in order — Theme and Pattern (both
 /// first-class visual browsers), Customize Background (detailed color/mode tuning, collapsed by
-/// default), the Plate Frame and decoration Components, then the layout actions that apply to every Basic section.
+/// default), Text (the shared section heading size), the Plate Frame and decoration Components,
+/// then Layout: the orientation together with the layout actions that apply to every Basic section.
 /// </summary>
 internal sealed partial class BasicProfileEditorWindow
 {
@@ -19,21 +20,9 @@ internal sealed partial class BasicProfileEditorWindow
 
     private void DrawDesignCategory(ProfileDocument profile)
     {
-        // Layout choice first.
-        Subheading("Orientation");
-        var orientation = BasicEditorSession.GetOrientation(profile);
-        var clicked = EditorWidgets.Segmented("Orientation", OrientationLabels, (int)orientation);
-        if (clicked >= 0)
-        {
-            basicEditorSession.SetOrientation((AdventurePlateOrientation)clicked);
-        }
-
-        Hint("Adventure Plate Classic: a portrait beside your details. Mirrored puts the portrait on the right.");
-
-        // Then the two first-class visual pickers: Theme (background + every Basic text color at
-        // once), then Pattern (the background's procedural texture) — both discoverable without
-        // first opening Customize Background.
-        ImGui.Spacing();
+        // The look first: the two first-class visual pickers, Theme (background + every Basic text
+        // color at once), then Pattern (the background's procedural texture) — both discoverable
+        // without first opening Customize Background.
         Subheading("Theme");
         using (ImRaii.PushId("Theme"))
         {
@@ -114,10 +103,23 @@ internal sealed partial class BasicProfileEditorWindow
         }
     }
 
-    /// <summary>Layout actions for every Basic section at once, and what needs attention.</summary>
+    /// <summary>
+    /// The Plate's layout in one place: its orientation, then the actions for every Basic section at
+    /// once, and what needs attention.
+    /// </summary>
     private void DrawPlateLayoutActions(ProfileDocument profile)
     {
+        ImGui.Spacing();
         Subheading("Layout");
+        var orientation = BasicEditorSession.GetOrientation(profile);
+        var clicked = EditorWidgets.Segmented("Orientation", OrientationLabels, (int)orientation);
+        if (clicked >= 0)
+        {
+            basicEditorSession.SetOrientation((AdventurePlateOrientation)clicked);
+        }
+
+        Hint("Adventure Plate Classic: a portrait beside your details. Mirrored puts the portrait on the right.");
+        ImGui.Spacing();
 
         var customized = BasicEditorSession.CustomizedSections(profile);
         if (customized.Count == 0)

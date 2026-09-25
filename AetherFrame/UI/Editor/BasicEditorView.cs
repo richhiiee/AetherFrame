@@ -9,9 +9,10 @@ using AetherFrame.UI.Rendering;
 namespace AetherFrame.UI.Editor;
 
 /// <summary>
-/// The Basic editor's top-level categories, in navigator order: choose the look, the portrait,
-/// the identity, the character details, playstyle and availability, the message. Not a wizard —
-/// any category can be opened at any time.
+/// The Basic editor's top-level categories, in navigator order — each answers "what part of my
+/// Plate am I editing?": the whole Plate's look (Design), the portrait, the identity (name and
+/// title), the character details (Home World, Favorite Job and Level, Free Company), activity
+/// (playstyle and active hours), the message. Not a wizard — any category can be opened at any time.
 /// </summary>
 internal enum BasicEditorCategory
 {
@@ -129,7 +130,7 @@ internal static class BasicEditorView
     /// <summary>Each category's panels, in order.</summary>
     private static readonly Dictionary<BasicEditorCategory, BasicEditorPanel[]> Panels = new()
     {
-        [BasicEditorCategory.Design] = [BasicEditorPanel.PlateLayout, BasicEditorPanel.BackgroundTheme],
+        [BasicEditorCategory.Design] = [BasicEditorPanel.BackgroundTheme, BasicEditorPanel.PlateLayout],
         [BasicEditorCategory.Portrait] = [BasicEditorPanel.Portrait],
         [BasicEditorCategory.Identity] = [BasicEditorPanel.Identity],
         [BasicEditorCategory.Details] = [BasicEditorPanel.HomeWorld, BasicEditorPanel.JobAndLevel, BasicEditorPanel.FreeCompany],
@@ -138,9 +139,9 @@ internal static class BasicEditorView
     };
 
     /// <summary>
-    /// Every panel in the editing flow, top to bottom: the layout, the visual theme, the portrait,
-    /// identity, character details, playstyle and availability, the message (the categories'
-    /// panels in navigator order).
+    /// Every panel in the editing flow, top to bottom: the visual theme, the layout, the portrait,
+    /// identity, character details, activity (playstyle and active hours), the message (the
+    /// categories' panels in navigator order).
     /// </summary>
     internal static readonly BasicEditorPanel[] PanelOrder = Categories.SelectMany(c => Panels[c]).ToArray();
 
@@ -151,8 +152,8 @@ internal static class BasicEditorView
         BasicEditorCategory.Design => "Design",
         BasicEditorCategory.Portrait => "Portrait",
         BasicEditorCategory.Identity => "Identity",
-        BasicEditorCategory.Details => "Details",
-        BasicEditorCategory.Playstyle => "Playstyle",
+        BasicEditorCategory.Details => "Character Details",
+        BasicEditorCategory.Playstyle => "Activity",
         _ => "Message",
     };
 

@@ -45,10 +45,10 @@ internal sealed class BackgroundStylePanel
     }
 
     /// <summary>
-    /// Draws the controls. <paramref name="applyTheme"/> is what a theme swatch does (the Advanced
-    /// editor recolors the background); the theme row is left out in Image mode (where a background
-    /// preset would replace the image), or entirely when null — the Basic editor draws its own
-    /// theme row (<see cref="DrawThemePresets"/>) first.
+    /// Draws the controls. <paramref name="applyTheme"/> is what a preset card does (the Advanced
+    /// editor recolors the background only, so its row is labelled Presets, not Theme); the row is
+    /// left out in Image mode (where a background preset would replace the image), or entirely when
+    /// null — the Basic editor draws its own Theme row (<see cref="DrawThemePresets"/>) first.
     /// </summary>
     internal void Draw(ProfileDocument profile, Action<ProfileThemePreset>? applyTheme)
     {
@@ -68,7 +68,7 @@ internal sealed class BackgroundStylePanel
 
         if (applyTheme is not null && background.Mode != ProfileBackgroundMode.Image)
         {
-            DrawThemePresets(profile, applyTheme);
+            DrawThemePresets(profile, applyTheme, backgroundOnly: true);
         }
 
         switch (background.Mode)
@@ -139,13 +139,27 @@ internal sealed class BackgroundStylePanel
     /// gradient angle, and any texture the theme sets — an image background keeps showing its image,
     /// same as <see cref="BasicPlateEditor.ApplyTheme"/>), plus sample Name/Title text in the
     /// theme's own colors. Applying one only copies values — everything stays editable.
+    ///
+    /// <para><paramref name="backgroundOnly"/>: the Advanced editor's use, which recolors only the
+    /// background (not the text colors, and not the Plate's Basic theme), so it's worded as
+    /// background Presets and marks no card as the current theme — which it never changes.</para>
     /// </summary>
-    internal void DrawThemePresets(ProfileDocument profile, Action<ProfileThemePreset> applyTheme)
+    internal void DrawThemePresets(ProfileDocument profile, Action<ProfileThemePreset> applyTheme, bool backgroundOnly = false)
     {
-        EditorWidgets.PropertyLabel("Theme", 0f);
-
-        var current = ProfileThemePresets.Find(profile.BasicPlate?.ThemeId);
-        ImGui.TextDisabled(current is { } selected ? $"Current: {selected.Name} ({selected.Family})" : "Current: none chosen yet");
+        ProfileThemePreset? current;
+        if (backgroundOnly)
+        {
+            EditorWidgets.PropertyLabel("Presets", 0f);
+            ImGui.TextDisabled("Background colors only");
+            EditorWidgets.Tooltip("Sets the background's colors. Text colors stay as they are.\nThe Basic Editor's Theme sets the background and every Basic text color together.");
+            current = null;
+        }
+        else
+        {
+            EditorWidgets.PropertyLabel("Theme", 0f);
+            current = ProfileThemePresets.Find(profile.BasicPlate?.ThemeId);
+            ImGui.TextDisabled(current is { } selected ? $"Current: {selected.Name} ({selected.Family})" : "Current: none chosen yet");
+        }
 
         foreach (var family in ProfileThemePresets.FamilyOrder)
         {

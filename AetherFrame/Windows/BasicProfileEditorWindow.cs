@@ -19,7 +19,7 @@ namespace AetherFrame.Windows;
 /// <summary>
 /// The Basic editor: choose what to edit, edit it, always see the result. The shared
 /// <see cref="EditorActionBar"/> (the same one the Advanced editor has) sits on top. A category navigator
-/// (Design, Portrait, Identity, Details, Playstyle, Message) picks what the inspector shows — one
+/// (Design, Portrait, Identity, Character Details, Activity, Message) picks what the inspector shows — one
 /// category at a time, its title and summary pinned above its controls — beside an always-visible
 /// live preview (which a click on a section also navigates from). On narrower windows the
 /// navigator becomes a wrapping category strip and the preview moves above the inspector.
@@ -33,7 +33,8 @@ namespace AetherFrame.Windows;
 /// </summary>
 internal sealed partial class BasicProfileEditorWindow : Window, IDisposable, IEditorSurface
 {
-    private const float NavigatorWidth = 150f;
+    // Wide enough for the longest category name ("CHARACTER DETAILS") beside its status marker.
+    private const float NavigatorWidth = 176f;
     private const float InspectorMinWidth = 340f;
     private const float InspectorMaxWidth = 500f;
 
@@ -736,7 +737,8 @@ internal sealed partial class BasicProfileEditorWindow : Window, IDisposable, IE
         }
 
         var open = true;
-        if (!ImGui.BeginPopupModal(ResetLayoutPopupId, ref open, ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoSavedSettings))
+        using var popup = ImRaii.PopupModal(ResetLayoutPopupId, ref open, ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoSavedSettings);
+        if (!popup.Success)
         {
             return;
         }
@@ -767,8 +769,6 @@ internal sealed partial class BasicProfileEditorWindow : Window, IDisposable, IE
         {
             ImGui.CloseCurrentPopup();
         }
-
-        ImGui.EndPopup();
 
         static void BulletText(string text)
         {

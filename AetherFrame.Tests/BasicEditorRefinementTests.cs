@@ -212,11 +212,11 @@ public class IdentityHierarchyTests
 public class BasicEditorViewTests
 {
     [Fact]
-    public void TheFlow_StartsWithLayoutThenThemeThenPortraitThenIdentity_AndShowsEveryPanelOnce()
+    public void TheFlow_StartsWithThemeThenLayoutThenPortraitThenIdentity_AndShowsEveryPanelOnce()
     {
         Assert.Equal(
             [
-                BasicEditorPanel.PlateLayout, BasicEditorPanel.BackgroundTheme, BasicEditorPanel.Portrait, BasicEditorPanel.Identity,
+                BasicEditorPanel.BackgroundTheme, BasicEditorPanel.PlateLayout, BasicEditorPanel.Portrait, BasicEditorPanel.Identity,
                 BasicEditorPanel.HomeWorld, BasicEditorPanel.JobAndLevel, BasicEditorPanel.FreeCompany,
                 BasicEditorPanel.Playstyle, BasicEditorPanel.ActiveHours, BasicEditorPanel.Message,
             ],

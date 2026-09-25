@@ -11,7 +11,7 @@ using Dalamud.Interface.Utility.Raii;
 namespace AetherFrame.Windows;
 
 /// <summary>
-/// The Portrait, Details, Playstyle, and Message categories. Each is structured input over its
+/// The Portrait, Character Details, Activity, and Message categories. Each is structured input over its
 /// role-tagged elements through <see cref="BasicEditorSession"/> — no coordinates, no freeform
 /// placement — with content first, then Appearance and Advanced Styling (collapsed), then the
 /// Layout block (follows the layout / customized, Apply Layout, Reset).
@@ -95,7 +95,7 @@ internal sealed partial class BasicProfileEditorWindow
                 ToolTip("Removes the portrait from this Plate (undoable). The image stays in your library.");
             }
 
-            Subheading("Fit");
+            Subheading("Image Fit");
             var fitClicked = EditorWidgets.Segmented("PortraitFit", PortraitFitLabels, Array.IndexOf(PortraitFitOrder, portrait.DisplayMode));
             if (fitClicked >= 0)
             {

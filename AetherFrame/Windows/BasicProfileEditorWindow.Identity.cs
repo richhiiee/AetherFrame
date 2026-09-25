@@ -212,13 +212,13 @@ internal sealed partial class BasicProfileEditorWindow
             return;
         }
 
-        ImGui.TextColored(EditorWidgets.WarningColor, $"The title's decoration ({title.Prefix} ... {title.Suffix}) can't be drawn and shows as \"?\".");
-        if (ImGui.SmallButton("Remove Decoration"))
+        ImGui.TextColored(EditorWidgets.WarningColor, $"The title's symbols ({title.Prefix} ... {title.Suffix}) can't be drawn and show as \"?\".");
+        if (ImGui.SmallButton("Remove Symbols"))
         {
             identity.ClearDecoration();
         }
 
-        ToolTip("Removes the symbols before and after the title (undoable). You can pick new ones\nunder Advanced Styling > Title decoration.");
+        ToolTip("Removes the symbols before and after the title (undoable). You can pick new ones\nunder Advanced Styling > Title symbols.");
     }
 
     /// <summary>The curated title layouts (only meaningful while a title is shown): one row of four.</summary>
@@ -272,10 +272,10 @@ internal sealed partial class BasicProfileEditorWindow
         ToolTip("Switches to the Classic layout and updates the title's style to match (undoable).\nUntil you do this, the title keeps looking exactly as it always has.");
     }
 
-    /// <summary>The title's prefix/suffix decoration (inside Advanced Styling).</summary>
+    /// <summary>The title's prefix/suffix symbols (inside Advanced Styling).</summary>
     private static void DrawDecoration(TextProfileElement title, BasicIdentitySession identity)
     {
-        ImGui.TextDisabled("Title decoration");
+        ImGui.TextDisabled("Title symbols");
         var half = (ImGui.GetContentRegionAvail().X - ImGui.GetStyle().ItemSpacing.X) / 2f;
         DecorationCombo("Prefix", title.Prefix, half, identity.SetPrefix);
         ImGui.SameLine();
