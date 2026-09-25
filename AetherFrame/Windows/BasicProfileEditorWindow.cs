@@ -348,8 +348,9 @@ internal sealed partial class BasicProfileEditorWindow : Window, IDisposable, IE
     // ---------------------------------------------------------------- navigation
 
     /// <summary>
-    /// The wide layout's navigation rail: its own subtle background, a small "Basic Editor" header,
-    /// then one row per category — Title Case, one height, evenly spaced, text inset. The selected
+    /// The wide layout's navigation rail: its own subtle background, then one row per category from
+    /// the top (the action bar's Basic | Advanced switch already says which editor this is) —
+    /// Title Case, one height, evenly spaced, text inset. The selected
     /// row has a soft accent tint, a narrow accent bar at its left edge and full-strength text;
     /// the others muted text, with a faint background on hover. Rows are ordinary ImGui items, so
     /// mouse, keyboard and gamepad navigation work as before; a status marker still sits at the
@@ -371,9 +372,7 @@ internal sealed partial class BasicProfileEditorWindow : Window, IDisposable, IE
         var rowWidth = Math.Max(1f, ImGui.GetContentRegionAvail().X - (padding * 2f));
         var drawList = ImGui.GetWindowDrawList();
 
-        ImGui.SetCursorPos(new Vector2(padding + (RailTextInset * scale) - (RailIndicatorWidth * scale), padding));
-        ImGui.TextDisabled("Basic Editor");
-        ImGui.Dummy(new Vector2(0f, 2f * scale));
+        ImGui.SetCursorPosY(padding);
 
         using var spacing = ImRaii.PushStyle(ImGuiStyleVar.ItemSpacing, new Vector2(ImGui.GetStyle().ItemSpacing.X, RailRowGap * scale));
         foreach (var category in BasicEditorView.Categories)
