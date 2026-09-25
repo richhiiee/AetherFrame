@@ -130,8 +130,10 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
             editorSession.EndInteraction();
         });
         var gameTitleCatalog = new GameTitleCatalog();
+        var textMeasurer = new ProfileTextMeasurer(fontService);
+        editorSession.IdentityMeasurer = textMeasurer;
         var basicIdentitySession = new BasicIdentitySession(
-            profileService, editorSession, characterIdentityService, new ProfileTextMeasurer(fontService), gameTitleCatalog);
+            profileService, editorSession, characterIdentityService, textMeasurer, gameTitleCatalog);
         var basicEditorSession = new BasicEditorSession(
             profileService, editorSession, assetStorageService, basicIdentitySession, characterIdentityService, jobCatalog);
         keyboardShortcutService = new KeyboardShortcutService();

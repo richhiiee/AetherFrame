@@ -67,6 +67,22 @@ public sealed class PlateComponent
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public CornerMask? Corners { get; set; }
 
+    /// <summary>
+    /// Name Backings and Dividers only (see <see cref="PlateComponentEditor.CanFixAnchor"/>): the
+    /// logical canvas box this instance is placed from, instead of following the name and title.
+    /// Null — the default, every Basic slot, and every Plate saved before this existed — follows them.
+    /// Set when the Advanced editor adds one (from where the name is then) or when "Follows the name"
+    /// is turned off, so moving the name no longer moves the decoration, or the other way round.
+    /// Offset, Scale and Rotation apply on top, exactly as on a following one. Only used when both
+    /// halves are set (see <see cref="ComponentPaintPlan.FixedAnchorOf"/>); ignored for other kinds.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Vector2? FixedAnchorPosition { get; set; }
+
+    /// <summary>The size half of <see cref="FixedAnchorPosition"/>.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Vector2? FixedAnchorSize { get; set; }
+
     /// <summary>Properties this build doesn't know, kept through clone and save unchanged.</summary>
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? ExtensionData { get; set; }
@@ -85,6 +101,8 @@ public sealed class PlateComponent
         LayerOrder = LayerOrder,
         AssetId = AssetId,
         Corners = Corners,
+        FixedAnchorPosition = FixedAnchorPosition,
+        FixedAnchorSize = FixedAnchorSize,
         ExtensionData = ProfileElement.CopyExtensionData(ExtensionData),
     };
 
@@ -103,6 +121,8 @@ public sealed class PlateComponent
         && RotationDegrees.Equals(other.RotationDegrees)
         && LayerOrder == other.LayerOrder
         && AssetId == other.AssetId
+        && FixedAnchorPosition == other.FixedAnchorPosition
+        && FixedAnchorSize == other.FixedAnchorSize
         && Corners == other.Corners;
 
     /// <summary>Element-wise <see cref="ContentEquals(PlateComponent?)"/> of two lists (null and empty are equal: both mean "no components").</summary>

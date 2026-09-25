@@ -230,18 +230,7 @@ public static class ComponentPaintPlan
         var hasIdentityElements = BasicSections.Find(profile, ProfileElementRole.BasicName) is not null
             || BasicSections.Find(profile, ProfileElementRole.BasicTitle) is not null;
 
-        ElementRect? drawnIdentity = null;
-        ProfileElement? firstIdentity = null;
-        foreach (var element in drawnElements)
-        {
-            if (element.Role is ProfileElementRole.BasicName or ProfileElementRole.BasicTitle)
-            {
-                firstIdentity ??= element;
-                var rect = TextExtent(element, measureText);
-                drawnIdentity = drawnIdentity?.Union(rect) ?? rect;
-            }
-        }
-
+        var drawnIdentity = IdentityExtent(drawnElements, measureText, out var firstIdentity);
         var orientation = profile.BasicPlate?.Orientation ?? AdventurePlateOrientation.Normal;
 
         // A missing name and title: the layout's placement, at the bottom of the element stack (a
@@ -286,10 +275,8 @@ public static class ComponentPaintPlan
                     break;
 
                 case PlateComponentKind.Divider:
-                    var identity = drawnIdentity ?? AdventurePlateClassicLayout.GetGroupBounds(BasicSection.Identity, orientation, profile);
-                    var divider = new ElementRect(
-                        new Vector2(identity.Position.X, identity.Position.Y + identity.Size.Y + (DividerGap * unit)),
-                        new Vector2(identity.Size.X, DividerHeight * unit));
+                    var divider = FixedAnchorOf(component)
+                        ?? DividerBox(drawnIdentity ?? AdventurePlateClassicLayout.GetGroupBounds(BasicSection.Identity, orientation, profile), unit);
                     output.Add(ComponentStep(component, definition, ArtBand(divider, definition), 0f, false, false));
                     break;
 
@@ -328,9 +315,69 @@ public static class ComponentPaintPlan
     {
         foreach (var (component, definition, _) in band)
         {
-            output.Add(ComponentStep(component, definition, ArtBand(anchor, definition), anchorRotation, false, false));
+            // A fixed anchor replaces the followed one (only Name Backings have one in a band).
+            var box = FixedAnchorOf(component) ?? anchor;
+            output.Add(ComponentStep(component, definition, ArtBand(box, definition), anchorRotation, false, false));
         }
     }
+
+    /// <summary>
+    /// The box a Name Backing or Divider follows right now — the name and title's drawn extent
+    /// (measured when <paramref name="measureText"/> is given), else the layout's Identity Header —
+    /// before the component's own Offset, Scale and any artwork sizing: what <see cref="Build"/>
+    /// places an instance from when it has no fixed anchor, and so the box to fix one at without it
+    /// moving. Null for every other kind.
+    /// </summary>
+    public static ElementRect? ContentAnchor(
+        ProfileDocument profile, IReadOnlyList<ProfileElement> drawnElements, PlateComponentKind kind, Func<TextProfileElement, float?>? measureText = null)
+    {
+        if (!PlateComponentEditor.CanFixAnchor(kind))
+        {
+            return null;
+        }
+
+        var unit = Unit(profile);
+        var orientation = profile.BasicPlate?.Orientation ?? AdventurePlateOrientation.Normal;
+        var identity = IdentityExtent(drawnElements, measureText, out _) ?? AdventurePlateClassicLayout.GetGroupBounds(BasicSection.Identity, orientation, profile);
+        return kind == PlateComponentKind.NameBacking ? Pad(identity, unit) : DividerBox(identity, unit);
+    }
+
+    /// <summary>A Name Backing's or Divider's fixed anchor (<see cref="PlateComponent.FixedAnchorPosition"/>),
+    /// when it has a usable one: both halves set, finite, with a positive size. Null otherwise — it follows.</summary>
+    public static ElementRect? FixedAnchorOf(PlateComponent component)
+    {
+        if (!PlateComponentEditor.CanFixAnchor(component.Kind) || component.FixedAnchorPosition is not { } position || component.FixedAnchorSize is not { } size)
+        {
+            return null;
+        }
+
+        return float.IsFinite(position.X) && float.IsFinite(position.Y) && float.IsFinite(size.X) && float.IsFinite(size.Y) && size.X > 0f && size.Y > 0f
+            ? new ElementRect(position, size)
+            : null;
+    }
+
+    /// <summary>The union of the drawn name and title's text extents (see <see cref="TextExtent"/>), and the
+    /// first of them in paint order; null when neither is drawn.</summary>
+    private static ElementRect? IdentityExtent(IReadOnlyList<ProfileElement> drawnElements, Func<TextProfileElement, float?>? measureText, out ProfileElement? first)
+    {
+        ElementRect? extent = null;
+        first = null;
+        foreach (var element in drawnElements)
+        {
+            if (element.Role is ProfileElementRole.BasicName or ProfileElementRole.BasicTitle)
+            {
+                first ??= element;
+                var rect = TextExtent(element, measureText);
+                extent = extent?.Union(rect) ?? rect;
+            }
+        }
+
+        return extent;
+    }
+
+    /// <summary>The procedural Divider's band: the identity's width, just below it.</summary>
+    private static ElementRect DividerBox(ElementRect identity, float unit) =>
+        new(new Vector2(identity.Position.X, identity.Position.Y + identity.Size.Y + (DividerGap * unit)), new Vector2(identity.Size.X, DividerHeight * unit));
 
     /// <summary>
     /// A Name Backing's or Divider's box for bundled artwork: grown by the artwork's

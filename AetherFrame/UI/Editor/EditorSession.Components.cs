@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using AetherFrame.Domain.Components;
 using AetherFrame.Domain.Profiles;
+using AetherFrame.UI.Rendering;
 
 namespace AetherFrame.UI.Editor;
 
@@ -16,17 +18,65 @@ internal sealed partial class EditorSession
     internal void SetComponentSlot(PlateComponentKind kind, string? definitionId) =>
         ApplyDocumentEdit(() => PlateComponentEditor.SetSlot(RequireProfileForComponents(), kind, definitionId, BuiltInComponentCatalog.Instance));
 
-    /// <summary>Advanced: adds a Component of a built-in definition. Returns its id, or null on failure.</summary>
+    /// <summary>
+    /// Measures the name and title the way they are drawn, so an anchor fixed from them matches what
+    /// is on screen; without one (tests, or before the fonts exist) their whole boxes are used.
+    /// </summary>
+    internal IIdentityTextMeasurer? IdentityMeasurer { get; set; }
+
+    /// <summary>
+    /// Advanced: adds a Component of a built-in definition. Returns its id, or null on failure. A
+    /// Name Backing or Divider starts where the name and title are now, then stays there (a fixed
+    /// anchor; see <see cref="PlateComponent.FixedAnchorPosition"/>): the Advanced editor moves the
+    /// name and the decoration independently. The Basic slots keep following the name.
+    /// </summary>
     internal Guid? AddComponent(string definitionId)
     {
         Guid? added = null;
         var applied = ApplyDocumentEdit(() =>
         {
             var definition = BuiltInComponentCatalog.Find(definitionId) ?? throw new ArgumentException($"Unknown Component '{definitionId}'.", nameof(definitionId));
-            added = PlateComponentEditor.Add(RequireProfileForComponents(), definition).Id;
+            var profile = RequireProfileForComponents();
+            var component = PlateComponentEditor.Add(profile, definition);
+            if (ContentAnchor(profile, component.Kind) is { } anchor)
+            {
+                PlateComponentEditor.SetFixedAnchor(profile, component.Id, anchor);
+            }
+
+            added = component.Id;
         });
 
         return applied ? added : null;
+    }
+
+    /// <summary>
+    /// Advanced: makes a Name Backing or Divider follow the name and title again (true), or fixes it
+    /// where it is drawn now (false), without it moving. One undo step; nothing if unchanged.
+    /// </summary>
+    internal void SetComponentFollowsContent(Guid componentId, bool follows) =>
+        ApplyDocumentEdit(() =>
+        {
+            var profile = RequireProfileForComponents();
+            if (PlateComponentEditor.Find(profile, componentId) is { } component)
+            {
+                PlateComponentEditor.SetFixedAnchor(profile, componentId, follows ? null : ContentAnchor(profile, component.Kind));
+            }
+        });
+
+    /// <summary>The box a Name Backing or Divider of <paramref name="kind"/> would follow right now, as
+    /// the renderer places it; null for kinds that can't be fixed.</summary>
+    private ElementRect? ContentAnchor(ProfileDocument profile, PlateComponentKind kind)
+    {
+        if (!PlateComponentEditor.CanFixAnchor(kind))
+        {
+            return null;
+        }
+
+        var drawn = new List<ProfileElement>();
+        ProfilePaintOrder.Fill(profile, drawn, includeHidden: false);
+        var measurer = IdentityMeasurer;
+        Func<TextProfileElement, float?>? measure = measurer is null ? null : element => measurer.TryMeasureNaturalWidth(element, out var width) ? width : null;
+        return ComponentPaintPlan.ContentAnchor(profile, drawn, kind, measure);
     }
 
     internal void RemoveComponent(Guid componentId) =>

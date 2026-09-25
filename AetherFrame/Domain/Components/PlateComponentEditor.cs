@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Numerics;
 using AetherFrame.Domain.Profiles;
 
 namespace AetherFrame.Domain.Components;
@@ -30,6 +31,35 @@ public static class PlateComponentEditor
     [
         PlateComponentKind.Background,
     ];
+
+    /// <summary>
+    /// Kinds whose placement follows text the player moves and edits freely in the Advanced editor
+    /// (the name and title), and so can be fixed in place instead (<see cref="PlateComponent.FixedAnchorPosition"/>).
+    /// Portrait Frames and Overlays keep following the portrait (a frame belongs to its picture);
+    /// Section Headers decorate every heading at once; the rest are placed by the canvas already.
+    /// </summary>
+    public static bool CanFixAnchor(PlateComponentKind kind) => kind is PlateComponentKind.NameBacking or PlateComponentKind.Divider;
+
+    /// <summary>
+    /// Fixes a Name Backing's or Divider's anchor at <paramref name="anchor"/> (normally
+    /// <see cref="ComponentPaintPlan.ContentAnchor"/>, so it doesn't move), or makes it follow the name
+    /// and title again (null). Offset, Scale and Rotation are kept. False when nothing changed or the
+    /// kind can't be fixed.
+    /// </summary>
+    public static bool SetFixedAnchor(ProfileDocument profile, Guid componentId, ElementRect? anchor)
+    {
+        if (Find(profile, componentId) is not { } component || !CanFixAnchor(component.Kind)
+            || (component.FixedAnchorPosition == anchor?.Position && component.FixedAnchorSize == anchor?.Size))
+        {
+            return false;
+        }
+
+        return Update(profile, componentId, c =>
+        {
+            c.FixedAnchorPosition = anchor?.Position;
+            c.FixedAnchorSize = anchor?.Size;
+        });
+    }
 
     public static string KindLabel(PlateComponentKind kind) => kind switch
     {
@@ -237,6 +267,18 @@ public static class PlateComponentEditor
         if (component.Color is { } color)
         {
             component.Color = PlateComponentLimits.ClampColor(color);
+        }
+
+        // A fixed anchor is both halves or neither, on the canvas's coordinate range, never negative in size.
+        if (component.FixedAnchorPosition is { } position && component.FixedAnchorSize is { } size)
+        {
+            component.FixedAnchorPosition = PlateComponentLimits.ClampOffset(position);
+            component.FixedAnchorSize = Vector2.Max(Vector2.Zero, PlateComponentLimits.ClampOffset(size));
+        }
+        else
+        {
+            component.FixedAnchorPosition = null;
+            component.FixedAnchorSize = null;
         }
     }
 

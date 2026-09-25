@@ -318,6 +318,15 @@ internal static class PackageProfileValidator
                 Style(component.Scale, "Component scale");
                 Style(component.RotationDegrees, "Component rotation");
                 Coordinate(component.Offset, "Component offset");
+                if (component.FixedAnchorPosition is { } anchorPosition)
+                {
+                    Coordinate(anchorPosition, "Component anchor");
+                }
+
+                if (component.FixedAnchorSize is { } anchorSize)
+                {
+                    Coordinate(anchorSize, "Component anchor size");
+                }
 
                 if (component.AssetId is { } assetId && assetId != Guid.Empty)
                 {

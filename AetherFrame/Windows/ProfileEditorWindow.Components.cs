@@ -218,6 +218,19 @@ internal sealed partial class ProfileEditorWindow
             }
         }
 
+        // Name Backings and Dividers: follow the name and title (Basic's placement), or stay where they are.
+        if (PlateComponentEditor.CanFixAnchor(component.Kind))
+        {
+            var follows = ComponentPaintPlan.FixedAnchorOf(component) is null;
+            EditorWidgets.PropertyLabel("Placement");
+            if (ImGui.Checkbox("Follows the name##FollowsName", ref follows))
+            {
+                editorSession.SetComponentFollowsContent(componentId, follows);
+            }
+
+            EditorWidgets.Tooltip("On: moves and resizes with the name and title.\nOff: stays where it is, so you can move the name and this independently.");
+        }
+
         // Color: follows the theme until overridden.
         var hasColor = component.Color is not null;
         EditorWidgets.PropertyLabel("Color");
@@ -289,7 +302,8 @@ internal sealed partial class ProfileEditorWindow
 
         EditorWidgets.Tooltip("Back to the default placement, full opacity, and the theme color. Style and image are kept.");
 
-        EditorWidgets.Hint($"Layer: {PlateComponentEditor.KindLabel(component.Kind)}. Placed by {AnchorDescription(component.Kind)}.");
+        var placedBy = ComponentPaintPlan.FixedAnchorOf(component) is null ? AnchorDescription(component.Kind) : "its own spot on the Plate (it no longer follows the name)";
+        EditorWidgets.Hint($"Layer: {PlateComponentEditor.KindLabel(component.Kind)}. Placed by {placedBy}.");
     }
 
     private void CommitComponentOnRelease()

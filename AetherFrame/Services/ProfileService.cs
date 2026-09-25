@@ -478,6 +478,16 @@ internal sealed class ProfileService
                     element.Position *= scale;
                     element.Size *= scale;
                 }
+
+                // A Component's fixed anchor is canvas geometry like an element's, so it scales with them.
+                foreach (var component in profile.Components ?? [])
+                {
+                    if (component.FixedAnchorPosition is { } position && component.FixedAnchorSize is { } size)
+                    {
+                        component.FixedAnchorPosition = position * scale;
+                        component.FixedAnchorSize = size * scale;
+                    }
+                }
             }
 
             profile.CanvasWidth = newWidth;
@@ -492,7 +502,13 @@ internal sealed class ProfileService
         {
             var profile = RequireEditableProfileLocked();
             var elementLayouts = profile.Elements.ToDictionary(e => e.Id, e => (e.Position, e.Size));
-            return new CanvasLayoutState(profile.CanvasWidth, profile.CanvasHeight, elementLayouts);
+            var componentAnchors = new Dictionary<Guid, (Vector2? Position, Vector2? Size)>();
+            foreach (var component in profile.Components ?? [])
+            {
+                componentAnchors[component.Id] = (component.FixedAnchorPosition, component.FixedAnchorSize);
+            }
+
+            return new CanvasLayoutState(profile.CanvasWidth, profile.CanvasHeight, elementLayouts, componentAnchors);
         }
     }
 
@@ -511,6 +527,15 @@ internal sealed class ProfileService
                 {
                     element.Position = layout.Position;
                     element.Size = layout.Size;
+                }
+            }
+
+            foreach (var component in profile.Components ?? [])
+            {
+                if (state.ComponentAnchors.TryGetValue(component.Id, out var anchor))
+                {
+                    component.FixedAnchorPosition = anchor.Position;
+                    component.FixedAnchorSize = anchor.Size;
                 }
             }
         }
@@ -692,5 +717,7 @@ internal sealed class ProfileService
     }
 
     /// <summary>Immutable snapshot of a profile's canvas size and every element's Position/Size, for undo/redo of a canvas resize.</summary>
-    internal readonly record struct CanvasLayoutState(float CanvasWidth, float CanvasHeight, Dictionary<Guid, (Vector2 Position, Vector2 Size)> ElementLayouts);
+    internal readonly record struct CanvasLayoutState(
+        float CanvasWidth, float CanvasHeight, Dictionary<Guid, (Vector2 Position, Vector2 Size)> ElementLayouts,
+        Dictionary<Guid, (Vector2? Position, Vector2? Size)> ComponentAnchors);
 }
