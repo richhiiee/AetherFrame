@@ -46,15 +46,28 @@ public static class BuiltInComponentCatalog
     public const string SectionHeaderUnderline = "af.section-header.underline";
     public const string SectionHeaderTick = "af.section-header.tick";
 
+    // Celestial Sakura: one full-color family across the kinds (see BuiltInArtCatalog).
+    public const string BackgroundCelestialSakura = "af.background.celestial-sakura";
+    public const string PlateFrameCelestialSakura = "af.plate-frame.celestial-sakura";
+    public const string PortraitFrameCelestialSakura = "af.portrait-frame.celestial-sakura";
+    public const string NameBackingCelestialSakura = "af.name-backing.celestial-sakura";
+    public const string DividerCelestialSakuraOrnate = "af.divider.celestial-sakura-ornate";
+    public const string DividerCelestialSakuraSlim = "af.divider.celestial-sakura-slim";
+    public const string CornerOrnamentCelestialSakura = "af.corner-ornament.celestial-sakura";
+
     public static readonly IReadOnlyList<ComponentDefinition> All =
     [
+        ComponentDefinition.ForArt(BackgroundCelestialSakura, "Celestial Sakura: a twilight sky with cherry branches and a crescent moon, over the whole Plate.", BuiltInArtCatalog.CelestialSakuraBackgroundArt, ComponentColorSource.White),
+
         new(PlateFrameLine, PlateComponentKind.PlateFrame, "Line", "A thin border around the Plate.", ComponentShape.Border, ComponentColorSource.ThemeAccent, 0.85f),
         new(PlateFrameDouble, PlateComponentKind.PlateFrame, "Double Line", "A border with a fine inner line.", ComponentShape.DoubleBorder, ComponentColorSource.ThemeAccent, 0.85f),
         new(PlateFrameNotched, PlateComponentKind.PlateFrame, "Notched", "A border with cut corners.", ComponentShape.NotchedBorder, ComponentColorSource.ThemeAccent, 0.85f),
+        ComponentDefinition.ForArt(PlateFrameCelestialSakura, "Celestial Sakura: gold filigree with cherry blossom corners and a crescent crest, edge to edge.", BuiltInArtCatalog.CelestialSakuraPlateFrameArt, ComponentColorSource.White),
 
         new(PortraitFrameLine, PlateComponentKind.PortraitFrame, "Line", "A thin border around the portrait.", ComponentShape.Border, ComponentColorSource.ThemeAccent, 0.9f),
         new(PortraitFrameDouble, PlateComponentKind.PortraitFrame, "Double Line", "A portrait border with a fine inner line.", ComponentShape.DoubleBorder, ComponentColorSource.ThemeAccent, 0.9f),
         new(PortraitFrameBrackets, PlateComponentKind.PortraitFrame, "Corner Brackets", "Brackets on the portrait's corners.", ComponentShape.CornerBrackets, ComponentColorSource.ThemeAccent, 0.9f),
+        ComponentDefinition.ForArt(PortraitFrameCelestialSakura, "Celestial Sakura: a slim gold portrait border with cherry blossoms and pearls.", BuiltInArtCatalog.CelestialSakuraPortraitFrameArt, ComponentColorSource.White),
 
         new(PortraitOverlayFade, PlateComponentKind.PortraitOverlay, "Bottom Fade", "Darkens the bottom of the portrait.", ComponentShape.BottomFade, ComponentColorSource.Shadow, 0.75f),
         new(PortraitOverlayVignette, PlateComponentKind.PortraitOverlay, "Vignette", "Softly darkens the portrait's edges.", ComponentShape.Vignette, ComponentColorSource.Shadow, 0.6f),
@@ -63,13 +76,17 @@ public static class BuiltInComponentCatalog
         new(NameBackingBar, PlateComponentKind.NameBacking, "Bar", "A soft bar behind the name.", ComponentShape.Bar, ComponentColorSource.NameBackdrop, 0.35f),
         new(NameBackingRibbon, PlateComponentKind.NameBacking, "Ribbon", "A bar with pointed ends behind the name.", ComponentShape.Ribbon, ComponentColorSource.ThemeBackground, 0.8f),
         new(NameBackingFade, PlateComponentKind.NameBacking, "Fade", "A backing that fades out to the right.", ComponentShape.FadeBar, ComponentColorSource.NameBackdrop, 0.5f),
+        ComponentDefinition.ForArt(NameBackingCelestialSakura, "Celestial Sakura: an ivory enamel nameplate with blossom ends behind the name.", BuiltInArtCatalog.CelestialSakuraNameplateArt, ComponentColorSource.White),
 
         new(CornerOrnamentBracket, PlateComponentKind.CornerOrnament, "Bracket", "An angled mark in each corner.", ComponentShape.CornerL, ComponentColorSource.ThemeAccent, 0.9f),
         new(CornerOrnamentDiamond, PlateComponentKind.CornerOrnament, "Diamond", "A small diamond in each corner.", ComponentShape.CornerDiamond, ComponentColorSource.ThemeAccent, 0.9f),
         ComponentDefinition.ForArt(CornerOrnamentAstrolabePivot, "Celestial Dream: an astrolabe's arcs and pivot star in each corner.", BuiltInArtCatalog.AstrolabePivot, ComponentColorSource.ThemeAccent),
+        ComponentDefinition.ForArt(CornerOrnamentCelestialSakura, "Celestial Sakura: a cluster of cherry blossoms, gold filigree and a crescent in each corner.", BuiltInArtCatalog.CelestialSakuraCornerOrnamentArt, ComponentColorSource.White),
 
         new(DividerLine, PlateComponentKind.Divider, "Line", "A rule under the name.", ComponentShape.Rule, ComponentColorSource.ThemeAccent, 0.7f),
         new(DividerDiamond, PlateComponentKind.Divider, "Diamond", "A rule with a center diamond under the name.", ComponentShape.DiamondRule, ComponentColorSource.ThemeAccent, 0.8f),
+        ComponentDefinition.ForArt(DividerCelestialSakuraOrnate, "Celestial Sakura: curling gold with blossom clusters and a crescent-set gem under the name.", BuiltInArtCatalog.CelestialSakuraOrnateDividerArt, ComponentColorSource.White),
+        ComponentDefinition.ForArt(DividerCelestialSakuraSlim, "Celestial Sakura: a fine gold line with one star and one blossom under the name.", BuiltInArtCatalog.CelestialSakuraSlimDividerArt, ComponentColorSource.White),
 
         new(SectionHeaderUnderline, PlateComponentKind.SectionHeader, "Underline", "A fine line under each section heading.", ComponentShape.Underline, ComponentColorSource.ThemeAccent, 0.6f),
         new(SectionHeaderTick, PlateComponentKind.SectionHeader, "Accent Mark", "A short mark under each section heading.", ComponentShape.AccentTick, ComponentColorSource.ThemeAccent, 0.9f),

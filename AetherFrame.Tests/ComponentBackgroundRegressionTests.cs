@@ -15,7 +15,9 @@ namespace AetherFrame.Tests;
 /// reads or writes <see cref="ProfileDocument.Background"/> (the background is composed entirely by
 /// <c>ProfileBackgroundRenderer</c>, called once, before the element/Component paint loop, unchanged
 /// by Components V1), and every built-in Plate Frame / Portrait Component is either an edge-only
-/// border or scoped to the portrait's own rect — never a canvas-covering fill. These tests lock in
+/// border, artwork whose interior is transparent, or scoped to the portrait's own rect — never a
+/// canvas-covering fill. (A Background Component is the one deliberate canvas-covering kind, and it
+/// paints under everything but still never touches the Plate's own background.) These tests lock in
 /// both guarantees at the one level Components' render planning is testable without a live ImGui
 /// context (<c>Windows/</c> and <c>UI/Rendering/</c> proper aren't compiled into this project).
 /// </summary>
@@ -151,7 +153,48 @@ public class ComponentBackgroundRegressionTests
         ComponentGeometry.Build(document, step.Component!, step.Definition!, step.Placement, primitives);
 
         var center = new Vector2(document.CanvasWidth, document.CanvasHeight) / 2f;
-        Assert.DoesNotContain(primitives, p => BoundsContain(p, center));
+        foreach (var primitive in primitives)
+        {
+            if (primitive.Kind == ComponentPrimitiveKind.Art && step.Definition!.Art is { } art)
+            {
+                // Artwork spans its box; what reaches the center is its (transparent) interior.
+                Assert.True(ArtAlphaAt(art, primitive, center) <= 1, $"{art.Id} is not see-through at the canvas center");
+                continue;
+            }
+
+            Assert.False(BoundsContain(primitive, center));
+        }
+    }
+
+    /// <summary>The largest alpha of <paramref name="art"/>'s texels within 8 texels of where
+    /// <paramref name="point"/> falls in the (unrotated) quad it is drawn over; 0 outside it.</summary>
+    private static int ArtAlphaAt(BuiltInArtAsset art, ComponentPrimitive quad, Vector2 point)
+    {
+        if (!BoundsContain(quad, point))
+        {
+            return 0;
+        }
+
+        using var stream = typeof(ComponentBackgroundRegressionTests).Assembly.GetManifestResourceStream(art.ResourceName);
+        Assert.NotNull(stream);
+        using var buffer = new System.IO.MemoryStream();
+        stream!.CopyTo(buffer);
+        var image = Domain.Rendering.BundledArtImage.DecodePng(buffer.ToArray());
+
+        var u = (point.X - quad.A.X) / (quad.B.X - quad.A.X);
+        var v = (point.Y - quad.A.Y) / (quad.D.Y - quad.A.Y);
+        var cx = (int)(u * image.Width);
+        var cy = (int)(v * image.Height);
+        var max = 0;
+        for (var y = Math.Max(0, cy - 8); y <= Math.Min(image.Height - 1, cy + 8); y++)
+        {
+            for (var x = Math.Max(0, cx - 8); x <= Math.Min(image.Width - 1, cx + 8); x++)
+            {
+                max = Math.Max(max, image.Rgba[(((y * image.Width) + x) * 4) + 3]);
+            }
+        }
+
+        return max;
     }
 
     /// <summary>Axis-aligned bounding box of the primitive's four corners contains <paramref name="point"/>.

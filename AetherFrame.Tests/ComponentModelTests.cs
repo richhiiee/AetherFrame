@@ -98,6 +98,13 @@ public class ComponentCatalogTests
         ("af.divider.diamond", PlateComponentKind.Divider),
         ("af.section-header.underline", PlateComponentKind.SectionHeader),
         ("af.section-header.tick", PlateComponentKind.SectionHeader),
+        ("af.background.celestial-sakura", PlateComponentKind.Background),
+        ("af.plate-frame.celestial-sakura", PlateComponentKind.PlateFrame),
+        ("af.portrait-frame.celestial-sakura", PlateComponentKind.PortraitFrame),
+        ("af.name-backing.celestial-sakura", PlateComponentKind.NameBacking),
+        ("af.divider.celestial-sakura-ornate", PlateComponentKind.Divider),
+        ("af.divider.celestial-sakura-slim", PlateComponentKind.Divider),
+        ("af.corner-ornament.celestial-sakura", PlateComponentKind.CornerOrnament),
     ];
 
     [Fact]

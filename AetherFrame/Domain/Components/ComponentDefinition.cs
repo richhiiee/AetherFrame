@@ -38,6 +38,10 @@ public sealed record ComponentDefinition(
     /// other shape. Chosen at compile time, so a Plate stores only <see cref="Id"/>.</summary>
     public BuiltInArtAsset? Art { get; init; }
 
+    /// <summary>The visual family of the definition's artwork (<see cref="BuiltInArtAsset.Family"/>), shown
+    /// when browsing; null for procedural styles and standalone art. Never used to resolve anything.</summary>
+    public string? Family => Art?.Family;
+
     /// <summary>A graphical definition drawing <paramref name="art"/>, tinted from <paramref name="colorSource"/>.</summary>
     public static ComponentDefinition ForArt(string id, string description, BuiltInArtAsset art, ComponentColorSource colorSource) =>
         new(id, art.Kind, art.Name, description, ComponentShape.Art, art.Tintable ? colorSource : ComponentColorSource.White, art.DefaultOpacity) { Art = art };
