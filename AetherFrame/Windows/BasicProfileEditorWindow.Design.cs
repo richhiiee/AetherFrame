@@ -27,7 +27,7 @@ internal sealed partial class BasicProfileEditorWindow
         Subheading("Theme");
         using (ImRaii.PushId("Theme"))
         {
-            backgroundPanel.DrawThemePresets(profile, basicEditorSession.ApplyTheme);
+            backgroundPanel.DrawThemeBrowser(profile, basicEditorSession.ApplyTheme);
         }
 
         Hint("A theme sets the background and every Basic text color at once. Each value stays editable.");

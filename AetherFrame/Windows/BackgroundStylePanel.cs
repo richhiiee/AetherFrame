@@ -1,8 +1,10 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
 using AetherFrame.Domain.Profiles;
 using AetherFrame.Domain.Rendering;
+using AetherFrame.Services;
 using AetherFrame.UI.Editor;
 using AetherFrame.UI.Rendering;
 using Dalamud.Bindings.ImGui;
@@ -48,7 +50,7 @@ internal sealed class BackgroundStylePanel
     /// Draws the controls. <paramref name="applyTheme"/> is what a preset card does (the Advanced
     /// editor recolors the background only, so its row is labelled Presets, not Theme); the row is
     /// left out in Image mode (where a background preset would replace the image), or entirely when
-    /// null — the Basic editor draws its own Theme row (<see cref="DrawThemePresets"/>) first.
+    /// null — the Basic editor draws its own Theme browser (<see cref="DrawThemeBrowser"/>) first.
     /// </summary>
     internal void Draw(ProfileDocument profile, Action<ProfileThemePreset>? applyTheme)
     {
@@ -68,7 +70,7 @@ internal sealed class BackgroundStylePanel
 
         if (applyTheme is not null && background.Mode != ProfileBackgroundMode.Image)
         {
-            DrawThemePresets(profile, applyTheme, backgroundOnly: true);
+            DrawBackgroundPresets(profile, applyTheme);
         }
 
         switch (background.Mode)
@@ -126,40 +128,27 @@ internal sealed class BackgroundStylePanel
     private const float ThemeCardPadding = 6f;
     private const float PatternCardSize = 68f;
 
+    // How many rows of theme cards the Basic Theme browser shows before its grid scrolls.
+    private const float ThemeBrowserVisibleRows = 2.5f;
+
+    // The Basic Theme browser's search and filter (editor-only view state).
+    private readonly ThemeBrowserState themeBrowser = new();
+
     private static readonly Vector4 CardColor = new(1f, 1f, 1f, 0.04f);
     private static readonly Vector4 CardHoverColor = new(1f, 1f, 1f, 0.08f);
     private static readonly Vector4 CardBorderColor = new(1f, 1f, 1f, 0.15f);
 
     /// <summary>
-    /// Truthful preview cards grouped into <see cref="ThemeFamily"/> sections (Classic, Pastel,
-    /// Vibrant, Gradient, Special) rather than one long undifferentiated grid. The current theme is
-    /// always named in a summary line above every section, and its own card carries an accent
-    /// border — both stay visible/legible even while its family is collapsed or scrolled away. Each
-    /// card shows exactly what the profile's own background would become if applied (colors,
-    /// gradient angle, and any texture the theme sets — an image background keeps showing its image,
-    /// same as <see cref="BasicPlateEditor.ApplyTheme"/>), plus sample Name/Title text in the
-    /// theme's own colors. Applying one only copies values — everything stays editable.
-    ///
-    /// <para><paramref name="backgroundOnly"/>: the Advanced editor's use, which recolors only the
-    /// background (not the text colors, and not the Plate's Basic theme), so it's worded as
-    /// background Presets and marks no card as the current theme — which it never changes.</para>
+    /// The Advanced editor's background Presets: the theme presets as truthful preview cards grouped
+    /// into <see cref="ThemeFamily"/> sections. It recolors only the background (not the text
+    /// colors, and not the Plate's Basic theme), so it's worded as background Presets and marks no
+    /// card as the current theme — which it never changes.
     /// </summary>
-    internal void DrawThemePresets(ProfileDocument profile, Action<ProfileThemePreset> applyTheme, bool backgroundOnly = false)
+    private void DrawBackgroundPresets(ProfileDocument profile, Action<ProfileThemePreset> applyTheme)
     {
-        ProfileThemePreset? current;
-        if (backgroundOnly)
-        {
-            EditorWidgets.PropertyLabel("Presets", 0f);
-            ImGui.TextDisabled("Background colors only");
-            EditorWidgets.Tooltip("Sets the background's colors. Text colors stay as they are.\nThe Basic Editor's Theme sets the background and every Basic text color together.");
-            current = null;
-        }
-        else
-        {
-            EditorWidgets.PropertyLabel("Theme", 0f);
-            current = ProfileThemePresets.Find(profile.BasicPlate?.ThemeId);
-            ImGui.TextDisabled(current is { } selected ? $"Current: {selected.Name} ({selected.Family})" : "Current: none chosen yet");
-        }
+        EditorWidgets.PropertyLabel("Presets", 0f);
+        ImGui.TextDisabled("Background colors only");
+        EditorWidgets.Tooltip("Sets the background's colors. Text colors stay as they are.\nThe Basic Editor's Theme sets the background and every Basic text color together.");
 
         foreach (var family in ProfileThemePresets.FamilyOrder)
         {
@@ -169,26 +158,154 @@ internal sealed class BackgroundStylePanel
                 continue;
             }
 
-            var containsCurrent = current is { } c && c.Family == family;
-            var flags = containsCurrent ? ImGuiTreeNodeFlags.DefaultOpen : ImGuiTreeNodeFlags.None;
-
             using var id = ImRaii.PushId($"ThemeFamily{family}");
-            if (ImGui.CollapsingHeader($"{family} ({members.Length})", flags))
+            if (ImGui.CollapsingHeader($"{family} ({members.Length})"))
             {
-                DrawThemeCardGrid(profile, members, current, applyTheme);
+                DrawThemeCardGrid(profile, members, null, applyTheme);
                 ImGui.Spacing();
             }
         }
     }
 
-    private void DrawThemeCardGrid(ProfileDocument profile, ProfileThemePreset[] members, ProfileThemePreset? current, Action<ProfileThemePreset> applyTheme)
+    /// <summary>
+    /// The Basic editor's Theme browser: every theme in one collection — no tab or section per
+    /// family, so it keeps working however large the catalog grows. From the top: the Plate's
+    /// current theme (always named, whatever is filtered or scrolled away), a search field, family
+    /// filters (All by default; one per family the catalog actually has), then one responsive grid
+    /// of truthful preview cards that scrolls on its own once it's taller than a few rows. The
+    /// current theme's card is marked and scrolled into view when a Plate opens. Clicking a card
+    /// applies that theme exactly as before (<paramref name="applyTheme"/>, by its stable id).
+    /// Filtering is <see cref="ThemeBrowser"/>'s; the search and filter are view state only.
+    /// </summary>
+    internal void DrawThemeBrowser(ProfileDocument profile, Action<ProfileThemePreset> applyTheme)
+    {
+        var current = ThemeBrowser.Current(profile);
+        if (themeBrowser.PlateId != profile.ProfileId)
+        {
+            themeBrowser.PlateId = profile.ProfileId;
+            themeBrowser.ScrollToCurrent = true;
+        }
+
+        // The current theme, at a glance.
+        EditorWidgets.PropertyLabel("Current", 0f);
+        if (current is { } chosen)
+        {
+            var swatch = ImGui.GetTextLineHeight();
+            var min = ImGui.GetCursorScreenPos() + new Vector2(0f, (ImGui.GetFrameHeight() - swatch) / 2f);
+            ImGui.GetWindowDrawList().AddRectFilledMultiColor(
+                min, min + new Vector2(swatch * 1.6f, swatch),
+                ImGui.GetColorU32(chosen.PrimaryColor), ImGui.GetColorU32(chosen.SecondaryColor),
+                ImGui.GetColorU32(chosen.SecondaryColor), ImGui.GetColorU32(chosen.PrimaryColor));
+            ImGui.Dummy(new Vector2(swatch * 1.6f, ImGui.GetFrameHeight()));
+            ImGui.SameLine();
+            ImGui.TextUnformatted(chosen.Name);
+            ImGui.SameLine();
+            ImGui.TextDisabled(chosen.Family.ToString());
+        }
+        else
+        {
+            ImGui.TextDisabled("None chosen yet");
+        }
+
+        // Search, with a clear button while it holds anything.
+        var search = themeBrowser.Search;
+        var clearWidth = search.Length > 0 ? ImGui.GetFrameHeight() + ImGui.GetStyle().ItemSpacing.X : 0f;
+        ImGui.SetNextItemWidth(ImGui.GetContentRegionAvail().X - clearWidth);
+        if (ImGui.InputTextWithHint("##ThemeSearch", "Search themes...", ref search, ThemeBrowserState.MaxSearchLength))
+        {
+            themeBrowser.Search = search;
+        }
+
+        if (themeBrowser.Search.Length > 0)
+        {
+            ImGui.SameLine();
+            if (EditorWidgets.IconButton("ClearThemeSearch", FontAwesomeIcon.Times, "Clear search"))
+            {
+                themeBrowser.Search = string.Empty;
+            }
+        }
+
+        DrawThemeFilters();
+
+        var themes = ThemeBrowser.Filter(ProfileThemePresets.All, themeBrowser.Search, themeBrowser.Family);
+        if (themes.Count == 0)
+        {
+            EditorWidgets.Hint("No themes match.");
+            if (ImGui.SmallButton("Show all themes"))
+            {
+                themeBrowser.Clear();
+            }
+
+            return;
+        }
+
+        // One grid, sized to its rows up to a few, then scrolling on its own.
+        var style = ImGui.GetStyle();
+        var cardHeight = ThemeCardHeight(profile);
+        var columns = ThemeBrowser.Columns(ImGui.GetContentRegionAvail().X - style.ScrollbarSize, ThemeCardWidth, style.ItemSpacing.X);
+        var rows = (themes.Count + columns - 1) / columns;
+        var contentHeight = (rows * cardHeight) + ((rows - 1) * style.ItemSpacing.Y);
+        var maxHeight = (ThemeBrowserVisibleRows * cardHeight) + ((ThemeBrowserVisibleRows - 0.5f) * style.ItemSpacing.Y);
+        using (var grid = ImRaii.Child("##ThemeGrid", new Vector2(-1f, MathF.Min(contentHeight, maxHeight)), false))
+        {
+            if (grid.Success)
+            {
+                DrawThemeCardGrid(profile, themes, current, applyTheme);
+            }
+        }
+    }
+
+    /// <summary>All, then one filter per family the catalog has (with its count); they wrap rather than run off.</summary>
+    private void DrawThemeFilters()
+    {
+        using var id = ImRaii.PushId("ThemeFilters");
+        var families = ThemeBrowser.Families(ProfileThemePresets.All);
+        var style = ImGui.GetStyle();
+        var available = ImGui.GetContentRegionAvail().X;
+        var rowUsed = 0f;
+
+        Filter("All", null, ProfileThemePresets.All.Length);
+        foreach (var (family, count) in families)
+        {
+            Filter(family.ToString(), family, count);
+        }
+
+        void Filter(string name, ThemeFamily? family, int count)
+        {
+            var label = $"{name} ({count})";
+            var width = ImGui.CalcTextSize(label).X + (style.FramePadding.X * 2f);
+            if (rowUsed > 0f)
+            {
+                if (rowUsed + style.ItemSpacing.X + width <= available)
+                {
+                    ImGui.SameLine();
+                    rowUsed += style.ItemSpacing.X;
+                }
+                else
+                {
+                    rowUsed = 0f;
+                }
+            }
+
+            if (EditorWidgets.TextToggle($"{label}##{name}", themeBrowser.Family == family))
+            {
+                themeBrowser.Family = family;
+            }
+
+            rowUsed += width;
+        }
+    }
+
+    private float ThemeCardHeight(ProfileDocument profile) =>
+        (ThemeCardWidth * profile.CanvasHeight / MathF.Max(1f, profile.CanvasWidth)) + (ThemeCardPadding * 3f) + ImGui.GetTextLineHeight();
+
+    private void DrawThemeCardGrid(ProfileDocument profile, IReadOnlyList<ProfileThemePreset> members, ProfileThemePreset? current, Action<ProfileThemePreset> applyTheme)
     {
         var spacing = ImGui.GetStyle().ItemSpacing.X;
-        var available = ImGui.GetContentRegionAvail().X;
-        var columns = Math.Max(1, (int)((available + spacing) / (ThemeCardWidth + spacing)));
+        var columns = ThemeBrowser.Columns(ImGui.GetContentRegionAvail().X, ThemeCardWidth, spacing);
         var rowStartX = ImGui.GetCursorPosX();
 
-        for (var i = 0; i < members.Length; i++)
+        for (var i = 0; i < members.Count; i++)
         {
             if (i > 0)
             {
@@ -202,16 +319,24 @@ internal sealed class BackgroundStylePanel
                 }
             }
 
-            if (DrawThemeCard(profile, members[i], selected: current?.Id == members[i].Id))
+            var selected = current?.Id == members[i].Id;
+            if (DrawThemeCard(profile, members[i], selected))
             {
                 applyTheme(members[i]);
+            }
+
+            if (selected && themeBrowser.ScrollToCurrent)
+            {
+                // Once per Plate: the current theme's card in view, however long the list.
+                themeBrowser.ScrollToCurrent = false;
+                ImGui.SetScrollHereY(0.5f);
             }
         }
     }
 
     /// <summary>One theme's card: the profile's background as it would look with the theme applied,
-    /// sample text in its Name/Title colors, and its name below. An accent border marks the theme
-    /// currently applied to this profile.</summary>
+    /// sample text in its Name/Title colors, and its name below. An accent border and a check mark
+    /// mark the theme currently applied to this profile. A card scrolled out of view draws nothing.</summary>
     private bool DrawThemeCard(ProfileDocument profile, ProfileThemePreset preset, bool selected)
     {
         var previewHeight = ThemeCardWidth * profile.CanvasHeight / MathF.Max(1f, profile.CanvasWidth);
@@ -224,6 +349,10 @@ internal sealed class BackgroundStylePanel
         var hovered = ImGui.IsItemHovered();
         var clicked = ImGui.IsItemClicked(ImGuiMouseButton.Left);
         EditorWidgets.Tooltip($"{preset.Name}\n{preset.Description}");
+        if (!ImGui.IsRectVisible(min, max))
+        {
+            return clicked;
+        }
 
         var drawList = ImGui.GetWindowDrawList();
         drawList.AddRectFilled(min, max, ImGui.GetColorU32(hovered ? CardHoverColor : CardColor), 6f);
@@ -253,6 +382,11 @@ internal sealed class BackgroundStylePanel
 
         var borderColor = selected ? EditorWidgets.AccentColor : hovered ? EditorWidgets.AccentColor : CardBorderColor;
         drawList.AddRect(previewMin, previewMax, ImGui.GetColorU32(borderColor), 3f, ImDrawFlags.None, selected || hovered ? 2f : 1f);
+
+        if (selected)
+        {
+            DrawSelectedMark(drawList, new Vector2(previewMax.X - 4f, previewMin.Y + 4f));
+        }
 
         var textPos = new Vector2(previewMin.X, previewMax.Y + ThemeCardPadding);
         drawList.PushClipRect(textPos, new Vector2(previewMax.X, max.Y), true);
@@ -599,5 +733,19 @@ internal sealed class BackgroundStylePanel
     {
         var wrapped = degrees % 360f;
         return wrapped < 0f ? wrapped + 360f : wrapped;
+    }
+
+    /// <summary>A small accent disc with a check mark, its top-right corner at <paramref name="topRight"/>: "this is your theme".</summary>
+    private static void DrawSelectedMark(ImDrawListPtr drawList, Vector2 topRight)
+    {
+        var glyph = EditorWidgets.GetIconString(FontAwesomeIcon.Check);
+        using (DalamudServices.PluginInterface.UiBuilder.IconFontHandle.Push())
+        {
+            var size = ImGui.CalcTextSize(glyph);
+            var radius = (MathF.Max(size.X, size.Y) / 2f) + 3f;
+            var center = topRight + new Vector2(-radius, radius);
+            drawList.AddCircleFilled(center, radius, ImGui.GetColorU32(EditorWidgets.AccentColor));
+            drawList.AddText(center - (size / 2f), ImGui.GetColorU32(Vector4.One), glyph);
+        }
     }
 }
