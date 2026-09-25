@@ -1,5 +1,4 @@
 using System;
-using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using AetherFrame.Domain.Templates;
@@ -127,27 +126,7 @@ internal static class TemplateDocuments
     /// <summary>Best-effort display fields straight from JSON (e.g. a newer-version Template that
     /// can't be deserialized by this build).</summary>
     internal static (string? Name, DateTime? CreatedUtc, DateTime? ModifiedUtc) ReadDisplayFields(JsonObject raw) =>
-        (ReadString(raw, nameof(PlateTemplate.Name)),
-         ReadDate(raw, nameof(PlateTemplate.CreatedAtUtc)),
-         ReadDate(raw, nameof(PlateTemplate.UpdatedAtUtc)));
-
-    private static string? ReadString(JsonObject raw, string property) =>
-        raw[property] is JsonValue value && value.TryGetValue<string>(out var text) ? text : null;
-
-    private static DateTime? ReadDate(JsonObject raw, string property)
-    {
-        if (raw[property] is not JsonValue value)
-        {
-            return null;
-        }
-
-        if (value.TryGetValue<DateTime>(out var date))
-        {
-            return date;
-        }
-
-        return value.TryGetValue<string>(out var text) && DateTime.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var parsed)
-            ? parsed
-            : null;
-    }
+        (JsonFields.ReadString(raw, nameof(PlateTemplate.Name)),
+         JsonFields.ReadDate(raw, nameof(PlateTemplate.CreatedAtUtc)),
+         JsonFields.ReadDate(raw, nameof(PlateTemplate.UpdatedAtUtc)));
 }

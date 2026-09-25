@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -236,27 +235,7 @@ internal static class PlateDocuments
     /// <summary>Best-effort display fields straight from JSON (e.g. a newer-version Plate that
     /// can't be deserialized by this build).</summary>
     internal static (string? Name, DateTime? CreatedUtc, DateTime? ModifiedUtc) ReadDisplayFields(JsonObject raw) =>
-        (ReadString(raw, nameof(ProfileDocument.Name)),
-         ReadDate(raw, nameof(ProfileDocument.CreatedAtUtc)),
-         ReadDate(raw, nameof(ProfileDocument.UpdatedAtUtc)));
-
-    private static string? ReadString(JsonObject raw, string property) =>
-        raw[property] is JsonValue value && value.TryGetValue<string>(out var text) ? text : null;
-
-    private static DateTime? ReadDate(JsonObject raw, string property)
-    {
-        if (raw[property] is not JsonValue value)
-        {
-            return null;
-        }
-
-        if (value.TryGetValue<DateTime>(out var date))
-        {
-            return date;
-        }
-
-        return value.TryGetValue<string>(out var text) && DateTime.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var parsed)
-            ? parsed
-            : null;
-    }
+        (JsonFields.ReadString(raw, nameof(ProfileDocument.Name)),
+         JsonFields.ReadDate(raw, nameof(ProfileDocument.CreatedAtUtc)),
+         JsonFields.ReadDate(raw, nameof(ProfileDocument.UpdatedAtUtc)));
 }
