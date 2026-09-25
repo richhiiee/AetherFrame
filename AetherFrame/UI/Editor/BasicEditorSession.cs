@@ -122,6 +122,23 @@ internal sealed class BasicEditorSession
         }
     }
 
+    /// <summary>
+    /// Section heading size: every standard section heading resized together (see
+    /// <see cref="BasicPlateEditor.SetHeadingSize"/>). <paramref name="continuous"/> coalesces a
+    /// slider drag into one undo step (commit with <see cref="CommitTextEdit"/>).
+    /// </summary>
+    internal void SetHeadingSize(float size, bool continuous)
+    {
+        if (continuous)
+        {
+            EditContinuous(editor => editor.SetHeadingSize(size));
+        }
+        else
+        {
+            Edit(editor => editor.SetHeadingSize(size));
+        }
+    }
+
     // ---------------------------------------------------------------- current character (explicit only)
 
     /// <summary>Fills Home World and Data Center from the logged-in character.</summary>

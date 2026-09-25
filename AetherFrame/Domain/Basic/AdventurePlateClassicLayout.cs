@@ -83,7 +83,14 @@ public static class AdventurePlateClassicLayout
     };
 
     // Typography (reference canvas pixels; scaled with the canvas height).
-    private const float HeadingFontSize = 13f;
+
+    /// <summary>
+    /// The section headings' default size ("HOME WORLD", "MESSAGE"...), in reference pixels: large
+    /// enough to read at a glance next to the 20 px values, and exactly what the heading row holds
+    /// (its height less the text padding) — so a larger size is shown fitted to the row. Applied
+    /// when a heading is created and by Reset Section; existing Plates keep their own sizes.
+    /// </summary>
+    public const float DefaultHeadingFontSize = 16f;
     private const float HeadingLetterSpacing = 1.5f;
     private const float ValueFontSize = 20f;
     private const float PlaystyleFontSize = 18f;
@@ -311,7 +318,7 @@ public static class AdventurePlateClassicLayout
         var theme = ResolveTheme(profile);
         var heading = BasicSections.IsHeading(role);
 
-        var fontSize = heading ? HeadingFontSize
+        var fontSize = heading ? DefaultHeadingFontSize
             : role == ProfileElementRole.BasicPlaystyle ? PlaystyleFontSize
             : role == ProfileElementRole.BasicMessage ? MessageFontSize
             : ValueFontSize;

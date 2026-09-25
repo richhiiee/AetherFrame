@@ -57,9 +57,61 @@ internal sealed partial class BasicProfileEditorWindow
             backgroundPanel.Draw(profile, applyTheme: null);
         }
 
+        DrawSectionHeadingSize(profile);
+
         DrawFrameAndDecorations(profile);
 
         DrawPlateLayoutActions(profile);
+    }
+
+    /// <summary>
+    /// Section heading size: one control for every standard section heading (Home World, Favorite
+    /// Job, Free Company, Playstyle, Active Hours, Message) together — a whole-Plate presentation
+    /// choice, so it lives here rather than in any one section. A slider drag is one undo step.
+    /// (The Advanced Editor still sizes each heading on its own.)
+    /// </summary>
+    private void DrawSectionHeadingSize(ProfileDocument profile)
+    {
+        ImGui.Spacing();
+        Subheading("Text");
+
+        var headings = BasicPlateEditor.Headings(profile);
+        var size = BasicPlateEditor.HeadingSize(profile) ?? AdventurePlateClassicLayout.DefaultHeadingFontSize;
+
+        ImGui.TextUnformatted("Section heading size");
+        using (ImRaii.Disabled(headings.Count == 0))
+        {
+            ImGui.SetNextItemWidth(-1);
+            if (ImGui.SliderFloat("##SectionHeadingSize", ref size, TextProfileElement.MinFontSize, TextProfileElement.MaxFontSize, "%.0f px"))
+            {
+                basicEditorSession.SetHeadingSize(size, continuous: true);
+            }
+
+            if (ImGui.IsItemDeactivatedAfterEdit())
+            {
+                basicEditorSession.CommitTextEdit();
+            }
+        }
+
+        ToolTip("The small captions above your details (Home World, Free Company, Message...), all at once.");
+
+        if (headings.Count == 0)
+        {
+            Hint("Your section headings appear here once your Plate has sections.");
+            return;
+        }
+
+        if (BasicPlateEditor.HeadingSizesDiffer(profile))
+        {
+            Hint("Your headings have different sizes (set in the Advanced Editor). Changing this gives them all one size.");
+        }
+
+        // A heading larger than its row is drawn fitted to it (auto fit), as everywhere else.
+        var shown = headings.Select(h => UI.Rendering.ProfileTextRenderer.GetCachedEffectiveFontSize(h)).OfType<float>().DefaultIfEmpty(size).Min();
+        if (shown < size - 0.5f)
+        {
+            Hint($"Shown at {shown:0} px: headings shrink to fit their row.");
+        }
     }
 
     /// <summary>Layout actions for every Basic section at once, and what needs attention.</summary>

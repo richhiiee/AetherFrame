@@ -181,6 +181,61 @@ internal sealed class BasicPlateEditor
         }
     }
 
+    // ---------------------------------------------------------------- section headings
+
+    /// <summary>
+    /// The standard section headings on the Plate (Home World, Favorite Job, Free Company, Playstyle,
+    /// Active Hours, Message — whichever exist), in section order.
+    /// </summary>
+    internal static List<TextProfileElement> Headings(ProfileDocument profile)
+    {
+        var headings = new List<TextProfileElement>();
+        foreach (var definition in BasicSections.All)
+        {
+            if (definition.Heading is { } role && BasicSections.FindText(profile, role) is { } heading)
+            {
+                headings.Add(heading);
+            }
+        }
+
+        return headings;
+    }
+
+    /// <summary>The headings' shared size as Basic shows it (the first heading's), or null with no headings.</summary>
+    internal static float? HeadingSize(ProfileDocument profile)
+    {
+        foreach (var definition in BasicSections.All)
+        {
+            if (definition.Heading is { } role && BasicSections.FindText(profile, role) is { } heading)
+            {
+                return heading.FontSize;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>True when the headings don't all have one size (e.g. one was resized in the Advanced Editor).</summary>
+    internal static bool HeadingSizesDiffer(ProfileDocument profile)
+    {
+        var size = HeadingSize(profile);
+        return Headings(profile).Exists(heading => !heading.FontSize.Equals(size));
+    }
+
+    /// <summary>
+    /// Section heading size: every standard section heading at one size (clamped to the text size
+    /// range), together. Only their size changes — never their text, style, or placement, and never
+    /// any value text. Headings created later start at the same size.
+    /// </summary>
+    internal void SetHeadingSize(float size)
+    {
+        var value = Math.Clamp(size, TextProfileElement.MinFontSize, TextProfileElement.MaxFontSize);
+        foreach (var heading in Headings(Profile))
+        {
+            heading.FontSize = value;
+        }
+    }
+
     // ---------------------------------------------------------------- creation and content
 
     /// <summary>
@@ -532,10 +587,17 @@ internal sealed class BasicPlateEditor
 
     private ProfileElement Create(ProfileElementRole role, Action<ImageProfileElement>? configureImage = null)
     {
+        // Judged before the new element exists: a new heading joins the others' shared size.
+        var headingSize = BasicSections.IsHeading(role) ? HeadingSize(Profile) : null;
+
         var element = AdventurePlateClassicLayout.CreateElement(role, Profile);
         if (element is ImageProfileElement image)
         {
             configureImage?.Invoke(image);
+        }
+        else if (element is TextProfileElement text && headingSize is { } size)
+        {
+            text.FontSize = size;
         }
 
         addElement(element);
