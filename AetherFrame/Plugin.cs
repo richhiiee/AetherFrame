@@ -136,7 +136,9 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
         profileEditorWindow = new ProfileEditorWindow(
             profileService, editorSession, keyboardShortcutService, renderResources, fileDialogManager, OpenBasicEditor, OpenMyPlates, editorSurfaces, documentCommands);
         editorSurfaces.Attach(basicProfileEditorWindow, profileEditorWindow);
-        profileViewWindow = new ProfileViewWindow(profileService, plateLibrary, renderResources);
+        // The one place "this character's Active Plate" is resolved (the viewer's default request).
+        var activePlates = new ActivePlateResolver(plateLibrary, () => characterIdentityService.CurrentCharacter);
+        profileViewWindow = new ProfileViewWindow(profileService, plateLibrary, activePlates, renderResources, OpenMyPlates);
 
         // .aetherframe export/import: local files only, chosen by the player; nothing networked.
         packageService = new PlatePackageService(

@@ -41,6 +41,7 @@
     <Compile Include="..\AetherFrame\UI\Rendering\ProfilePaintOrder.cs" Link="Linked\UI\Rendering\ProfilePaintOrder.cs" />
     <Compile Include="..\AetherFrame\UI\Rendering\ProfileVisualBounds.cs" Link="Linked\UI\Rendering\ProfileVisualBounds.cs" />
     <Compile Include="..\AetherFrame\UI\Rendering\PlateViewerLayout.cs" Link="Linked\UI\Rendering\PlateViewerLayout.cs" />
+    <Compile Include="..\AetherFrame\UI\Rendering\PlateViewerTarget.cs" Link="Linked\UI\Rendering\PlateViewerTarget.cs" />
     <Compile Include="..\AetherFrame\UI\Rendering\PlateCardPreview.cs" Link="Linked\UI\Rendering\PlateCardPreview.cs" />
   </ItemGroup>
 

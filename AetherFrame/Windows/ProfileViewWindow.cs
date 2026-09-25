@@ -7,6 +7,7 @@ using AetherFrame.UI.Editor;
 using AetherFrame.UI.Rendering;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Utility;
+using Dalamud.Interface.Utility.Raii;
 using Dalamud.Interface.Windowing;
 
 namespace AetherFrame.Windows;
@@ -19,6 +20,11 @@ namespace AetherFrame.Windows;
 /// Plate, the Library's saved copy; for a Template preview, the Template's document. Either way via
 /// the shared <see cref="ProfileRenderer"/> with element-bounds chrome always off. Viewing never
 /// changes a Plate, its dirty state, its undo history, or which Plate is Active.
+///
+/// <para><b>What it shows</b> (<see cref="PlateViewerTarget"/>): an explicitly requested Plate or
+/// Template document; otherwise — the default request, e.g. <c>/aetherframe view</c> — the
+/// logged-in character's Active Plate. With no Active Plate it shows an intentional empty state
+/// pointing at My Plates, never some other Plate.</para>
 ///
 /// <para><b>Presentation.</b> Like Clean Preview, the Plate floats directly over the game: the
 /// window is exactly the Plate's composition (its fitted visual bounds — canvas plus any
@@ -47,40 +53,54 @@ internal sealed class ProfileViewWindow : Window, IDisposable
 
     private readonly ProfileService profileService;
     private readonly PlateLibraryService library;
+    private readonly ActivePlateResolver activePlates;
     private readonly ProfileRenderResources renderResources;
+    private readonly Action openMyPlates;
 
     // Where and how large the viewer shows its Plate: session UI state, kept across reopening and Plates.
     private readonly PlateViewerPlacement placement = new();
     private readonly PlateViewerHint hint = new();
 
-    // The Plate being viewed; null means "whichever Plate is open in the editors".
-    private Guid? viewedPlateId;
+    // What the viewer was last asked to show; starts as the default (Active Plate) request.
+    private readonly PlateViewerTarget target = new();
 
-    // A Template (or any other document that isn't a saved Plate) being previewed. Mutually
-    // exclusive with viewedPlateId: whichever was set most recently wins.
-    private ProfileDocument? viewedExternalDocument;
-
-    // This frame's presentation (computed in PreDraw, used by Draw, style pushes popped in PostDraw),
-    // and the style's own window padding from before the presentation zeroed it, for the context menu.
+    // This frame's resolved content and presentation (computed in PreDraw, used by Draw, style
+    // pushes popped in PostDraw), and the style's own window padding from before the presentation
+    // zeroed it, for the context menu.
     private bool presenting;
+    private PlateViewerContent content;
     private ProfileDocument? presentedDocument;
     private CanvasBounds presentedBounds;
     private PlateViewerLayout? layout;
     private Vector2 styleWindowPadding;
 
-    internal ProfileViewWindow(ProfileService profileService, PlateLibraryService library, ProfileRenderResources renderResources)
+    /// <param name="openMyPlates">The No Active Plate empty state's Open My Plates action.</param>
+    internal ProfileViewWindow(
+        ProfileService profileService, PlateLibraryService library, ActivePlateResolver activePlates, ProfileRenderResources renderResources, Action openMyPlates)
         : base("AetherFrame Plate Viewer##ProfileViewWindow")
     {
         this.profileService = profileService;
         this.library = library;
+        this.activePlates = activePlates;
         this.renderResources = renderResources;
+        this.openMyPlates = openMyPlates;
+    }
+
+    /// <summary>
+    /// The default viewing request: shows the logged-in character's Active Plate — whichever it is
+    /// while the viewer stays open — or the No Active Plate empty state.
+    /// </summary>
+    internal void ShowActivePlate()
+    {
+        target.RequestActivePlate();
+        IsOpen = true;
+        BringToFront();
     }
 
     /// <summary>Shows a specific Plate (its live copy if it's the one open in the editors).</summary>
     internal void ShowPlate(Guid plateId)
     {
-        viewedExternalDocument = null;
-        viewedPlateId = plateId;
+        target.RequestPlate(plateId);
         IsOpen = true;
     }
 
@@ -91,42 +111,8 @@ internal sealed class ProfileViewWindow : Window, IDisposable
     /// </summary>
     internal void ShowDocument(ProfileDocument document)
     {
-        viewedPlateId = null;
-        viewedExternalDocument = document;
+        target.RequestDocument(document);
         IsOpen = true;
-    }
-
-    /// <summary>Toggles the viewer on the Plate open in the editors.</summary>
-    internal void ToggleOpenPlate()
-    {
-        var showingOpenPlate = viewedExternalDocument is null && (viewedPlateId is null || viewedPlateId == profileService.OpenPlateId);
-        if (IsOpen && showingOpenPlate)
-        {
-            IsOpen = false;
-            return;
-        }
-
-        viewedExternalDocument = null;
-        viewedPlateId = null;
-        IsOpen = true;
-    }
-
-    /// <summary>What to draw: an external document if one is being previewed, else the live open
-    /// document when it's the viewed Plate, else the saved one.</summary>
-    private ProfileDocument? ResolveDocument()
-    {
-        if (viewedExternalDocument is not null)
-        {
-            return viewedExternalDocument;
-        }
-
-        var live = profileService.CurrentProfile;
-        if (viewedPlateId is not { } plateId || live?.ProfileId == plateId)
-        {
-            return live;
-        }
-
-        return library.GetSavedDocument(plateId);
     }
 
     public void Dispose()
@@ -139,7 +125,8 @@ internal sealed class ProfileViewWindow : Window, IDisposable
     {
         presenting = false;
         layout = null;
-        presentedDocument = ResolveDocument();
+        content = target.Resolve(activePlates, library.GetSavedDocument, profileService.CurrentProfile);
+        presentedDocument = content.Document;
 
         var viewport = ImGui.GetMainViewport();
         if (presentedDocument is { } document)
@@ -191,12 +178,55 @@ internal sealed class ProfileViewWindow : Window, IDisposable
             return;
         }
 
+        if (content.State == PlateViewerState.NoActivePlate)
+        {
+            DrawNoActivePlate();
+            return;
+        }
+
         ImGui.AlignTextToFramePadding();
-        ImGui.TextUnformatted(presentedDocument is not null ? "This Plate can't be shown."
-            : viewedPlateId is null && viewedExternalDocument is null ? "No Plate is open." : "This Plate isn't available.");
+        ImGui.TextUnformatted(content.State switch
+        {
+            PlateViewerState.Showing => "This Plate can't be shown.",
+            PlateViewerState.NoCharacter => "Log in to a character to view its Active Plate.",
+            PlateViewerState.LibraryUnavailable => "My Plates isn't available right now.",
+            _ => "This Plate isn't available.",
+        });
         ImGui.SameLine();
-        var size = ImGui.GetFrameHeight();
-        if (PresentationControls.Close("##CloseProfileView", ImGui.GetCursorScreenPos(), size, "Close"))
+        DrawMessageClose();
+    }
+
+    /// <summary>The default request's intentional empty state: this character has no Active Plate.</summary>
+    private void DrawNoActivePlate()
+    {
+        // Heading with Close at the right edge of the fixed-width explanation below it.
+        const string heading = "No Active Plate";
+        var left = ImGui.GetCursorPosX();
+        var width = 300f * ImGuiHelpers.GlobalScale;
+        var headingEnd = left + ImGui.CalcTextSize(heading).X + ImGui.GetStyle().ItemSpacing.X;
+        ImGui.AlignTextToFramePadding();
+        ImGui.TextUnformatted(heading);
+        ImGui.SameLine(Math.Max(headingEnd, left + width - ImGui.GetFrameHeight()));
+        DrawMessageClose();
+
+        using (ImRaii.TextWrapPos(left + width))
+        using (ImRaii.PushColor(ImGuiCol.Text, ImGui.GetColorU32(ImGuiCol.TextDisabled)))
+        {
+            ImGui.TextUnformatted("Choose an Active Plate in My Plates to make it your default AetherFrame Plate.");
+        }
+
+        ImGui.Spacing();
+        if (ImGui.Button("Open My Plates"))
+        {
+            // Choosing one there is enough: the viewer never reopens on its own because Active changed.
+            IsOpen = false;
+            openMyPlates();
+        }
+    }
+
+    private void DrawMessageClose()
+    {
+        if (PresentationControls.Close("##CloseProfileView", ImGui.GetCursorScreenPos(), ImGui.GetFrameHeight(), "Close"))
         {
             IsOpen = false;
         }
