@@ -17,7 +17,8 @@ using Dalamud.Interface.Windowing;
 namespace AetherFrame.Windows;
 
 /// <summary>
-/// The Basic editor: choose what to edit, edit it, always see the result. A category navigator
+/// The Basic editor: choose what to edit, edit it, always see the result. The shared
+/// <see cref="EditorActionBar"/> (the same one the Advanced editor has) sits on top. A category navigator
 /// (Design, Portrait, Identity, Details, Playstyle, Message) picks what the inspector shows — one
 /// category at a time, its title and summary pinned above its controls — beside an always-visible
 /// live preview (which a click on a section also navigates from). On narrower windows the
@@ -44,6 +45,8 @@ internal sealed partial class BasicProfileEditorWindow : Window, IDisposable, IE
     private static readonly Vector4 CustomizedColor = new(0.6f, 0.8f, 1f, 0.9f);
     private static readonly Vector4 SubheadingColor = new(0.75f, 0.82f, 1f, 0.95f);
 
+    private const string PreviewTooltip = "Preview: the finished Plate on its own, filling the editor.\nClick again (or Back to Editing) to return to your controls.";
+
     private static readonly string[] PreviewZoomLabels = ["Fit", "150%", "200%"];
     private static readonly string[] PreviewZoomTooltips =
     [
@@ -60,10 +63,10 @@ internal sealed partial class BasicProfileEditorWindow : Window, IDisposable, IE
     private readonly FileDialogManager fileDialogManager;
     private readonly GameTitleCatalog titleCatalog;
     private readonly JobCatalog jobCatalog;
-    private readonly Action openAdvancedEditor;
     private readonly Action openLibrary;
     private readonly EditorSurfaceCoordinator surfaces;
     private readonly BackgroundStylePanel backgroundPanel;
+    private readonly EditorActionBar actionBar;
 
     // Which category is shown, Focus Preview, and zoom: view state only, never part of the Plate.
     private readonly BasicEditorNavigation navigation = new();
@@ -87,7 +90,8 @@ internal sealed partial class BasicProfileEditorWindow : Window, IDisposable, IE
         JobCatalog jobCatalog,
         Action openAdvancedEditor,
         Action openLibrary,
-        EditorSurfaceCoordinator surfaces)
+        EditorSurfaceCoordinator surfaces,
+        EditorDocumentCommands commands)
         : base("AetherFrame Basic Editor##BasicProfileEditorWindow")
     {
         SizeConstraints = new WindowSizeConstraints
@@ -106,10 +110,10 @@ internal sealed partial class BasicProfileEditorWindow : Window, IDisposable, IE
         this.fileDialogManager = fileDialogManager;
         this.titleCatalog = titleCatalog;
         this.jobCatalog = jobCatalog;
-        this.openAdvancedEditor = openAdvancedEditor;
         this.openLibrary = openLibrary;
         this.surfaces = surfaces;
         backgroundPanel = new BackgroundStylePanel(editorSession, renderResources, OpenImageFileDialog);
+        actionBar = new EditorActionBar(commands, EditorSurfaceKind.Basic, openLibrary, openAdvancedEditor);
     }
 
     public void Dispose()
@@ -161,21 +165,21 @@ internal sealed partial class BasicProfileEditorWindow : Window, IDisposable, IE
         // Basic settings) are only created by the first explicit edit that needs them.
         basicEditorSession.Identity.RefineLayout();
 
-        DrawToolbar(profile);
+        // The shared action bar (My Plates, Basic | Advanced, Undo/Redo, Preview/Revert/Save),
+        // outside every scrolling region so it's always in view.
+        actionBar.Draw(profile, navigation.FocusPreview, navigation.ToggleFocusPreview, PreviewTooltip, basicEditorSession.ErrorMessage);
         EditorWidgets.UnsupportedElementsNotice(profile);
         ImGui.Separator();
 
         var scale = ImGuiHelpers.GlobalScale;
         var style = ImGui.GetStyle();
-        var footerHeight = ImGui.GetFrameHeight() + style.ItemSpacing.Y + style.WindowPadding.Y
-            + (basicEditorSession.ErrorMessage is null ? 0f : ImGui.GetTextLineHeightWithSpacing());
-        var body = ImGui.GetContentRegionAvail() - new Vector2(0f, footerHeight);
+        var body = ImGui.GetContentRegionAvail();
         body.Y = Math.Max(body.Y, 160f * scale);
 
         if (navigation.FocusPreview)
         {
-            // Focus Preview: the Plate gets the whole editor. "Back to Editing" returns to the
-            // same category with every control exactly as it was.
+            // Preview: the Plate gets the whole editor (the action bar stays). Preview again, or
+            // "Back to Editing", returns to the same category with every control exactly as it was.
             DrawPreview(profile, new Vector2(-1f, body.Y));
         }
         else
@@ -207,7 +211,7 @@ internal sealed partial class BasicProfileEditorWindow : Window, IDisposable, IE
                     // Narrow: categories first (wrapping, never cut off), the preview at the
                     // canvas' own aspect, then the inspector.
                     DrawCategoryStrip(profile);
-                    var remaining = ImGui.GetContentRegionAvail().Y - footerHeight;
+                    var remaining = ImGui.GetContentRegionAvail().Y;
                     var previewHeight = Math.Clamp(
                         (body.X * profile.CanvasHeight / Math.Max(1f, profile.CanvasWidth)) + ImGui.GetFrameHeightWithSpacing(),
                         140f * scale,
@@ -219,33 +223,11 @@ internal sealed partial class BasicProfileEditorWindow : Window, IDisposable, IE
             }
         }
 
-        DrawFooter();
         DrawResetLayoutPopup();
+        actionBar.DrawPopups();
 
         // Commits a color/slider edit whose widget never reported "deactivated after edit".
         editorSession.CommitPendingEditsIfIdle(ImGui.IsAnyItemActive());
-    }
-
-    private void DrawToolbar(ProfileDocument profile)
-    {
-        if (EditorWidgets.IconButton("MyPlates", FontAwesomeIcon.ThLarge, "My Plates"))
-        {
-            openLibrary();
-        }
-
-        ImGui.SameLine();
-        ImGui.AlignTextToFramePadding();
-        ImGui.TextUnformatted(profile.Name);
-
-        const string advancedLabel = "Advanced Editor";
-        var buttonWidth = ImGui.CalcTextSize(advancedLabel).X + (ImGui.GetStyle().FramePadding.X * 2f);
-        ImGui.SameLine(Math.Max(ImGui.GetCursorPosX(), ImGui.GetWindowContentRegionMax().X - buttonWidth));
-        if (ImGui.Button(advancedLabel))
-        {
-            openAdvancedEditor();
-        }
-
-        EditorWidgets.Tooltip("Freeform editing of this same Plate. Your unsaved changes and undo history come along.");
     }
 
     // ---------------------------------------------------------------- navigation
@@ -566,7 +548,7 @@ internal sealed partial class BasicProfileEditorWindow : Window, IDisposable, IE
     /// <summary>
     /// The live preview: the shared renderer's finished rendering — exactly what the Plate Viewer
     /// shows, with no placeholders, guides, or other editor-only overlays. Its toolbar only changes
-    /// how large the preview is drawn (Fit, 150%, 200%, Focus); the Plate itself is never touched.
+    /// how large the preview is drawn (Fit, 150%, 200%); the Plate itself is never touched.
     /// Clicking a section opens its category; dragging while zoomed pans.
     /// </summary>
     private void DrawPreview(ProfileDocument profile, Vector2 size)
@@ -665,66 +647,16 @@ internal sealed partial class BasicProfileEditorWindow : Window, IDisposable, IE
             }
         }
 
-        ImGui.SameLine();
-        var focus = navigation.FocusPreview;
-        if (EditorWidgets.TextToggle(focus ? "Back to Editing##FocusPreview" : "Focus##FocusPreview", focus,
-                tooltip: focus ? "Show the editing controls again." : "Give the whole editor to the preview for a close look.\nNothing changes on your Plate."))
+        // Preview itself is the action bar's Preview; while it's showing, the way back is here too.
+        if (navigation.FocusPreview)
         {
-            navigation.ToggleFocusPreview();
-        }
-    }
-
-    // ---------------------------------------------------------------- footer
-
-    private void DrawFooter()
-    {
-        ImGui.Separator();
-
-        // The same shared history as the Advanced editor: undoing here or there is identical.
-        using (ImRaii.Disabled(!editorSession.CanUndo))
-        {
-            if (ImGui.Button("Undo"))
+            ImGui.SameLine();
+            if (ImGui.Button("Back to Editing##FocusPreview"))
             {
-                editorSession.Undo();
+                navigation.ToggleFocusPreview();
             }
-        }
 
-        ImGui.SameLine();
-        using (ImRaii.Disabled(!editorSession.CanRedo))
-        {
-            if (ImGui.Button("Redo"))
-            {
-                editorSession.Redo();
-            }
-        }
-
-        ImGui.SameLine();
-        using (ImRaii.Disabled(profileService.IsBusy))
-        {
-            if (ImGui.Button("Save Plate"))
-            {
-                editorSession.SaveProfile();
-            }
-        }
-
-        ImGui.SameLine();
-        ImGui.AlignTextToFramePadding();
-        if (profileService.IsBusy)
-        {
-            ImGui.TextUnformatted("Saving...");
-        }
-        else if (editorSession.IsDirty)
-        {
-            ImGui.TextColored(EditorWidgets.WarningColor, "Unsaved changes");
-        }
-        else
-        {
-            ImGui.TextColored(EditorWidgets.SuccessColor, "Saved");
-        }
-
-        if (basicEditorSession.ErrorMessage is { } error)
-        {
-            ImGui.TextColored(EditorWidgets.ErrorColor, error);
+            ToolTip("Show the editing controls again.");
         }
     }
 

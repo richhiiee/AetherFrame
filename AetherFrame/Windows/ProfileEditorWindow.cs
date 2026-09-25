@@ -35,8 +35,6 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable, IEditor
     private const string ElementContextMenuId = "##AetherFrameElementContextMenu";
     private const string CanvasResizePopupId = "##AetherFrameCanvasResizePopup";
     private const string UnsavedChangesPopupId = "Unsaved Changes##AetherFrameUnsavedChanges";
-    private const string RevertPopupId = "Revert to Saved##AetherFrameRevert";
-    private const string SaveMenuPopupId = "##AetherFrameSaveMenu";
     private const string ZoomMenuPopupId = "##AetherFrameZoomMenu";
 
     private static readonly float[] ZoomPresets = [0.25f, 0.5f, 0.75f, 1f, 1.5f, 2f, 3f, 4f];
@@ -54,11 +52,10 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable, IEditor
     private readonly KeyboardShortcutService keyboardShortcutService;
     private readonly ProfileRenderResources renderResources;
     private readonly FileDialogManager fileDialogManager;
-    private readonly Action openProfileView;
-    private readonly Action openBasicEditor;
-    private readonly Action openLibrary;
     private readonly EditorSurfaceCoordinator surfaces;
     private readonly BackgroundStylePanel backgroundPanel;
+    private readonly EditorActionBar actionBar;
+    private readonly Action openLibrary;
 
     // Reused per frame (render thread only) for paint-order walks, so none of them allocate.
     private readonly List<ProfileElement> paintOrderBuffer = new(ProfileDocument.MaxElementCount);
@@ -75,8 +72,6 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable, IEditor
     private (float Width, float Height) canvasResizePromptTarget;
     private (float Width, float Height)? pendingCanvasResizeOpenRequest;
 
-    private bool pendingRevertPrompt;
-    private bool pendingSaveMenu;
     private bool pendingZoomMenu;
 
     // Unsaved-changes protection: the action waiting on the user's Save/Discard/Cancel answer,
@@ -112,10 +107,10 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable, IEditor
         KeyboardShortcutService keyboardShortcutService,
         ProfileRenderResources renderResources,
         FileDialogManager fileDialogManager,
-        Action openProfileView,
         Action openBasicEditor,
         Action openLibrary,
-        EditorSurfaceCoordinator surfaces)
+        EditorSurfaceCoordinator surfaces,
+        EditorDocumentCommands commands)
         : base("AetherFrame Advanced Editor##ProfileEditorWindow")
     {
         SizeConstraints = new WindowSizeConstraints
@@ -129,11 +124,10 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable, IEditor
         this.keyboardShortcutService = keyboardShortcutService;
         this.renderResources = renderResources;
         this.fileDialogManager = fileDialogManager;
-        this.openProfileView = openProfileView;
-        this.openBasicEditor = openBasicEditor;
         this.openLibrary = openLibrary;
         this.surfaces = surfaces;
         backgroundPanel = new BackgroundStylePanel(editorSession, renderResources, OpenImageFileDialog);
+        actionBar = new EditorActionBar(commands, EditorSurfaceKind.Advanced, openLibrary, openBasicEditor);
 
         // Title bar, left to right: Dalamud's Window Options (Settings) | Minimize | Close — all three
         // Dalamud's own, the same as every other AetherFrame window (see TitleBarOrder). Minimize is
@@ -345,9 +339,8 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable, IEditor
         // opened/drawn from — see pendingContextMenuOpenElementId.
         DrawElementContextMenuPopup(profile);
         DrawCanvasResizePromptPopup();
-        DrawSaveMenuPopup();
         DrawZoomMenuPopup();
-        DrawRevertPopup();
+        actionBar.DrawPopups();
         DrawUnsavedChangesPopup();
 
         // Commits an edit whose widget never reported "deactivated after edit" (see method).
@@ -379,24 +372,16 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable, IEditor
     // ---------------------------------------------------------------- toolbar & status bar
 
     /// <summary>
-    /// One compact row of editor-wide actions: add, history, save, view toggles, preview/view.
-    /// Properties never live here — that's the Inspector's job. Always reachable without scrolling.
+    /// The shared <see cref="EditorActionBar"/> (the same one the Basic editor has: My Plates,
+    /// Basic | Advanced, Undo/Redo, Preview/Revert/Save), then this mode's own tools on a row of
+    /// their own: add content, and the canvas view toggles. Properties never live here — that's the
+    /// Inspector's job. Always reachable without scrolling.
     /// </summary>
     private void DrawToolbar(ProfileDocument profile)
     {
+        actionBar.Draw(profile, editorSession.PreviewActive, EnterPreview, "Preview: the finished Plate only, over the game (Esc to exit)", editorSession.ErrorMessage);
+
         var atCapacity = profile.Elements.Count >= ProfileDocument.MaxElementCount;
-
-        if (EditorWidgets.IconButton("MyPlates", FontAwesomeIcon.ThLarge, "My Plates"))
-        {
-            openLibrary();
-        }
-
-        ImGui.SameLine();
-        ImGui.AlignTextToFramePadding();
-        ImGui.TextUnformatted(profile.Name);
-
-        ToolbarGap();
-
         using (ImRaii.Disabled(atCapacity))
         {
             if (ImGui.Button("+ Text"))
@@ -417,46 +402,6 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable, IEditor
 
         ToolbarGap();
 
-        using (ImRaii.Disabled(!editorSession.CanUndo))
-        {
-            if (EditorWidgets.IconButton("Undo", FontAwesomeIcon.Undo, "Undo (Ctrl+Z)"))
-            {
-                editorSession.Undo();
-            }
-        }
-
-        ImGui.SameLine();
-        using (ImRaii.Disabled(!editorSession.CanRedo))
-        {
-            if (EditorWidgets.IconButton("Redo", FontAwesomeIcon.Redo, "Redo (Ctrl+Y)"))
-            {
-                editorSession.Redo();
-            }
-        }
-
-        ToolbarGap();
-
-        var dirty = editorSession.IsDirty;
-        var canSave = CanSaveNow() && dirty;
-        using (ImRaii.Disabled(!canSave))
-        using (ImRaii.PushColor(ImGuiCol.Button, EditorWidgets.ActiveToggleColor, canSave))
-        {
-            if (ImGui.Button("Save"))
-            {
-                editorSession.SaveProfile();
-            }
-        }
-
-        EditorWidgets.Tooltip("Save (Ctrl+S)");
-
-        ImGui.SameLine(0f, 2f);
-        if (EditorWidgets.IconButton("SaveMenu", FontAwesomeIcon.CaretDown, "More save options"))
-        {
-            pendingSaveMenu = true;
-        }
-
-        ToolbarGap();
-
         if (EditorWidgets.TextToggle("Guides", editorSession.ShowGuides, tooltip: "Show element bounds, selection, and handles on the canvas"))
         {
             editorSession.ShowGuides = !editorSession.ShowGuides;
@@ -467,40 +412,6 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable, IEditor
         {
             editorSession.SnapEnabled = !editorSession.SnapEnabled;
         }
-
-        ToolbarGap();
-
-        if (ImGui.Button("Preview"))
-        {
-            EnterPreview();
-        }
-
-        EditorWidgets.Tooltip("Clean Preview: the finished Plate only (Esc to exit)");
-
-        ImGui.SameLine();
-        if (ImGui.Button("Plate Viewer"))
-        {
-            openProfileView();
-        }
-
-        // Right-aligned: save state, then the Basic editor switch.
-        const string basicLabel = "Basic Editor";
-        var stateText = profileService.IsBusy ? "Saving..." : dirty ? "Unsaved changes" : "Saved";
-        var rightWidth = ImGui.CalcTextSize(stateText).X + ImGui.CalcTextSize(basicLabel).X + (ImGui.GetStyle().FramePadding.X * 2f) + 36f;
-        var rightStart = ImGui.GetWindowContentRegionMax().X - rightWidth;
-        ImGui.SameLine(Math.Max(ImGui.GetCursorPosX() + 8f, rightStart));
-        DrawSaveStateIndicator(dirty);
-
-        ImGui.SameLine();
-        if (ImGui.Button(basicLabel))
-        {
-            openBasicEditor();
-        }
-
-        if (editorSession.ErrorMessage is { } error)
-        {
-            ImGui.TextColored(EditorWidgets.ErrorColor, error);
-        }
     }
 
     private static void ToolbarGap()
@@ -508,25 +419,6 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable, IEditor
         ImGui.SameLine();
         ImGui.Dummy(new Vector2(6f, 0f));
         ImGui.SameLine();
-    }
-
-    /// <summary>Compact, non-technical save state: never exposes Revision or busy internals.</summary>
-    private void DrawSaveStateIndicator(bool dirty)
-    {
-        ImGui.AlignTextToFramePadding();
-        if (profileService.IsBusy)
-        {
-            ImGui.TextColored(new Vector4(0.85f, 0.85f, 0.4f, 1f), "Saving...");
-        }
-        else if (dirty)
-        {
-            ImGui.TextColored(EditorWidgets.WarningColor, "Unsaved changes");
-            EditorWidgets.Tooltip("Ctrl+S to save. Use the arrow next to Save to revert.");
-        }
-        else
-        {
-            ImGui.TextColored(EditorWidgets.SuccessColor with { W = 0.75f }, "Saved");
-        }
     }
 
     /// <summary>
@@ -608,67 +500,6 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable, IEditor
                 editorSession.SetZoom(preset);
             }
         }
-    }
-
-    private void DrawSaveMenuPopup()
-    {
-        if (pendingSaveMenu)
-        {
-            ImGui.OpenPopup(SaveMenuPopupId);
-            pendingSaveMenu = false;
-        }
-
-        using var popup = ImRaii.Popup(SaveMenuPopupId);
-        if (!popup.Success)
-        {
-            return;
-        }
-
-        var dirty = editorSession.IsDirty;
-        if (ImGui.MenuItem("Save", "Ctrl+S", false, dirty && CanSaveNow()))
-        {
-            editorSession.SaveProfile();
-        }
-
-        if (ImGui.MenuItem("Revert to Saved...", string.Empty, false, dirty && editorSession.CanRevert))
-        {
-            pendingRevertPrompt = true;
-        }
-    }
-
-    private void DrawRevertPopup()
-    {
-        if (pendingRevertPrompt)
-        {
-            ImGui.OpenPopup(RevertPopupId);
-            pendingRevertPrompt = false;
-        }
-
-        if (!ImGui.BeginPopupModal(RevertPopupId, ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoSavedSettings))
-        {
-            return;
-        }
-
-        ImGui.TextUnformatted("Revert this Plate to its last saved version?");
-        EditorWidgets.Hint("All unsaved changes will be discarded. You can still undo the revert.");
-        ImGui.Spacing();
-
-        using (ImRaii.PushColor(ImGuiCol.Button, new Vector4(0.62f, 0.22f, 0.22f, 1f)))
-        {
-            if (ImGui.Button("Revert", new Vector2(120f, 0f)))
-            {
-                editorSession.RevertToSaved(undoable: true);
-                ImGui.CloseCurrentPopup();
-            }
-        }
-
-        ImGui.SameLine();
-        if (ImGui.Button("Cancel", new Vector2(120f, 0f)))
-        {
-            ImGui.CloseCurrentPopup();
-        }
-
-        ImGui.EndPopup();
     }
 
     // ---------------------------------------------------------------- unsaved-changes protection
@@ -886,10 +717,10 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable, IEditor
             switch (action.Kind)
             {
                 case EditorShortcutActionKind.Undo:
-                    editorSession.Undo();
+                    actionBar.Commands.Undo();
                     break;
                 case EditorShortcutActionKind.Redo:
-                    editorSession.Redo();
+                    actionBar.Commands.Redo();
                     break;
                 case EditorShortcutActionKind.Delete:
                     if (editorSession.SelectedElementId is { } selectedId)
@@ -902,11 +733,7 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable, IEditor
                     editorSession.NudgeSelected(action.NudgeDelta);
                     break;
                 case EditorShortcutActionKind.Save:
-                    if (CanSaveNow() && editorSession.IsDirty)
-                    {
-                        editorSession.SaveProfile();
-                    }
-
+                    actionBar.Commands.Save();
                     break;
                 case EditorShortcutActionKind.Duplicate:
                     if (editorSession.SelectedElementId is { } duplicateId)

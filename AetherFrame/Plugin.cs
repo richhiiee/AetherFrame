@@ -119,11 +119,14 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
         var basicEditorSession = new BasicEditorSession(profileService, editorSession, assetStorageService, basicIdentitySession, characterIdentityService);
         keyboardShortcutService = new KeyboardShortcutService();
 
+        // Undo, Redo, Save and Revert as both editors' shared action bar offers them.
+        var documentCommands = new EditorDocumentCommands(profileService, editorSession);
+
         basicProfileEditorWindow = new BasicProfileEditorWindow(
             profileService, editorSession, basicEditorSession, imageTextureCache, renderResources, basicFileDialogManager, gameTitleCatalog, jobCatalog,
-            OpenAdvancedEditor, OpenMyPlates, editorSurfaces);
+            OpenAdvancedEditor, OpenMyPlates, editorSurfaces, documentCommands);
         profileEditorWindow = new ProfileEditorWindow(
-            profileService, editorSession, keyboardShortcutService, renderResources, fileDialogManager, ToggleOpenPlateInViewer, OpenBasicEditor, OpenMyPlates, editorSurfaces);
+            profileService, editorSession, keyboardShortcutService, renderResources, fileDialogManager, OpenBasicEditor, OpenMyPlates, editorSurfaces, documentCommands);
         editorSurfaces.Attach(basicProfileEditorWindow, profileEditorWindow);
         profileViewWindow = new ProfileViewWindow(profileService, plateLibrary, renderResources);
 
@@ -222,12 +225,18 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
     /// <summary>The main entry point is My Plates.</summary>
     public void ToggleMainUi() => plateLibraryWindow.Toggle();
 
-    private void OpenMyPlates() => plateLibraryWindow.IsOpen = true;
+    /// <summary>
+    /// The editors' My Plates button: opens My Plates, or — when it's already open, perhaps behind
+    /// the editor — brings it to the front. Never closes it.
+    /// </summary>
+    private void OpenMyPlates()
+    {
+        plateLibraryWindow.IsOpen = true;
+        plateLibraryWindow.BringToFront();
+    }
 
     /// <summary>Basic and Advanced are two surfaces over one editing session; only one is open at a time.</summary>
     private void OpenBasicEditor() => editorSurfaces.Show(EditorSurfaceKind.Basic);
 
     private void OpenAdvancedEditor() => editorSurfaces.Show(EditorSurfaceKind.Advanced);
-
-    private void ToggleOpenPlateInViewer() => profileViewWindow.ToggleOpenPlate();
 }
