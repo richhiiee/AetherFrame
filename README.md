@@ -57,7 +57,7 @@ Freeform control over text, images, Components, layering, placement, scaling, ro
 - **Plate Viewer.** A dedicated window that shows a Plate fitted to its size.
 - **Clean Preview.** Hide the editor UI and see the Plate exactly as it will look.
 
-### Basic editor
+### Basic Editor
 
 A structured editor modelled on FFXIV's Adventure Plates. You fill in sections, and AetherFrame handles the layout.
 
@@ -66,7 +66,7 @@ A structured editor modelled on FFXIV's Adventure Plates. You fill in sections, 
 - **Playstyle, active hours and a free-form message.**
 - **Themes, backgrounds and patterns**: built-in colour themes plus procedural background patterns.
 
-### Advanced editor
+### Advanced Editor
 
 A freeform canvas for when the Basic layout isn't enough.
 
@@ -186,7 +186,7 @@ AetherFrame/            the plugin
   Services/             Plate & Template libraries, assets, fonts, .aetherframe packages, thumbnails
   UI/Editor/            editor sessions: history, selection, snapping, Basic/Advanced coordination
   UI/Rendering/         Plate renderer, backgrounds, text, Components, previews
-  Windows/              Dalamud/ImGui windows: My Plates, Basic editor, Advanced editor, Viewer, import
+  Windows/              Dalamud/ImGui windows: My Plates, Basic Editor, Advanced Editor, Plate Viewer, import
   Hosting/              thin adapters over Dalamud services
   Assets/               bundled Component artwork, embedded in the DLL
   Fonts/                bundled fonts (SIL Open Font License), embedded in the DLL
@@ -196,13 +196,13 @@ AetherFrame.Tests/      pure-logic tests that build without Dalamud
 ### Key concepts
 
 - **Plate / Profile document.** A Plate's content is a single versioned document (`ProfileDocument`) holding the canvas, background, elements (text and images), Components and Basic-mode settings. Both editors work on the same document, so a Plate can move from Basic to Advanced.
-- **Plate Library.** Stores every saved Plate plus per-character bindings (which Plates belong to a character and which one is Active).
+- **My Plates (`PlateLibraryService`).** Stores every saved Plate plus per-character bindings (which Plates belong to a character and which one is Active).
 - **Active Plate.** The Plate AetherFrame presents for a character when nothing more specific is asked for (e.g. `/aetherframe view`). Resolved in one place (`ActivePlateResolver`); a character with no Active Plate gets an explicit empty state, never a substitute.
-- **Basic editor.** Structured input (identity, portrait, playstyle, message, theme) mapped onto an Adventure Plate-style layout.
-- **Advanced editor.** Direct manipulation of every element on the canvas, with layers, snapping and undo.
+- **Basic Editor.** Structured input (identity, portrait, playstyle, message, theme) mapped onto an Adventure Plate-style layout.
+- **Advanced Editor.** Direct manipulation of every element on the canvas, with layers, snapping and undo.
 - **Templates.** Starting points for new Plates: built-in ones compiled into the plugin, plus user Templates saved locally.
 - **Components.** Decorations described by a stable definition id and per-instance settings. Procedural ones are drawn in code, graphical ones use embedded artwork. Plates store only ids, never the art itself.
-- **Rendering.** One renderer draws a Plate for the editors, the Viewer, Clean Preview and library previews, so all of them match.
+- **Rendering.** One renderer draws a Plate for the editors, the Plate Viewer, Clean Preview and My Plates previews, so all of them match.
 - **Assets.** User images are copied into a local asset store, checked on import and tracked by reference so unused files can be removed.
 - **Packages.** `.aetherframe` files are ZIP-based packages containing a manifest, the Plate document and its images. They are validated in a staging area before anything is imported.
 
