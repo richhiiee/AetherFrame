@@ -13,6 +13,7 @@ using AetherFrame.Domain.Templates;
 using AetherFrame.Persistence;
 using AetherFrame.Persistence.Schema;
 using AetherFrame.Services.Diagnostics;
+using AetherFrame.Services.Lifecycle;
 using AetherFrame.Services.Plates;
 
 namespace AetherFrame.Services.Templates;
@@ -41,6 +42,7 @@ internal sealed class TemplateLibraryService
     private readonly IAetherFrameLog log;
     private readonly Func<DateTime> utcNow;
     private readonly Func<Func<Task>, Task> dispatch;
+    private readonly OwnedOperations operations;
 
     private readonly Dictionary<Guid, TemplateRecord> templates = new();
 
@@ -54,7 +56,8 @@ internal sealed class TemplateLibraryService
         PlateLibraryService plateLibrary,
         IAetherFrameLog? log = null,
         Func<DateTime>? utcNow = null,
-        Func<Func<Task>, Task>? dispatch = null)
+        Func<Func<Task>, Task>? dispatch = null,
+        OwnedOperations? operations = null)
     {
         this.paths = paths;
         this.store = store;
@@ -62,6 +65,7 @@ internal sealed class TemplateLibraryService
         this.log = log ?? NullAetherFrameLog.Instance;
         this.utcNow = utcNow ?? (() => DateTime.UtcNow);
         this.dispatch = dispatch ?? (work => work());
+        this.operations = operations ?? new OwnedOperations();
     }
 
     internal bool IsLoaded
@@ -126,13 +130,18 @@ internal sealed class TemplateLibraryService
     /// prevents the rest from loading. Never writes anything (unlike Plates, Templates have no
     /// legacy format to migrate on disk and no index to rebuild).
     /// </summary>
-    internal Task InitializeAsync() => RunExclusiveAsync(InitializeCoreAsync);
+    /// <remarks>Loading only reads, so <paramref name="cancellationToken"/> (like shutdown) stops it
+    /// between files with <see cref="OperationCanceledException"/>, leaving Templates unloaded.</remarks>
+    internal Task InitializeAsync(CancellationToken cancellationToken = default) => RunExclusiveAsync(() => InitializeCoreAsync(cancellationToken));
 
-    private async Task InitializeCoreAsync()
+    private async Task InitializeCoreAsync(CancellationToken cancellationToken)
     {
         var loaded = new List<TemplateRecord>();
         foreach (var path in store.ListFiles(paths.TemplatesDirectory, "*.json"))
         {
+            cancellationToken.ThrowIfCancellationRequested();
+            operations.Stopping.ThrowIfCancellationRequested();
+
             if (!PlateStoragePaths.TryParseTemplateFileName(path, out var templateId))
             {
                 log.Warning($"AetherFrame ignored a file in the Templates folder that isn't a Template: {Path.GetFileName(path)}");
@@ -523,20 +532,39 @@ internal sealed class TemplateLibraryService
             return true;
         }).ConfigureAwait(false);
 
+    /// <summary>One operation at a time, and shutdown-aware, exactly as <see cref="PlateLibraryService"/>'s.</summary>
     private async Task<T> RunExclusiveAsync<T>(Func<Task<T>> work)
     {
-        await operationLock.WaitAsync().ConfigureAwait(false);
         try
         {
-            T result = default!;
-            await dispatch(async () => result = await work().ConfigureAwait(false)).ConfigureAwait(false);
-            return result;
+            await operationLock.WaitAsync(operations.Stopping).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw Closing();
+        }
+
+        try
+        {
+            if (!operations.TryBegin(out var operation))
+            {
+                throw Closing();
+            }
+
+            using (operation)
+            {
+                T result = default!;
+                await dispatch(async () => result = await work().ConfigureAwait(false)).ConfigureAwait(false);
+                return result;
+            }
         }
         finally
         {
             operationLock.Release();
         }
     }
+
+    private static TemplateLibraryException Closing() => new("AetherFrame is closing, so nothing was changed.");
 
     private void RequireLoaded()
     {

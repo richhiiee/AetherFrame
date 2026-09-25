@@ -3,6 +3,7 @@ using System.IO;
 using System.Threading.Tasks;
 using AetherFrame.Persistence;
 using AetherFrame.Services.Diagnostics;
+using AetherFrame.Services.Lifecycle;
 using AetherFrame.Services.Plates;
 
 namespace AetherFrame.Services.Packages;
@@ -11,6 +12,9 @@ namespace AetherFrame.Services.Packages;
 /// Export and import of .aetherframe files for the UI: wires the pure package code to the Plate
 /// Library, managed asset storage, and the private staging folder. Every member does file IO and
 /// hashing, so the UI calls them off the draw thread; none of them touch ImGui.
+///
+/// <para>Export and Import write files, so each is an <see cref="OwnedOperations"/> operation:
+/// unloading waits for one already running, and neither starts once unloading has begun.</para>
 /// </summary>
 internal sealed class PlatePackageService
 {
@@ -21,6 +25,7 @@ internal sealed class PlatePackageService
     private readonly Func<string, bool>? isDecoderSupported;
     private readonly IAetherFrameLog log;
     private readonly Func<DateTime> utcNow;
+    private readonly OwnedOperations operations;
 
     internal PlatePackageService(
         PlateLibraryService library,
@@ -29,7 +34,8 @@ internal sealed class PlatePackageService
         string generator,
         Func<string, bool>? isDecoderSupported = null,
         IAetherFrameLog? log = null,
-        Func<DateTime>? utcNow = null)
+        Func<DateTime>? utcNow = null,
+        OwnedOperations? operations = null)
     {
         this.library = library;
         this.assets = assets;
@@ -38,6 +44,7 @@ internal sealed class PlatePackageService
         this.isDecoderSupported = isDecoderSupported;
         this.log = log ?? NullAetherFrameLog.Instance;
         this.utcNow = utcNow ?? (() => DateTime.UtcNow);
+        this.operations = operations ?? new OwnedOperations();
     }
 
     /// <summary>
@@ -45,6 +52,19 @@ internal sealed class PlatePackageService
     /// it; there's no offscreen renderer yet, so this is only ever a ready thumbnail if one exists.
     /// </summary>
     internal PackageExportResult Export(Guid plateId, string destinationPath, bool overwrite, string? previewPngPath = null)
+    {
+        if (!operations.TryBegin(out var operation))
+        {
+            return PackageExportResult.Failed(PackageErrorCode.ExportFailed, "AetherFrame is closing, so nothing was exported.");
+        }
+
+        using (operation)
+        {
+            return ExportSaved(plateId, destinationPath, overwrite, previewPngPath);
+        }
+    }
+
+    private PackageExportResult ExportSaved(Guid plateId, string destinationPath, bool overwrite, string? previewPngPath)
     {
         (string Json, string Name) saved;
         try
@@ -64,7 +84,18 @@ internal sealed class PlatePackageService
     internal StagedPackage Inspect(string packagePath) => PackageReader.Open(packagePath, stagingRoot, isDecoderSupported, log);
 
     /// <summary>Imports a validated package as a new Plate. Never activates, opens, or binds it.</summary>
-    internal Task<PackageImportResult> ImportAsync(StagedPackage package) => PackageImporter.ImportAsync(package, library, assets, log, utcNow());
+    internal async Task<PackageImportResult> ImportAsync(StagedPackage package)
+    {
+        if (!operations.TryBegin(out var operation))
+        {
+            return PackageImportResult.Failed(PackageErrorCode.CommitFailed, "AetherFrame is closing, so nothing was imported.");
+        }
+
+        using (operation)
+        {
+            return await PackageImporter.ImportAsync(package, library, assets, log, utcNow()).ConfigureAwait(false);
+        }
+    }
 
     /// <summary>
     /// Deletes staging folders left behind by an interrupted import (e.g. the game closing

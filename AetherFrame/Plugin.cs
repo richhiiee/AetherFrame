@@ -8,6 +8,7 @@ using AetherFrame.Services.Assets;
 using AetherFrame.Services.Commands;
 using AetherFrame.Services.Diagnostics;
 using AetherFrame.Services.Fonts;
+using AetherFrame.Services.Lifecycle;
 using AetherFrame.Services.Packages;
 using AetherFrame.Services.Plates;
 using AetherFrame.Services.Templates;
@@ -65,6 +66,11 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
     private readonly PlatePackageService packageService;
     private readonly BasicGuidance basicGuidance;
     private readonly AetherFrameCommandRegistration commands;
+    private readonly DalamudAetherFrameLog log;
+
+    // Every file-writing operation the plugin owns (Library, Templates, package import/export),
+    // so unloading can let running ones finish before disposing what they use.
+    private readonly OwnedOperations ownedOperations = new();
 
     public Plugin()
     {
@@ -78,12 +84,13 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
         basicGuidance = new BasicGuidance(new ConfigurationGuidanceStore(Configuration));
         basicGuidance.Resolve(BasicGuidance.OriginOf(savedConfiguration is not null, Configuration.Version, PluginConfiguration.CurrentVersion));
 
-        var log = new DalamudAetherFrameLog(Log);
+        log = new DalamudAetherFrameLog(Log);
         var paths = new PlateStoragePaths(PluginInterface.ConfigDirectory.FullName);
 
         // All Library persistence runs on the framework thread, as profile IO always has.
-        plateLibrary = new PlateLibraryService(paths, new ReliablePlateFileStore(FileStorage), log, dispatch: work => Framework.Run(work));
-        templateLibrary = new TemplateLibraryService(paths, new ReliablePlateFileStore(FileStorage), plateLibrary, log, dispatch: work => Framework.Run(work));
+        plateLibrary = new PlateLibraryService(paths, new ReliablePlateFileStore(FileStorage), log, dispatch: work => Framework.Run(work), operations: ownedOperations);
+        templateLibrary = new TemplateLibraryService(
+            paths, new ReliablePlateFileStore(FileStorage), plateLibrary, log, dispatch: work => Framework.Run(work), operations: ownedOperations);
 
         var jobCatalog = new JobCatalog();
         characterIdentityService = new CharacterIdentityService(jobCatalog);
@@ -143,7 +150,8 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
 
         // .aetherframe export/import: local files only, chosen by the player; nothing networked.
         packageService = new PlatePackageService(
-            plateLibrary, assetStorageService, paths, $"AetherFrame {PluginInterface.Manifest.AssemblyVersion}", ImageFormatSupport.IsSupported, log);
+            plateLibrary, assetStorageService, paths, $"AetherFrame {PluginInterface.Manifest.AssemblyVersion}", ImageFormatSupport.IsSupported, log,
+            operations: ownedOperations);
         packageImportWindow = new PackageImportWindow(packageService, renderResources, (plateId, name) => plateLibraryWindow!.OnPlateImported(plateId, name));
         plateLibraryWindow = new PlateLibraryWindow(
             plateLibrary, templateLibrary, profileService, editorSession, characterIdentityService, thumbnailService, thumbnailTextures,
@@ -176,10 +184,12 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
 
         try
         {
-            await plateLibrary.InitializeAsync().ConfigureAwait(false);
+            await plateLibrary.InitializeAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
+            ThrowIfLoadStopped(ex, cancellationToken);
+
             // Nothing on disk is touched by a failed load; My Plates says it couldn't load.
             Log.Error(ex, "AetherFrame could not load the Plate Library.");
             plateLibraryWindow.MarkLoadFailed();
@@ -187,18 +197,34 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
 
         try
         {
-            await templateLibrary.InitializeAsync().ConfigureAwait(false);
+            await templateLibrary.InitializeAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
+            ThrowIfLoadStopped(ex, cancellationToken);
+
             // Nothing on disk is touched by a failed load; Templates says it couldn't load,
             // exactly like My Plates does above.
             Log.Error(ex, "AetherFrame could not load the Template Library.");
         }
     }
 
-    public ValueTask DisposeAsync()
+    /// <summary>
+    /// A load canceled by Dalamud, or cut short because the plugin is already unloading, isn't a
+    /// load failure: per <see cref="IAsyncDalamudPlugin.LoadAsync"/>, it ends the load with
+    /// <see cref="OperationCanceledException"/>.
+    /// </summary>
+    private void ThrowIfLoadStopped(Exception exception, CancellationToken cancellationToken)
     {
+        if (cancellationToken.IsCancellationRequested || ownedOperations.IsShuttingDown)
+        {
+            throw new OperationCanceledException("AetherFrame stopped loading because it is unloading.", exception, cancellationToken);
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        // First, nothing new can start: no drawing, menus, commands or login events.
         PluginInterface.UiBuilder.Draw -= WindowSystem.Draw;
         PluginInterface.UiBuilder.OpenMainUi -= ToggleMainUi;
         PluginInterface.UiBuilder.OpenConfigUi -= ToggleMainUi;
@@ -206,14 +232,24 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
         ClientState.Login -= OnLogin;
         ClientState.Logout -= OnLogout;
 
+        commands.Unregister();
         WindowSystem.RemoveAllWindows();
+        keyboardShortcutService.Dispose();
 
+        // Then any save, rename, import, export, … already running finishes (Dalamud keeps the
+        // plugin's services alive until this returns) before anything it uses is disposed. Not on
+        // the framework thread's context: waiting must never depend on a thread that may be the
+        // one unloading us.
+        await PluginShutdown.RunAsync(ownedOperations, OwnedOperations.DefaultShutdownTimeout, DisposeServices, log).ConfigureAwait(false);
+    }
+
+    private void DisposeServices()
+    {
         plateLibraryWindow.Dispose();
         basicProfileEditorWindow.Dispose();
         profileEditorWindow.Dispose();
         profileViewWindow.Dispose();
         packageImportWindow.Dispose();
-        keyboardShortcutService.Dispose();
         imageTextureCache.Clear();
         thumbnailTextures.Clear();
         thumbnailService.Dispose();
@@ -222,10 +258,6 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
         proceduralTextureCache.Dispose();
         builtInArtTextureCache.Dispose();
         fontService.Dispose();
-
-        commands.Unregister();
-
-        return ValueTask.CompletedTask;
     }
 
     private void OnLogin() => characterIdentityService.InvalidateCharacterInfo();

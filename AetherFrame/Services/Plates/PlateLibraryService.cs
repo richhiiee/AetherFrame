@@ -13,6 +13,7 @@ using AetherFrame.Domain.Profiles;
 using AetherFrame.Persistence;
 using AetherFrame.Persistence.Schema;
 using AetherFrame.Services.Diagnostics;
+using AetherFrame.Services.Lifecycle;
 
 namespace AetherFrame.Services.Plates;
 
@@ -35,6 +36,9 @@ namespace AetherFrame.Services.Plates;
 /// <para><b>Threading.</b> Operations are serialized and run through the supplied dispatcher
 /// (the framework thread in game). Query members are safe from any thread, including ImGui Draw:
 /// they only read immutable snapshots under a lock.</para>
+///
+/// <para><b>Shutdown.</b> Every operation is an <see cref="OwnedOperations"/> operation, so
+/// unloading waits for the one running and none starts afterwards.</para>
 /// </summary>
 internal sealed class PlateLibraryService
 {
@@ -45,6 +49,7 @@ internal sealed class PlateLibraryService
     private readonly IAetherFrameLog log;
     private readonly Func<DateTime> utcNow;
     private readonly Func<Func<Task>, Task> dispatch;
+    private readonly OwnedOperations operations;
 
     private readonly Dictionary<Guid, PlateRecord> plates = new();
     private readonly Dictionary<ulong, CharacterBinding> bindings = new();
@@ -71,13 +76,15 @@ internal sealed class PlateLibraryService
         IPlateFileStore store,
         IAetherFrameLog? log = null,
         Func<DateTime>? utcNow = null,
-        Func<Func<Task>, Task>? dispatch = null)
+        Func<Func<Task>, Task>? dispatch = null,
+        OwnedOperations? operations = null)
     {
         this.paths = paths;
         this.store = store;
         this.log = log ?? NullAetherFrameLog.Instance;
         this.utcNow = utcNow ?? (() => DateTime.UtcNow);
         this.dispatch = dispatch ?? (work => work());
+        this.operations = operations ?? new OwnedOperations();
     }
 
     /// <summary>Raised (on the operation's thread) after a Plate is renamed.</summary>
@@ -196,12 +203,21 @@ internal sealed class PlateLibraryService
     /// when something actually needs writing, and never duplicates Plates or bindings. One
     /// unreadable file never prevents the rest from loading.
     /// </summary>
-    internal Task InitializeAsync() => RunExclusiveAsync(InitializeCoreAsync);
+    /// <remarks>
+    /// <paramref name="cancellationToken"/> (like shutdown) only stops a load that hasn't written
+    /// anything yet: it's honored while files are being read, never once migration writes begin.
+    /// A canceled load throws <see cref="OperationCanceledException"/> and leaves the Library
+    /// unloaded.
+    /// </remarks>
+    internal Task InitializeAsync(CancellationToken cancellationToken = default) => RunExclusiveAsync(() => InitializeCoreAsync(cancellationToken));
 
-    private async Task InitializeCoreAsync()
+    private async Task InitializeCoreAsync(CancellationToken cancellationToken)
     {
+        ThrowIfLoadCanceled(cancellationToken);
         var loadedPlates = await LoadPlatesAsync().ConfigureAwait(false);
+        ThrowIfLoadCanceled(cancellationToken);
         var (loadedBindings, badBindings, newerBindings, migratedBindings) = await LoadBindingsAsync().ConfigureAwait(false);
+        ThrowIfLoadCanceled(cancellationToken);
 
         lock (gate)
         {
@@ -1005,19 +1021,52 @@ internal sealed class PlateLibraryService
             return true;
         }).ConfigureAwait(false);
 
+    /// <summary>
+    /// Runs one operation at a time, as an <see cref="OwnedOperations"/> operation: once the plugin
+    /// starts shutting down, an operation still waiting its turn gives up and none starts, while
+    /// one already running is waited for.
+    /// </summary>
     private async Task<T> RunExclusiveAsync<T>(Func<Task<T>> work)
     {
-        await operationLock.WaitAsync().ConfigureAwait(false);
         try
         {
-            T result = default!;
-            await dispatch(async () => result = await work().ConfigureAwait(false)).ConfigureAwait(false);
-            return result;
+            await operationLock.WaitAsync(operations.Stopping).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw Closing();
+        }
+
+        try
+        {
+            if (!operations.TryBegin(out var operation))
+            {
+                throw Closing();
+            }
+
+            using (operation)
+            {
+                T result = default!;
+                await dispatch(async () => result = await work().ConfigureAwait(false)).ConfigureAwait(false);
+                return result;
+            }
         }
         finally
         {
             operationLock.Release();
         }
+    }
+
+    private static PlateLibraryException Closing() => new("AetherFrame is closing, so nothing was changed.");
+
+    /// <summary>
+    /// Between reading and writing during load: stops (with nothing written) when the load was
+    /// canceled or the plugin is shutting down. Past this point a load always finishes its writes.
+    /// </summary>
+    private void ThrowIfLoadCanceled(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        operations.Stopping.ThrowIfCancellationRequested();
     }
 
     private void RequireLoaded()
