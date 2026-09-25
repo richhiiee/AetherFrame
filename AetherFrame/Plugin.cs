@@ -5,6 +5,7 @@ using AetherFrame.Hosting;
 using AetherFrame.Persistence;
 using AetherFrame.Services;
 using AetherFrame.Services.Assets;
+using AetherFrame.Services.Commands;
 using AetherFrame.Services.Fonts;
 using AetherFrame.Services.Packages;
 using AetherFrame.Services.Plates;
@@ -37,8 +38,6 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
     [PluginService] internal static IDataManager DataManager { get; private set; } = null!;
     [PluginService] internal static IUnlockState UnlockState { get; private set; } = null!;
     [PluginService] internal static IObjectTable ObjectTable { get; private set; } = null!;
-
-    private const string CommandName = "/aetherframe";
 
     public PluginConfiguration Configuration { get; }
 
@@ -156,9 +155,9 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
         WindowSystem.AddWindow(profileViewWindow);
         WindowSystem.AddWindow(packageImportWindow);
 
-        CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
+        CommandManager.AddHandler(AetherFrameCommand.Name, new CommandInfo(OnCommand)
         {
-            HelpMessage = "Opens My Plates, your AetherFrame Plate collection."
+            HelpMessage = AetherFrameCommand.HelpMessage
         });
 
         PluginInterface.UiBuilder.Draw += WindowSystem.Draw;
@@ -222,12 +221,23 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
         builtInArtTextureCache.Dispose();
         fontService.Dispose();
 
-        CommandManager.RemoveHandler(CommandName);
+        CommandManager.RemoveHandler(AetherFrameCommand.Name);
 
         return ValueTask.CompletedTask;
     }
 
-    private void OnCommand(string command, string args) => ToggleMainUi();
+    private void OnCommand(string command, string args)
+    {
+        switch (AetherFrameCommand.Parse(args))
+        {
+            case AetherFrameCommandAction.ViewActivePlate:
+                profileViewWindow.ShowActivePlate();
+                break;
+            default:
+                ToggleMainUi();
+                break;
+        }
+    }
 
     private void OnLogin() => characterIdentityService.InvalidateCharacterInfo();
 

@@ -146,7 +146,7 @@ dotnet test AetherFrame.Tests/AetherFrame.Tests.csproj
 
 1. Open `/xlsettings` → **Experimental** and add the full path to the built `AetherFrame.dll` under **Dev Plugin Locations**.
 2. Open `/xlplugins` → **Dev Tools → Installed Dev Plugins** and enable AetherFrame.
-3. Use **`/aetherframe`** to open My Plates.
+3. Use **`/aetherframe`** to open My Plates, or **`/aetherframe view`** to view your character's Active Plate.
 
 ---
 
@@ -170,6 +170,7 @@ AetherFrame.Tests/      pure-logic tests that build without Dalamud
 
 - **Plate / Profile document.** A Plate's content is a single versioned document (`ProfileDocument`) holding the canvas, background, elements (text and images), Components and Basic-mode settings. Both editors work on the same document, so a Plate can move from Basic to Advanced.
 - **Plate Library.** Stores every saved Plate plus per-character bindings (which Plates belong to a character and which one is Active).
+- **Active Plate.** The Plate AetherFrame presents for a character when nothing more specific is asked for (e.g. `/aetherframe view`). Resolved in one place (`ActivePlateResolver`); a character with no Active Plate gets an explicit empty state, never a substitute.
 - **Basic editor.** Structured input (identity, portrait, playstyle, message, theme) mapped onto an Adventure Plate-style layout.
 - **Advanced editor.** Direct manipulation of every element on the canvas, with layers, snapping and undo.
 - **Templates.** Starting points for new Plates: built-in ones compiled into the plugin, plus user Templates saved locally.

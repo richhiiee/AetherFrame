@@ -30,6 +30,7 @@
     <Compile Include="..\AetherFrame\Services\Diagnostics\**\*.cs" Link="Linked\Services\Diagnostics\%(RecursiveDir)%(Filename)%(Extension)" />
     <Compile Include="..\AetherFrame\Services\Thumbnails\**\*.cs" Link="Linked\Services\Thumbnails\%(RecursiveDir)%(Filename)%(Extension)" />
     <Compile Include="..\AetherFrame\Services\Packages\**\*.cs" Link="Linked\Services\Packages\%(RecursiveDir)%(Filename)%(Extension)" />
+    <Compile Include="..\AetherFrame\Services\Commands\**\*.cs" Link="Linked\Services\Commands\%(RecursiveDir)%(Filename)%(Extension)" />
     <Compile Include="..\AetherFrame\Services\AssetStorageService.cs" Link="Linked\Services\AssetStorageService.cs" />
     <Compile Include="..\AetherFrame\Services\ImageDimensionReader.cs" Link="Linked\Services\ImageDimensionReader.cs" />
     <Compile Include="..\AetherFrame\Services\ProfileService.cs" Link="Linked\Services\ProfileService.cs" />
