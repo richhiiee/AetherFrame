@@ -103,17 +103,37 @@ Reusable decorative pieces you add to a Plate and restyle without redrawing anyt
 
 ## What’s coming
 
-Everything in this section is **planned or future direction**. None of it is available in AetherFrame 0.1.3, and none of it has a release date. For what works today, see [Features](#features).
+AetherFrame 0.1.3 is still an early version. There is a lot more I want to build before I consider it finished.
 
-- **More Plate creation tools.** More built-in visual sets and Templates, more typography controls, more backgrounds, images and decorative Components, and continued improvements to the Advanced Editor.
-- **A deeper My Plates experience.** Better organization, restoring Plates from Trash, richer previews, more Template workflows, and easier management of multiple Plates and their variants.
-- **More polished Basic editing.** The Basic Editor should keep feeling like a familiar FFXIV Adventure Plate while gaining more customization, so more of a Plate can be shaped without needing the Advanced Editor.
-- **Optional player sharing.** Sharing is intended to stay local-first. Your local Plate remains the authoritative version, and sharing would always be something you choose to do, never something that happens passively. Sharing is not available today.
-- **Viewing other players’ Plates.** The long-term direction is explicit player interaction: for example, targeting another player and choosing to view their AetherFrame Plate. A Plate would only be viewable if that player has intentionally made it available. The exact interaction is not final.
-- **Lightweight, optional RP information.** AetherFrame may support lightweight, optional character information that complements a Plate. It is not intended to replace mature, dedicated RP profile plugins.
-- **Continued Dalamud polish.** Ongoing work on performance, usability, migration safety, accessibility and repository readiness, working toward an eventual submission to the official Dalamud plugin repository. AetherFrame is not in the official repository today.
+### More ways to design Plates
 
-The goal is for AetherFrame to become a complete character Plate system: familiar enough to pick up immediately, but flexible enough to build layouts far beyond the limits of the standard FFXIV Adventure Plate.
+I want to keep expanding what you can actually make. That means more visual sets, Templates, backgrounds, typography options, images, Components, and more control in the Advanced Editor.
+
+### More for My Plates
+
+My Plates will grow beyond simply storing your Plates. I want better organization, restoring Plates from Trash, improved previews, more Template options, and better ways to keep different versions of the same design.
+
+### More in the Basic Editor
+
+The Basic Editor is supposed to feel familiar if you already know FFXIV Adventure Plates. I want to give it more customization while keeping it simple enough that you do not have to use the Advanced Editor unless you want to.
+
+### Player sharing
+
+Eventually I want players to be able to share Plates directly with each other. AetherFrame will stay local first, so your own copy stays on your machine and sharing only happens when you choose to do it.
+
+### Viewing another player’s Plate
+
+One idea is being able to target another player and open their AetherFrame Plate if they have chosen to make one available. The exact interaction is not final yet, but I want viewing another player’s Plate to be something deliberate rather than something that happens automatically.
+
+### Optional RP details
+
+I would also like to add a small amount of optional character information for people who want it. The idea is to complement the Plate, not turn AetherFrame into another full RP profile plugin.
+
+### Dalamud release
+
+There is still performance work, UI polish, accessibility work, and general cleanup to do before I submit AetherFrame to the official Dalamud plugin repository.
+
+The finished idea is simple: start with something that feels familiar to anyone who has made an FFXIV Adventure Plate, then give people the freedom to take it much further.
 
 ---
 
@@ -228,7 +248,7 @@ Full-size source artwork for bundled Components lives in the separate [AetherFra
 
 ## Development note
 
-AetherFrame is built with AI-assisted development. Product and architecture decisions, testing, in-game validation, and review and iteration are directed by a human developer.
+I use AI heavily while developing AetherFrame, mainly for implementation and code review. I decide what gets built, how the product works, and test the plugin in game myself.
 
 ## Contributing
 
