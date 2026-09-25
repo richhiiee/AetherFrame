@@ -82,8 +82,9 @@ public enum ComponentStatus
 /// immediately before the first identity element (name or title); then, after every element,
 /// Decorations, then Plate Frames. Within one layer: ascending <see cref="PlateComponent.LayerOrder"/>,
 /// ties by list order. When the anchor element doesn't exist at all, the component uses the
-/// Adventure Plate Classic layout's placement and paints at the bottom of the element stack (in
-/// layer order); when the anchor exists but is hidden, the component is hidden with it.</para>
+/// Adventure Plate Classic layout's placement: a Name Backing paints at the bottom of the element
+/// stack (still behind any text), a Portrait Frame or Overlay above every element (still over any
+/// picture there); when the anchor exists but is hidden, the component is hidden with it.</para>
 ///
 /// <para><b>Failure isolation.</b> A component that can't be resolved (see <see cref="ComponentStatus"/>)
 /// is skipped on its own; nothing about it can stop the rest of the Plate from painting.</para>
@@ -243,13 +244,8 @@ public static class ComponentPaintPlan
 
         var orientation = profile.BasicPlate?.Orientation ?? AdventurePlateOrientation.Normal;
 
-        // Missing anchors: layout placement, at the bottom of the element stack.
-        if (portraitElement is null && portraitBand.Count > 0)
-        {
-            var fallback = AdventurePlateClassicLayout.GetRect(ProfileElementRole.BasicPortrait, orientation, profile) ?? CanvasRect(profile);
-            AddBand(output, portraitBand, fallback, 0f);
-        }
-
+        // A missing name and title: the layout's placement, at the bottom of the element stack (a
+        // backing belongs behind whatever text is there). A missing portrait: see after the elements.
         if (!hasIdentityElements && nameBand.Count > 0)
         {
             var region = AdventurePlateClassicLayout.GetGroupBounds(BasicSection.Identity, orientation, profile);
@@ -269,6 +265,16 @@ public static class ComponentPaintPlan
             {
                 AddBand(output, portraitBand, new ElementRect(element.Position, element.Size), RotationGeometry.GetRotationDegrees(element));
             }
+        }
+
+        // No portrait element at all (for instance a picture added as a plain image in the Advanced
+        // editor): the layout's portrait placement, over every element. A frame or an overlay only
+        // ever exists to sit on top of the picture in that place, so the bottom of the stack — under
+        // that very picture — would hide it.
+        if (portraitElement is null && portraitBand.Count > 0)
+        {
+            var fallback = AdventurePlateClassicLayout.GetRect(ProfileElementRole.BasicPortrait, orientation, profile) ?? CanvasRect(profile);
+            AddBand(output, portraitBand, fallback, 0f);
         }
 
         foreach (var (component, definition, _) in decorationBand)

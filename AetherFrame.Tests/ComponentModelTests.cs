@@ -753,7 +753,7 @@ public class ComponentLayerOrderTests
     }
 
     [Fact]
-    public void MissingAnchor_UsesTheLayoutPlacement_AtTheBottomOfTheElementStack()
+    public void MissingAnchor_UsesTheLayoutPlacement_BackingUnderTheElements_PortraitBandOverThem()
     {
         var document = PlateFactory.Create(PlateStartingLayout.Blank, Guid.NewGuid(), "Empty", ComponentDocuments.Now);
         document.Elements.Add(new TextProfileElement { Text = "Free", ZIndex = 0 });
@@ -761,9 +761,9 @@ public class ComponentLayerOrderTests
 
         var plan = ComponentDocuments.Plan(document);
 
-        Assert.Equal([PlateLayer.PortraitFrame, PlateLayer.NameBacking, PlateLayer.Identity], Layers(plan));
+        Assert.Equal([PlateLayer.NameBacking, PlateLayer.Identity, PlateLayer.PortraitFrame], Layers(plan));
         var expected = Domain.Basic.AdventurePlateClassicLayout.GetRect(ProfileElementRole.BasicPortrait, AdventurePlateOrientation.Normal, document)!.Value;
-        Assert.Equal(expected, plan[0].Placement.Rect);
+        Assert.Equal(expected, plan[2].Placement.Rect);
     }
 
     [Fact]
