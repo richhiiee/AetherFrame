@@ -63,12 +63,19 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
     private readonly ProfileViewWindow profileViewWindow;
     private readonly PackageImportWindow packageImportWindow;
     private readonly PlatePackageService packageService;
+    private readonly BasicGuidance basicGuidance;
+    private readonly GuidanceConfigOrigin configOrigin;
 
     public Plugin()
     {
         DalamudServices.Initialize(PluginInterface, CommandManager, ClientState, PlayerState, Framework, FileStorage, Log, KeyState, TextureProvider, DataManager, UnlockState, ObjectTable);
 
-        Configuration = PluginInterface.GetPluginConfig() as PluginConfiguration ?? new PluginConfiguration();
+        var savedConfiguration = PluginInterface.GetPluginConfig() as PluginConfiguration;
+        Configuration = savedConfiguration ?? new PluginConfiguration();
+        configOrigin = savedConfiguration is null ? GuidanceConfigOrigin.Missing
+            : savedConfiguration.Version < PluginConfiguration.CurrentVersion ? GuidanceConfigOrigin.Legacy
+            : GuidanceConfigOrigin.Current;
+        basicGuidance = new BasicGuidance(new ConfigurationGuidanceStore(Configuration));
 
         var log = new DalamudAetherFrameLog(Log);
         var paths = new PlateStoragePaths(PluginInterface.ConfigDirectory.FullName);
@@ -137,7 +144,7 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
         plateLibraryWindow = new PlateLibraryWindow(
             plateLibrary, templateLibrary, profileService, editorSession, characterIdentityService, thumbnailService, thumbnailTextures,
             templateThumbnailService, templateThumbnailTextures, renderResources, OpenBasicEditor, OpenAdvancedEditor, () => editorSurfaces.ActiveSurface,
-            profileViewWindow.ShowPlate, profileViewWindow.ShowDocument,
+            basicGuidance, profileViewWindow.ShowPlate, profileViewWindow.ShowDocument,
             packageService, new FileDialogManager(), packageImportWindow.Begin);
 
         WindowSystem.AddWindow(plateLibraryWindow);
@@ -166,6 +173,11 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
         try
         {
             await plateLibrary.InitializeAsync().ConfigureAwait(false);
+
+            // Whether to suggest the Basic Editor once depends on whether this player already had
+            // Plates before this version (see BasicGuidance); decided now, on the framework thread.
+            var libraryHasPlates = plateLibrary.GetOrderedPlates().Count > 0;
+            await Framework.RunOnFrameworkThread(() => basicGuidance.Resolve(configOrigin, libraryHasPlates)).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -236,8 +248,32 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
         plateLibraryWindow.BringToFront();
     }
 
-    /// <summary>Basic and Advanced are two surfaces over one editing session; only one is open at a time.</summary>
-    private void OpenBasicEditor() => editorSurfaces.Show(EditorSurfaceKind.Basic);
+    /// <summary>
+    /// Basic and Advanced are two surfaces over one editing session; only one is open at a time.
+    /// Every way into the Basic editor comes through here, and having opened it means the one-time
+    /// Basic suggestion is no longer needed.
+    /// </summary>
+    private void OpenBasicEditor()
+    {
+        basicGuidance.MarkHandled();
+        editorSurfaces.Show(EditorSurfaceKind.Basic);
+    }
 
     private void OpenAdvancedEditor() => editorSurfaces.Show(EditorSurfaceKind.Advanced);
+
+    /// <summary>The guidance flag, persisted in the plugin configuration.</summary>
+    private sealed class ConfigurationGuidanceStore(PluginConfiguration configuration) : IBasicGuidanceStore
+    {
+        public bool BasicGuidanceHandled
+        {
+            get => configuration.BasicGuidanceHandled;
+            set => configuration.BasicGuidanceHandled = value;
+        }
+
+        public void Save()
+        {
+            configuration.Version = PluginConfiguration.CurrentVersion;
+            PluginInterface.SavePluginConfig(configuration);
+        }
+    }
 }

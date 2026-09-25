@@ -8,6 +8,7 @@ using AetherFrame.Services.Plates;
 using AetherFrame.Services.Templates;
 using AetherFrame.UI.Editor;
 using Dalamud.Bindings.ImGui;
+using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
 
 namespace AetherFrame.Windows;
@@ -22,12 +23,17 @@ internal sealed partial class PlateLibraryWindow
     private const string RenamePopupId = "Rename Plate##AetherFrameRenamePlate";
     private const string DeletePopupId = "Delete Plate##AetherFrameDeletePlate";
     private const string UnsavedPopupId = "Unsaved Changes##AetherFramePlateSwitch";
+    private const string BasicGuidancePopupId = "New to AetherFrame?##AetherFrameBasicGuidance";
 
     // Deferred popup opens: requests can come from inside the card grid's child window, but
     // OpenPopup/BeginPopup must share one id-stack scope (see ProfileEditorWindow).
     private bool pendingRenamePopup;
     private bool pendingDeletePopup;
     private bool pendingGuardPrompt;
+    private bool pendingBasicGuidancePopup;
+
+    // The Plate waiting on the one-time Basic suggestion's answer.
+    private Guid basicGuidancePlateId;
 
     private Guid renameTargetId;
     private string renameBuffer = string.Empty;
@@ -121,7 +127,7 @@ internal sealed partial class PlateLibraryWindow
 
             if (ImGui.MenuItem("Open in Advanced Editor"))
             {
-                RequestOpen(plate.PlateId, basic: false);
+                RequestAdvanced(plate.PlateId);
             }
         }
 
@@ -227,6 +233,79 @@ internal sealed partial class PlateLibraryWindow
         }
 
         OpenNow(plateId, basic);
+    }
+
+    /// <summary>
+    /// Open in Advanced Editor: straight there — except the very first time a player who has never
+    /// used the Basic Editor chooses Advanced, when Basic is suggested once (see <see cref="BasicGuidance"/>).
+    /// </summary>
+    private void RequestAdvanced(Guid plateId)
+    {
+        if (basicGuidance.ShouldSuggestBasic)
+        {
+            basicGuidancePlateId = plateId;
+            pendingBasicGuidancePopup = true;
+            return;
+        }
+
+        RequestOpen(plateId, basic: false);
+    }
+
+    /// <summary>
+    /// The one-time suggestion: Try Basic Editor (the suggested choice) or Continue to Advanced;
+    /// closing it also continues to Advanced. Either way it never appears again.
+    /// </summary>
+    private void DrawBasicGuidancePopup()
+    {
+        if (pendingBasicGuidancePopup)
+        {
+            pendingBasicGuidancePopup = false;
+            ImGui.OpenPopup(BasicGuidancePopupId);
+        }
+
+        var open = true;
+        bool? openBasic = null;
+        using (var popup = ImRaii.PopupModal(BasicGuidancePopupId, ref open, ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoSavedSettings))
+        {
+            if (popup.Success)
+            {
+                using (ImRaii.TextWrapPos(ImGui.GetCursorPosX() + (380f * ImGuiHelpers.GlobalScale)))
+                {
+                    ImGui.TextUnformatted("Basic Editor is the easiest place to start and uses familiar FFXIV style controls.");
+                    ImGui.Spacing();
+                    ImGui.TextDisabled("Advanced Editor gives you freeform positioning, layering and additional controls.");
+                }
+
+                ImGui.Spacing();
+                var buttonSize = new Vector2(170f * ImGuiHelpers.GlobalScale, 0f);
+                using (ImRaii.PushColor(ImGuiCol.Button, EditorWidgets.ActiveToggleColor))
+                {
+                    if (ImGui.Button("Try Basic Editor", buttonSize))
+                    {
+                        openBasic = true;
+                        ImGui.CloseCurrentPopup();
+                    }
+                }
+
+                ImGui.SameLine();
+                if (ImGui.Button("Continue to Advanced", buttonSize))
+                {
+                    openBasic = false;
+                    ImGui.CloseCurrentPopup();
+                }
+            }
+        }
+
+        if (!open)
+        {
+            openBasic = false; // closed with its close button: continue to Advanced
+        }
+
+        if (openBasic is { } basic)
+        {
+            basicGuidance.MarkHandled();
+            RequestOpen(basicGuidancePlateId, basic);
+        }
     }
 
     private void OpenNow(Guid plateId, bool basic)

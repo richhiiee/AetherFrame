@@ -62,6 +62,7 @@ internal sealed partial class PlateLibraryWindow : Window, IDisposable
     private readonly Action openBasicEditor;
     private readonly Action openAdvancedEditor;
     private readonly Func<EditorSurfaceKind?> activeEditor;
+    private readonly BasicGuidance basicGuidance;
     private readonly Action<Guid> showInViewer;
     private readonly Action<ProfileDocument> showDocumentInViewer;
     private readonly PlatePackageService packages;
@@ -88,6 +89,7 @@ internal sealed partial class PlateLibraryWindow : Window, IDisposable
         Action openBasicEditor,
         Action openAdvancedEditor,
         Func<EditorSurfaceKind?> activeEditor,
+        BasicGuidance basicGuidance,
         Action<Guid> showInViewer,
         Action<ProfileDocument> showDocumentInViewer,
         PlatePackageService packages,
@@ -114,6 +116,7 @@ internal sealed partial class PlateLibraryWindow : Window, IDisposable
         this.openBasicEditor = openBasicEditor;
         this.openAdvancedEditor = openAdvancedEditor;
         this.activeEditor = activeEditor;
+        this.basicGuidance = basicGuidance;
         this.showInViewer = showInViewer;
         this.showDocumentInViewer = showDocumentInViewer;
         this.packages = packages;
@@ -167,6 +170,7 @@ internal sealed partial class PlateLibraryWindow : Window, IDisposable
         DrawRenamePopup();
         DrawDeletePopup(characterIdentity.CurrentCharacter);
         DrawUnsavedChangesPopup();
+        DrawBasicGuidancePopup();
         DrawOverwritePopup();
         DrawSaveAsTemplatePopup();
 
