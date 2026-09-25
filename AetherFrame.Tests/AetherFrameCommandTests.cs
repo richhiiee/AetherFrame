@@ -23,9 +23,18 @@ public class AetherFrameCommandTests
         Assert.Equal(AetherFrameCommandAction.ViewActivePlate, AetherFrameCommand.Parse(arguments));
 
     [Theory]
+    [InlineData("version")]
+    [InlineData("VERSION")]
+    [InlineData("  Version  ")]
+    public void Version_RoutesToTheVersionReport(string arguments) =>
+        Assert.Equal(AetherFrameCommandAction.ShowVersion, AetherFrameCommand.Parse(arguments));
+
+    [Theory]
     [InlineData("viewer")]
     [InlineData("view extra")]
     [InlineData("edit")]
+    [InlineData("versions")]
+    [InlineData("version extra")]
     public void UnrecognizedArguments_BehaveLikeThePlainCommand(string arguments) =>
         Assert.Equal(AetherFrameCommandAction.ToggleMyPlates, AetherFrameCommand.Parse(arguments));
 }
@@ -42,7 +51,19 @@ public class AetherFrameCommandHandlerTests
 
         internal int OpenActivePlateViewer { get; private set; }
 
-        internal AetherFrameCommandHandler Handler() => new(() => ToggleMyPlates++, () => OpenActivePlateViewer++);
+        internal int ShowVersion { get; private set; }
+
+        internal AetherFrameCommandHandler Handler() => new(() => ToggleMyPlates++, () => OpenActivePlateViewer++, () => ShowVersion++);
+    }
+
+    [Fact]
+    public void Version_ReportsTheBuild_AndOpensNothing()
+    {
+        var calls = new Calls();
+
+        calls.Handler().Handle("/aetherframe", " version ");
+
+        Assert.Equal((0, 0, 1), (calls.ToggleMyPlates, calls.OpenActivePlateViewer, calls.ShowVersion));
     }
 
     [Fact]

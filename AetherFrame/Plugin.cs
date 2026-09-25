@@ -38,6 +38,7 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
     [PluginService] internal static IDataManager DataManager { get; private set; } = null!;
     [PluginService] internal static IUnlockState UnlockState { get; private set; } = null!;
     [PluginService] internal static IObjectTable ObjectTable { get; private set; } = null!;
+    [PluginService] internal static IChatGui ChatGui { get; private set; } = null!;
 
     public PluginConfiguration Configuration { get; }
 
@@ -158,7 +159,7 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
 
         // /aetherframe and its /af alias, both on this one handler.
         commands = new AetherFrameCommandRegistration(new DalamudCommandRegistrar(CommandManager), log);
-        commands.Register(new AetherFrameCommandHandler(ToggleMainUi, profileViewWindow.ShowActivePlate));
+        commands.Register(new AetherFrameCommandHandler(ToggleMainUi, profileViewWindow.ShowActivePlate, ShowVersion));
 
         PluginInterface.UiBuilder.Draw += WindowSystem.Draw;
         PluginInterface.UiBuilder.OpenMainUi += ToggleMainUi;
@@ -230,6 +231,9 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
     private void OnLogin() => characterIdentityService.InvalidateCharacterInfo();
 
     private void OnLogout(int type, int code) => characterIdentityService.InvalidateCharacterInfo();
+
+    /// <summary><c>/aetherframe version</c> (or <c>/af version</c>): the running build, in chat.</summary>
+    private static void ShowVersion() => ChatGui.Print(AetherFrameBuildInfo.Current.Describe());
 
     /// <summary>The main entry point is My Plates.</summary>
     public void ToggleMainUi() => plateLibraryWindow.Toggle();

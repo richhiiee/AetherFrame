@@ -10,6 +10,9 @@ internal enum AetherFrameCommandAction
 
     /// <summary><c>/aetherframe view</c>: opens the Plate Viewer on the character's Active Plate.</summary>
     ViewActivePlate,
+
+    /// <summary><c>/aetherframe version</c>: reports which AetherFrame build is running.</summary>
+    ShowVersion,
 }
 
 /// <summary>
@@ -25,6 +28,8 @@ internal static class AetherFrameCommand
 
     internal const string ViewArgument = "view";
 
+    internal const string VersionArgument = "version";
+
     /// <summary>Every name the command is registered under, canonical first.</summary>
     internal static readonly IReadOnlyList<string> Names = [Name, Alias];
 
@@ -35,8 +40,16 @@ internal static class AetherFrameCommand
     /// <summary>The help text shown for one registered name.</summary>
     internal static string HelpFor(string commandName) => commandName == Alias ? AliasHelpMessage : HelpMessage;
 
-    internal static AetherFrameCommandAction Parse(string? arguments) =>
-        string.Equals(arguments?.Trim(), ViewArgument, StringComparison.OrdinalIgnoreCase)
-            ? AetherFrameCommandAction.ViewActivePlate
+    internal static AetherFrameCommandAction Parse(string? arguments)
+    {
+        var argument = arguments?.Trim();
+        if (string.Equals(argument, ViewArgument, StringComparison.OrdinalIgnoreCase))
+        {
+            return AetherFrameCommandAction.ViewActivePlate;
+        }
+
+        return string.Equals(argument, VersionArgument, StringComparison.OrdinalIgnoreCase)
+            ? AetherFrameCommandAction.ShowVersion
             : AetherFrameCommandAction.ToggleMyPlates;
+    }
 }

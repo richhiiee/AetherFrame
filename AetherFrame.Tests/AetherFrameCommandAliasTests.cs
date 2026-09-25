@@ -70,6 +70,8 @@ public class AetherFrameCommandAliasTests
 
         internal int Views { get; private set; }
 
+        internal int Versions { get; private set; }
+
         internal AetherFrameCommandHandler Handler { get; }
 
         internal AetherFrameCommandRegistration Registration { get; }
@@ -77,7 +79,7 @@ public class AetherFrameCommandAliasTests
         internal Harness(Action<FakeRegistrar>? configure = null)
         {
             configure?.Invoke(Registrar);
-            Handler = new AetherFrameCommandHandler(() => Toggles++, () => Views++);
+            Handler = new AetherFrameCommandHandler(() => Toggles++, () => Views++, () => Versions++);
             Registration = new AetherFrameCommandRegistration(Registrar, Log);
             Registration.Register(Handler);
         }
@@ -145,6 +147,20 @@ public class AetherFrameCommandAliasTests
 
         Assert.Equal((toggles, views), harness.Type("/aetherframe" + suffix));
         Assert.Equal((toggles, views), harness.Type("/af" + suffix));
+    }
+
+    [Theory]
+    [InlineData(" version")]
+    [InlineData(" VERSION")]
+    [InlineData("   version ")]
+    public void BothNames_ReportTheVersion_ThroughTheSameRoute(string suffix)
+    {
+        var harness = new Harness();
+
+        Assert.Equal((0, 0), harness.Type("/aetherframe" + suffix));
+        Assert.Equal(1, harness.Versions);
+        Assert.Equal((0, 0), harness.Type("/af" + suffix));
+        Assert.Equal(2, harness.Versions);
     }
 
     [Fact]

@@ -13,11 +13,13 @@ internal sealed class AetherFrameCommandHandler
 {
     private readonly Action toggleMyPlates;
     private readonly Action openActivePlateViewer;
+    private readonly Action showVersion;
 
-    internal AetherFrameCommandHandler(Action toggleMyPlates, Action openActivePlateViewer)
+    internal AetherFrameCommandHandler(Action toggleMyPlates, Action openActivePlateViewer, Action showVersion)
     {
         this.toggleMyPlates = toggleMyPlates;
         this.openActivePlateViewer = openActivePlateViewer;
+        this.showVersion = showVersion;
     }
 
     internal void Handle(string command, string arguments)
@@ -26,6 +28,9 @@ internal sealed class AetherFrameCommandHandler
         {
             case AetherFrameCommandAction.ViewActivePlate:
                 openActivePlateViewer();
+                break;
+            case AetherFrameCommandAction.ShowVersion:
+                showVersion();
                 break;
             default:
                 toggleMyPlates();
