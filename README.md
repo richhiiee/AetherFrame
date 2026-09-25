@@ -101,6 +101,22 @@ Reusable decorative pieces you add to a Plate and restyle without redrawing anyt
 
 ---
 
+## What’s coming
+
+Everything in this section is **planned or future direction**. None of it is available in AetherFrame 0.1.2, and none of it has a release date. For what works today, see [Features](#features).
+
+- **More Plate creation tools.** More built-in visual sets and Templates, more typography controls, more backgrounds, images and decorative Components, and continued improvements to the Advanced Editor.
+- **A deeper My Plates experience.** Better organization, restoring Plates from Trash, richer previews, more Template workflows, and easier management of multiple Plates and their variants.
+- **More polished Basic editing.** The Basic Editor should keep feeling like a familiar FFXIV Adventure Plate while gaining more customization, so more of a Plate can be shaped without needing the Advanced Editor.
+- **Optional player sharing.** Sharing is intended to stay local-first. Your local Plate remains the authoritative version, and sharing would always be something you choose to do, never something that happens passively. Sharing is not available today.
+- **Viewing other players’ Plates.** The long-term direction is explicit player interaction: for example, targeting another player and choosing to view their AetherFrame Plate. A Plate would only be viewable if that player has intentionally made it available. The exact interaction is not final.
+- **Lightweight, optional RP information.** AetherFrame may support lightweight, optional character information that complements a Plate. It is not intended to replace mature, dedicated RP profile plugins.
+- **Continued Dalamud polish.** Ongoing work on performance, usability, migration safety, accessibility and repository readiness, working toward an eventual submission to the official Dalamud plugin repository. AetherFrame is not in the official repository today.
+
+The goal is for AetherFrame to become a complete character Plate system: familiar enough to pick up immediately, but flexible enough to build layouts far beyond the limits of the standard FFXIV Adventure Plate.
+
+---
+
 ## Local first
 
 Everything AetherFrame does today happens on your own machine.
