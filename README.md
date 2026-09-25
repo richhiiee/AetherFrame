@@ -146,7 +146,7 @@ dotnet test AetherFrame.Tests/AetherFrame.Tests.csproj
 
 1. Open `/xlsettings` → **Experimental** and add the full path to the built `AetherFrame.dll` under **Dev Plugin Locations**.
 2. Open `/xlplugins` → **Dev Tools → Installed Dev Plugins** and enable AetherFrame.
-3. Use **`/aetherframe`** to open My Plates, or **`/aetherframe view`** to view your character's Active Plate.
+3. Use **`/aetherframe`** (or the short **`/af`**) to open My Plates, or **`/aetherframe view`** (**`/af view`**) to view your character's Active Plate.
 
 ---
 

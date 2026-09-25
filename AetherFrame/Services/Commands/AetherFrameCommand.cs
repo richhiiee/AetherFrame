@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace AetherFrame.Services.Commands;
 
@@ -11,14 +12,28 @@ internal enum AetherFrameCommandAction
     ViewActivePlate,
 }
 
-/// <summary>The <c>/aetherframe</c> chat command: what each argument does. Deliberately small.</summary>
+/// <summary>
+/// The AetherFrame chat command: its names and what each argument does. Deliberately small.
+/// <c>/aetherframe</c> is canonical and <c>/af</c> is its short alias; both are registered with
+/// the same handler, so they share one argument parser and every subcommand works through either.
+/// </summary>
 internal static class AetherFrameCommand
 {
     internal const string Name = "/aetherframe";
 
+    internal const string Alias = "/af";
+
     internal const string ViewArgument = "view";
 
-    internal const string HelpMessage = "Opens My Plates, your AetherFrame Plate collection. /aetherframe view shows your Active Plate.";
+    /// <summary>Every name the command is registered under, canonical first.</summary>
+    internal static readonly IReadOnlyList<string> Names = [Name, Alias];
+
+    internal const string HelpMessage = "Opens My Plates (short form: /af). /aetherframe view or /af view shows your Active Plate.";
+
+    internal const string AliasHelpMessage = "Short for /aetherframe: opens My Plates. /af view shows your Active Plate.";
+
+    /// <summary>The help text shown for one registered name.</summary>
+    internal static string HelpFor(string commandName) => commandName == Alias ? AliasHelpMessage : HelpMessage;
 
     internal static AetherFrameCommandAction Parse(string? arguments) =>
         string.Equals(arguments?.Trim(), ViewArgument, StringComparison.OrdinalIgnoreCase)

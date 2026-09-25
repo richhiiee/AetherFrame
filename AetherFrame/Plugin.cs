@@ -15,7 +15,6 @@ using AetherFrame.UI.Editor;
 using AetherFrame.UI.Rendering;
 using AetherFrame.Windows;
 using Dalamud.Bindings.ImGui;
-using Dalamud.Game.Command;
 using Dalamud.Interface.ImGuiFileDialog;
 using Dalamud.Interface.Windowing;
 using Dalamud.IoC;
@@ -63,6 +62,7 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
     private readonly PackageImportWindow packageImportWindow;
     private readonly PlatePackageService packageService;
     private readonly BasicGuidance basicGuidance;
+    private readonly AetherFrameCommandRegistration commands;
 
     public Plugin()
     {
@@ -155,11 +155,9 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
         WindowSystem.AddWindow(profileViewWindow);
         WindowSystem.AddWindow(packageImportWindow);
 
-        var commandHandler = new AetherFrameCommandHandler(ToggleMainUi, profileViewWindow.ShowActivePlate);
-        CommandManager.AddHandler(AetherFrameCommand.Name, new CommandInfo(commandHandler.Handle)
-        {
-            HelpMessage = AetherFrameCommand.HelpMessage
-        });
+        // /aetherframe and its /af alias, both on this one handler.
+        commands = new AetherFrameCommandRegistration(new DalamudCommandRegistrar(CommandManager), log);
+        commands.Register(new AetherFrameCommandHandler(ToggleMainUi, profileViewWindow.ShowActivePlate));
 
         PluginInterface.UiBuilder.Draw += WindowSystem.Draw;
         PluginInterface.UiBuilder.OpenMainUi += ToggleMainUi;
@@ -222,7 +220,7 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
         builtInArtTextureCache.Dispose();
         fontService.Dispose();
 
-        CommandManager.RemoveHandler(AetherFrameCommand.Name);
+        commands.Unregister();
 
         return ValueTask.CompletedTask;
     }
