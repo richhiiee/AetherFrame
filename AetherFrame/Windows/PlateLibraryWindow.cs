@@ -62,7 +62,7 @@ internal sealed partial class PlateLibraryWindow : Window, IDisposable
     private readonly Action openBasicEditor;
     private readonly Action openAdvancedEditor;
     private readonly Func<EditorSurfaceKind?> activeEditor;
-    private readonly BasicGuidance basicGuidance;
+    private readonly AdvancedEntryGate advancedEntry;
     private readonly Action<Guid> showInViewer;
     private readonly Action<ProfileDocument> showDocumentInViewer;
     private readonly PlatePackageService packages;
@@ -116,7 +116,7 @@ internal sealed partial class PlateLibraryWindow : Window, IDisposable
         this.openBasicEditor = openBasicEditor;
         this.openAdvancedEditor = openAdvancedEditor;
         this.activeEditor = activeEditor;
-        this.basicGuidance = basicGuidance;
+        advancedEntry = new AdvancedEntryGate(basicGuidance);
         this.showInViewer = showInViewer;
         this.showDocumentInViewer = showDocumentInViewer;
         this.packages = packages;
@@ -130,6 +130,9 @@ internal sealed partial class PlateLibraryWindow : Window, IDisposable
 
     public override void OnClose()
     {
+        // An Advanced open still waiting on the Basic suggestion is dropped (nothing opens, nothing
+        // is handled); the next request asks again.
+        advancedEntry.Abandon();
         thumbnailTextures.Clear();
         templateThumbnailTextures.Clear();
         cardPreviews.Clear();

@@ -27,7 +27,7 @@ public class BasicGuidanceTests
     {
         var store = new FakeStore();
         var guidance = new BasicGuidance(store);
-        guidance.Resolve(GuidanceConfigOrigin.Missing, libraryHasPlates: false);
+        guidance.Resolve(GuidanceConfigOrigin.Missing);
         return (guidance, store);
     }
 
@@ -63,7 +63,7 @@ public class BasicGuidanceTests
 
         // Next session: the saved flag is read back.
         var nextSession = new BasicGuidance(store);
-        nextSession.Resolve(GuidanceConfigOrigin.Current, libraryHasPlates: true);
+        nextSession.Resolve(GuidanceConfigOrigin.Current);
         Assert.False(nextSession.ShouldSuggestBasic);
     }
 
@@ -84,23 +84,26 @@ public class BasicGuidanceTests
         var (_, store) = NewInstall();
 
         var nextSession = new BasicGuidance(store);
-        nextSession.Resolve(GuidanceConfigOrigin.Current, libraryHasPlates: true);
+        nextSession.Resolve(GuidanceConfigOrigin.Current);
 
         Assert.True(nextSession.ShouldSuggestBasic);
         Assert.Equal(1, store.Saves); // nothing new to record
     }
 
     [Fact]
-    public void AnExistingPlayerWithPlates_IsNeverNagged_AfterTheUpdate()
+    public void AMissingConfiguration_IsAskedOnce_AndSavedAsAVersion2FalseAtOnce()
     {
+        // The real in-game failure (2026-09-25 06:30:46): the first load of this version found no
+        // configuration (no earlier build saved one) and two saved Plates, and the old rule wrote
+        // "handled" before the player did anything. Saved Plates no longer decide it.
         var store = new FakeStore();
         var guidance = new BasicGuidance(store);
 
-        guidance.Resolve(GuidanceConfigOrigin.Missing, libraryHasPlates: true);
+        guidance.Resolve(GuidanceConfigOrigin.Missing);
 
-        Assert.False(guidance.ShouldSuggestBasic);
-        Assert.True(store.BasicGuidanceHandled);
-        Assert.Equal(1, store.Saves);
+        Assert.True(guidance.ShouldSuggestBasic);
+        Assert.False(store.BasicGuidanceHandled);
+        Assert.Equal(1, store.Saves); // recorded, so from now on the stored flag decides
     }
 
     [Fact]
@@ -109,7 +112,7 @@ public class BasicGuidanceTests
         var store = new FakeStore();
         var guidance = new BasicGuidance(store);
 
-        guidance.Resolve(GuidanceConfigOrigin.Legacy, libraryHasPlates: false);
+        guidance.Resolve(GuidanceConfigOrigin.Legacy);
 
         Assert.False(guidance.ShouldSuggestBasic);
         Assert.True(store.BasicGuidanceHandled);
@@ -117,7 +120,7 @@ public class BasicGuidanceTests
     }
 
     [Fact]
-    public void NothingIsSuggested_UntilTheLibraryHasLoaded()
+    public void NothingIsSuggested_UntilTheConfigurationIsResolved()
     {
         var store = new FakeStore();
         var guidance = new BasicGuidance(store);
@@ -133,7 +136,7 @@ public class BasicGuidanceTests
         var guidance = new BasicGuidance(store);
         guidance.MarkHandled(); // Basic opened before the Library finished loading
 
-        guidance.Resolve(GuidanceConfigOrigin.Missing, libraryHasPlates: false);
+        guidance.Resolve(GuidanceConfigOrigin.Missing);
 
         Assert.False(guidance.ShouldSuggestBasic);
         Assert.True(store.BasicGuidanceHandled);
@@ -219,22 +222,29 @@ public class BasicGuidanceTests
         Assert.Equal(BasicGuidancePrompt.None, undecided.PromptBeforeAdvanced(false, BasicDocuments.Blank()));
 
         var established = new BasicGuidance(new FakeStore());
-        established.Resolve(GuidanceConfigOrigin.Missing, libraryHasPlates: true);
+        established.Resolve(GuidanceConfigOrigin.Legacy);
         Assert.Equal(BasicGuidancePrompt.None, established.PromptBeforeAdvanced(false, BasicDocuments.Classic(FakeCharacter.Hero)));
     }
 
-    [Theory]
-    [InlineData(false, false, false)]
-    [InlineData(false, true, true)]
-    public void IsHandled_ForAMissingConfiguration_FollowsTheLibrary(bool stored, bool libraryHasPlates, bool expected) =>
-        Assert.Equal(expected, BasicGuidance.IsHandled(GuidanceConfigOrigin.Missing, stored, libraryHasPlates));
+    [Fact]
+    public void IsHandled_ForAMissingConfiguration_IsFalse() =>
+        Assert.False(BasicGuidance.IsHandled(GuidanceConfigOrigin.Missing, storedHandled: false));
+
+    [Fact]
+    public void IsHandled_ForALegacyConfiguration_IsTrue_DuringMigrationOnly() =>
+        Assert.True(BasicGuidance.IsHandled(GuidanceConfigOrigin.Legacy, storedHandled: false));
 
     [Theory]
-    [InlineData(false, false)]
-    [InlineData(true, true)]
-    public void IsHandled_ForACurrentConfiguration_IsWhatItStored(bool stored, bool expected)
-    {
-        Assert.Equal(expected, BasicGuidance.IsHandled(GuidanceConfigOrigin.Current, stored, libraryHasPlates: true));
-        Assert.Equal(expected, BasicGuidance.IsHandled(GuidanceConfigOrigin.Current, stored, libraryHasPlates: false));
-    }
+    [InlineData(false)]
+    [InlineData(true)]
+    public void IsHandled_ForAVersion2Configuration_IsExactlyWhatItStored(bool stored) =>
+        Assert.Equal(stored, BasicGuidance.IsHandled(GuidanceConfigOrigin.Current, stored));
+
+    [Theory]
+    [InlineData(false, 0, (int)GuidanceConfigOrigin.Missing)]
+    [InlineData(true, 1, (int)GuidanceConfigOrigin.Legacy)]
+    [InlineData(true, 2, (int)GuidanceConfigOrigin.Current)]
+    [InlineData(true, 3, (int)GuidanceConfigOrigin.Current)]
+    public void OriginOf_ClassifiesTheLoadedConfiguration(bool found, int version, int expected) =>
+        Assert.Equal((GuidanceConfigOrigin)expected, BasicGuidance.OriginOf(found, version, currentVersion: 2));
 }

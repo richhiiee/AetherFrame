@@ -30,10 +30,6 @@ internal sealed partial class PlateLibraryWindow
     private bool pendingRenamePopup;
     private bool pendingDeletePopup;
     private bool pendingGuardPrompt;
-    private bool pendingBasicGuidancePopup;
-
-    // The one-time Basic suggestion waiting to be answered, for the (already open) Plate.
-    private BasicGuidancePrompt basicGuidancePrompt;
 
     private Guid renameTargetId;
     private string renameBuffer = string.Empty;
@@ -230,27 +226,33 @@ internal sealed partial class PlateLibraryWindow
     }
 
     /// <summary>
-    /// The one-time suggestion before the first Advanced Editor (see <see cref="ShowEditor"/>).
-    /// For a Plate that suits Basic: Try Basic Editor (the suggested choice, opening this Plate in
-    /// Basic) or Continue to Advanced. For a freeform Plate, which can't sensibly open in Basic: what
-    /// Basic is and how to start with it, and Continue to Advanced only. Closing it always continues
-    /// to Advanced, and any answer handles the guidance for good.
+    /// The one-time suggestion before the first Advanced Editor, while <see cref="advancedEntry"/>
+    /// holds an Advanced open back (see <see cref="ShowEditor"/>). For a Plate that suits Basic: Try
+    /// Basic Editor (the suggested choice, opening this Plate in Basic) or Continue to Advanced. For
+    /// a freeform Plate, which can't sensibly open in Basic: what Basic is and how to start with it,
+    /// and Continue to Advanced only. Closing it always continues to Advanced, and any answer
+    /// handles the guidance for good.
     /// </summary>
     private void DrawBasicGuidancePopup()
     {
-        if (pendingBasicGuidancePopup)
+        if (advancedEntry.ConsumePromptRequest())
         {
-            pendingBasicGuidancePopup = false;
             ImGui.OpenPopup(BasicGuidancePopupId);
         }
 
+        if (!advancedEntry.IsWaiting)
+        {
+            return;
+        }
+
         var open = true;
-        bool? openBasic = null;
+        BasicGuidanceAnswer? answer = null;
         using (var popup = ImRaii.PopupModal(BasicGuidancePopupId, ref open, ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoSavedSettings))
         {
             if (popup.Success)
             {
-                var offerBasic = basicGuidancePrompt == BasicGuidancePrompt.OfferBasic;
+                advancedEntry.MarkShown();
+                var offerBasic = advancedEntry.OffersTryBasic;
                 using (ImRaii.TextWrapPos(ImGui.GetCursorPosX() + (380f * ImGuiHelpers.GlobalScale)))
                 {
                     ImGui.TextUnformatted("Basic Editor is the easiest place to start and uses familiar FFXIV style controls.");
@@ -260,7 +262,7 @@ internal sealed partial class PlateLibraryWindow
                     {
                         ImGui.Spacing();
                         ImGui.TextUnformatted("This Plate is a freeform design, so it opens in the Advanced Editor.");
-                        ImGui.TextDisabled("To start in the Basic Editor, choose Create Plate and pick Adventure Plate Classic.");
+                        ImGui.TextDisabled("Basic is the recommended start for Adventure Plate layouts: choose Create Plate and pick Adventure Plate Classic.");
                     }
                 }
 
@@ -272,7 +274,7 @@ internal sealed partial class PlateLibraryWindow
                     {
                         if (ImGui.Button("Try Basic Editor", buttonSize))
                         {
-                            openBasic = true;
+                            answer = BasicGuidanceAnswer.TryBasicEditor;
                             ImGui.CloseCurrentPopup();
                         }
                     }
@@ -282,23 +284,29 @@ internal sealed partial class PlateLibraryWindow
 
                 if (ImGui.Button("Continue to Advanced", buttonSize))
                 {
-                    openBasic = false;
+                    answer = BasicGuidanceAnswer.ContinueToAdvanced;
                     ImGui.CloseCurrentPopup();
                 }
             }
         }
 
-        if (!open)
+        // Its close button: continue to Advanced. Only once the prompt has really been on screen,
+        // so a frame where it isn't open yet can never count as an answer.
+        if (answer is null && !open && advancedEntry.WasShown)
         {
-            openBasic = false; // closed with its close button: continue to Advanced
+            answer = BasicGuidanceAnswer.Closed;
         }
 
-        if (openBasic is { } basic)
+        if (answer is { } given && advancedEntry.Answer(given) is { } editor)
         {
-            // Handled first, so this Advanced open isn't asked about again.
-            basicGuidance.MarkHandled();
-            basicGuidancePrompt = BasicGuidancePrompt.None;
-            ShowEditor(basic);
+            if (editor == EditorSurfaceKind.Basic)
+            {
+                openBasicEditor();
+            }
+            else
+            {
+                openAdvancedEditor();
+            }
         }
     }
 
@@ -337,15 +345,10 @@ internal sealed partial class PlateLibraryWindow
             return;
         }
 
-        var prompt = basicGuidance.PromptBeforeAdvanced(activeEditor() == EditorSurfaceKind.Advanced, profileService.CurrentProfile);
-        if (prompt != BasicGuidancePrompt.None)
+        if (advancedEntry.TryEnterAdvanced(activeEditor() == EditorSurfaceKind.Advanced, profileService.CurrentProfile))
         {
-            basicGuidancePrompt = prompt;
-            pendingBasicGuidancePopup = true;
-            return;
+            openAdvancedEditor();
         }
-
-        openAdvancedEditor();
     }
 
     /// <summary>After "Save" in the unsaved-changes prompt: open the next Plate once the save

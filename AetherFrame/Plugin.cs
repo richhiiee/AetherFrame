@@ -64,7 +64,6 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
     private readonly PackageImportWindow packageImportWindow;
     private readonly PlatePackageService packageService;
     private readonly BasicGuidance basicGuidance;
-    private readonly GuidanceConfigOrigin configOrigin;
 
     public Plugin()
     {
@@ -72,10 +71,11 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
 
         var savedConfiguration = PluginInterface.GetPluginConfig() as PluginConfiguration;
         Configuration = savedConfiguration ?? new PluginConfiguration();
-        configOrigin = savedConfiguration is null ? GuidanceConfigOrigin.Missing
-            : savedConfiguration.Version < PluginConfiguration.CurrentVersion ? GuidanceConfigOrigin.Legacy
-            : GuidanceConfigOrigin.Current;
+
+        // The one-time Basic suggestion: decided now from the configuration alone (a current one's
+        // stored flag always wins), so it's ready before any window can ask for Advanced.
         basicGuidance = new BasicGuidance(new ConfigurationGuidanceStore(Configuration));
+        basicGuidance.Resolve(BasicGuidance.OriginOf(savedConfiguration is not null, Configuration.Version, PluginConfiguration.CurrentVersion));
 
         var log = new DalamudAetherFrameLog(Log);
         var paths = new PlateStoragePaths(PluginInterface.ConfigDirectory.FullName);
@@ -173,11 +173,6 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
         try
         {
             await plateLibrary.InitializeAsync().ConfigureAwait(false);
-
-            // Whether to suggest the Basic Editor once depends on whether this player already had
-            // Plates before this version (see BasicGuidance); decided now, on the framework thread.
-            var libraryHasPlates = plateLibrary.GetOrderedPlates().Count > 0;
-            await Framework.RunOnFrameworkThread(() => basicGuidance.Resolve(configOrigin, libraryHasPlates)).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
