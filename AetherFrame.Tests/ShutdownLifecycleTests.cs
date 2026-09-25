@@ -38,14 +38,16 @@ public class ShutdownLifecycleTests
     [Fact]
     public async Task NoOperationsRunning_ServicesAreDisposedAtOnce()
     {
-        var disposed = false;
+        var disposedUi = false;
+        var disposedUsed = false;
         var log = new TestLog();
 
-        var shutdown = PluginShutdown.RunAsync(new OwnedOperations(), Generous, () => disposed = true, log);
+        var shutdown = PluginShutdown.RunAsync(new OwnedOperations(), Generous, () => { disposedUi = true; return Task.CompletedTask; }, () => disposedUsed = true, log);
 
         Assert.True(shutdown.IsCompleted);
         await shutdown;
-        Assert.True(disposed);
+        Assert.True(disposedUi);
+        Assert.True(disposedUsed);
         Assert.Empty(log.Messages);
     }
 
@@ -92,7 +94,7 @@ public class ShutdownLifecycleTests
         await store.WriteStarted.WaitAsync(Generous);
 
         string? plateAtDisposal = null;
-        var shutdown = PluginShutdown.RunAsync(operations, Generous, () => plateAtDisposal = fixture.ReadPlateJson(created.PlateId), new TestLog());
+        var shutdown = PluginShutdown.RunAsync(operations, Generous, () => Task.CompletedTask, () => plateAtDisposal = fixture.ReadPlateJson(created.PlateId), new TestLog());
         await Task.Delay(50);
         Assert.Null(plateAtDisposal);
 
@@ -214,7 +216,7 @@ public class ShutdownLifecycleTests
         await store.WriteStarted.WaitAsync(Generous);
 
         var disposed = false;
-        var shutdown = PluginShutdown.RunAsync(operations, Generous, () => disposed = true, new TestLog());
+        var shutdown = PluginShutdown.RunAsync(operations, Generous, () => Task.CompletedTask, () => disposed = true, new TestLog());
         store.Release();
 
         await Assert.ThrowsAsync<IOException>(() => rename);
@@ -225,27 +227,155 @@ public class ShutdownLifecycleTests
     }
 
     [Fact]
-    public async Task WriteThatNeverFinishes_ShutdownGivesUpAfterTheTimeout_AndStillDisposes()
+    public async Task WriteOutlastingTheTimeout_ShutdownReturns_ButWhatTheWriteUsesIsKeptUntilItEnds()
     {
         var store = new GatedStore();
         var operations = new OwnedOperations();
-        using var fixture = new LibraryFixture(store);
+        using var fixture = new LibraryFixture(new ShutdownGuardedFileStore(store, operations));
         var library = await LoadAsync(fixture, operations);
         var created = await library.CreatePlateAsync(PlateStartingLayout.Blank, Characters.Alice);
 
         store.Hold();
-        var rename = library.RenamePlateAsync(created.PlateId, "Stuck");
+        var rename = library.RenamePlateAsync(created.PlateId, "Outlasted The Timeout");
         await store.WriteStarted.WaitAsync(Generous);
 
-        var disposed = false;
+        var disposedUi = false;
+        var usedDisposed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var log = new TestLog();
-        await PluginShutdown.RunAsync(operations, TimeSpan.FromMilliseconds(100), () => disposed = true, log).WaitAsync(Generous);
 
-        Assert.True(disposed);
+        // Unloading is bounded: it returns after the timeout although the write is still running…
+        await PluginShutdown.RunAsync(
+            operations, TimeSpan.FromMilliseconds(100), () => { disposedUi = true; return Task.CompletedTask; }, () => usedDisposed.TrySetResult(), log)
+            .WaitAsync(Generous);
+
+        Assert.True(disposedUi);
+        Assert.True(operations.IsAbandoned);
         Assert.Contains(log.Messages, m => m.Contains("stopped waiting"));
 
+        // …but nothing the write still uses has been disposed underneath it.
+        await Task.Delay(100);
+        Assert.False(usedDisposed.Task.IsCompleted);
+        Assert.Equal(1, operations.RunningCount);
+
+        // The step that was under way completes whole; only then is the rest disposed.
         store.Release();
         await rename;
+        await usedDisposed.Task.WaitAsync(Generous);
+        Assert.Equal(0, operations.RunningCount);
+        Assert.Contains("Outlasted The Timeout", fixture.ReadPlateJson(created.PlateId));
+    }
+
+    [Fact]
+    public async Task AbandonedMultiFileOperation_StopsBetweenItsAtomicFiles_AndTheNextLoadRecovers()
+    {
+        var store = new GatedStore();
+        var operations = new OwnedOperations();
+        using var fixture = new LibraryFixture(new ShutdownGuardedFileStore(store, operations));
+        var library = await LoadAsync(fixture, operations);
+        var first = await library.CreatePlateAsync(PlateStartingLayout.Blank, Characters.Alice);
+        var bindingBefore = fixture.ReadBindingJson(Characters.Alice.ContentId);
+        var orderBefore = fixture.ReadLibraryOrder();
+
+        // Creating a Plate writes its document, then the character's binding, then the index.
+        store.Hold();
+        var create = library.CreatePlateAsync(PlateStartingLayout.Blank, Characters.Alice);
+        await store.WriteStarted.WaitAsync(Generous);
+
+        Assert.False(await operations.ShutdownAsync(TimeSpan.FromMilliseconds(100)));
+        store.Release();
+
+        // The document write under way completes; the binding and index writes never start.
+        await Assert.ThrowsAsync<OperationAbandonedException>(() => create.WaitAsync(Generous));
+        await operations.Drained.WaitAsync(Generous);
+        Assert.Equal(bindingBefore, fixture.ReadBindingJson(Characters.Alice.ContentId));
+        Assert.Equal(orderBefore, fixture.ReadLibraryOrder());
+
+        var plateFiles = Directory.GetFiles(fixture.Paths.PlatesDirectory, "*.json");
+        Assert.Equal(2, plateFiles.Length);
+        Assert.All(plateFiles, file => System.Text.Json.JsonDocument.Parse(File.ReadAllText(file)).Dispose());
+
+        // Exactly the interruption the write ordering is built for: the next load lists both Plates.
+        var reloaded = new PlateLibraryService(fixture.Paths, new SystemFileStore(), fixture.Log, () => fixture.Clock.Now);
+        await reloaded.InitializeAsync();
+        Assert.Equal(2, reloaded.GetOrderedPlates().Count);
+        Assert.Contains(reloaded.GetOrderedPlates(), p => p.PlateId == first.PlateId);
+    }
+
+    [Fact]
+    public async Task OperationDispatchedButNotStarted_WhenUnloadingStopsWaiting_NeverStarts()
+    {
+        // A framework thread that only runs queued work when told to.
+        var framework = new ManualFramework();
+        var operations = new OwnedOperations();
+        using var fixture = new LibraryFixture();
+        var library = new PlateLibraryService(fixture.Paths, new ShutdownGuardedFileStore(fixture.Store, operations), fixture.Log, () => fixture.Clock.Now, framework.Dispatch, operations);
+        var loaded = library.InitializeAsync();
+        framework.RunQueued();
+        await loaded;
+        var creating = library.CreatePlateAsync(PlateStartingLayout.Blank, Characters.Alice);
+        framework.RunQueued();
+        var created = await creating;
+        var before = fixture.ReadPlateJson(created.PlateId);
+
+        // Dispatched, but the framework thread never gets to it before the timeout.
+        var rename = library.RenamePlateAsync(created.PlateId, "Late Start");
+        Assert.False(await operations.ShutdownAsync(TimeSpan.FromMilliseconds(100)));
+
+        framework.RunQueued();
+
+        await Assert.ThrowsAsync<OperationAbandonedException>(() => rename.WaitAsync(Generous));
+        await operations.Drained.WaitAsync(Generous);
+        Assert.Equal(before, fixture.ReadPlateJson(created.PlateId));
+    }
+
+    [Fact]
+    public async Task WriteThatNeverEnds_NeverDeadlocksUnloading()
+    {
+        var store = new GatedStore();
+        var operations = new OwnedOperations();
+        using var fixture = new LibraryFixture(new ShutdownGuardedFileStore(store, operations));
+        var library = await LoadAsync(fixture, operations);
+        var created = await library.CreatePlateAsync(PlateStartingLayout.Blank, Characters.Alice);
+
+        store.Hold();
+        var rename = library.RenamePlateAsync(created.PlateId, "Never Released");
+        await store.WriteStarted.WaitAsync(Generous);
+
+        var usedDisposed = false;
+        await PluginShutdown.RunAsync(operations, TimeSpan.FromMilliseconds(50), () => Task.CompletedTask, () => usedDisposed = true, new TestLog())
+            .WaitAsync(Generous);
+
+        Assert.False(usedDisposed);
+        Assert.False(rename.IsCompleted);
+
+        store.Release();
+        await rename.WaitAsync(Generous);
+    }
+
+    [Fact]
+    public void GuardedStore_RefusesEveryFileStep_OnceAbandoned_AndNothingBefore()
+    {
+        using var directory = new TempDirectory();
+        var operations = new OwnedOperations();
+        var store = new ShutdownGuardedFileStore(new SystemFileStore(), operations);
+        var path = Path.Combine(directory.Path, "a.json");
+
+        store.WriteTextAsync(path, "{}").GetAwaiter().GetResult();
+        Assert.True(store.FileExists(path));
+
+        Assert.True(operations.TryBegin(out var lease));
+        Assert.False(operations.ShutdownAsync(TimeSpan.FromMilliseconds(10)).GetAwaiter().GetResult());
+
+        // Refused before anything starts: thrown synchronously, no task is ever created.
+        Assert.Throws<OperationAbandonedException>(() => { _ = store.WriteTextAsync(path, "{\"changed\":1}"); });
+        Assert.Throws<OperationAbandonedException>(() => { _ = store.ReadTextAsync(path, _ => { }); });
+        Assert.Throws<OperationAbandonedException>(() => store.MoveFile(path, path + ".moved"));
+        Assert.Throws<OperationAbandonedException>(() => store.CopyFile(path, path + ".copy"));
+        Assert.Throws<OperationAbandonedException>(() => store.DeleteFile(path));
+        Assert.Throws<OperationAbandonedException>(() => store.FileExists(path));
+        Assert.Throws<OperationAbandonedException>(() => store.ListFiles(directory.Path, "*.json"));
+        Assert.Equal("{}", File.ReadAllText(path).Trim());
+        lease.Dispose();
     }
 
     [Fact]
@@ -302,6 +432,49 @@ public class ShutdownLifecycleTests
         var library = new PlateLibraryService(fixture.Paths, fixture.Store, fixture.Log, () => fixture.Clock.Now, operations: operations);
         await library.InitializeAsync();
         return library;
+    }
+
+    /// <summary>Stands in for the framework thread: dispatched work waits until <see cref="RunQueued"/>.</summary>
+    private sealed class ManualFramework
+    {
+        private readonly List<Func<Task>> queued = new();
+
+        internal Task Dispatch(Func<Task> work)
+        {
+            var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            lock (queued)
+            {
+                queued.Add(async () =>
+                {
+                    try
+                    {
+                        await work();
+                        completion.TrySetResult();
+                    }
+                    catch (Exception ex)
+                    {
+                        completion.TrySetException(ex);
+                    }
+                });
+            }
+
+            return completion.Task;
+        }
+
+        internal void RunQueued()
+        {
+            List<Func<Task>> batch;
+            lock (queued)
+            {
+                batch = new List<Func<Task>>(queued);
+                queued.Clear();
+            }
+
+            foreach (var work in batch)
+            {
+                work().GetAwaiter().GetResult();
+            }
+        }
     }
 
     /// <summary>Plain files whose next write can be held mid-flight (after it has begun, before

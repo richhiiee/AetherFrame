@@ -1024,7 +1024,8 @@ internal sealed class PlateLibraryService
     /// <summary>
     /// Runs one operation at a time, as an <see cref="OwnedOperations"/> operation: once the plugin
     /// starts shutting down, an operation still waiting its turn gives up and none starts, while
-    /// one already running is waited for.
+    /// one already running is waited for (and, if unloading stops waiting, stops at its next file
+    /// step — see <see cref="OwnedOperations"/>).
     /// </summary>
     private async Task<T> RunExclusiveAsync<T>(Func<Task<T>> work)
     {
@@ -1047,7 +1048,12 @@ internal sealed class PlateLibraryService
             using (operation)
             {
                 T result = default!;
-                await dispatch(async () => result = await work().ConfigureAwait(false)).ConfigureAwait(false);
+                await dispatch(async () =>
+                {
+                    // Dispatched before unloading gave up on it, but not started yet: it never starts.
+                    operations.ThrowIfAbandoned();
+                    result = await work().ConfigureAwait(false);
+                }).ConfigureAwait(false);
                 return result;
             }
         }

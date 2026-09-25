@@ -554,7 +554,11 @@ internal sealed class TemplateLibraryService
             using (operation)
             {
                 T result = default!;
-                await dispatch(async () => result = await work().ConfigureAwait(false)).ConfigureAwait(false);
+                await dispatch(async () =>
+                {
+                    operations.ThrowIfAbandoned();
+                    result = await work().ConfigureAwait(false);
+                }).ConfigureAwait(false);
                 return result;
             }
         }

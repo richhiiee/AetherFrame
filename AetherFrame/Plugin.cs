@@ -87,10 +87,11 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
         log = new DalamudAetherFrameLog(Log);
         var paths = new PlateStoragePaths(PluginInterface.ConfigDirectory.FullName);
 
-        // All Library persistence runs on the framework thread, as profile IO always has.
-        plateLibrary = new PlateLibraryService(paths, new ReliablePlateFileStore(FileStorage), log, dispatch: work => Framework.Run(work), operations: ownedOperations);
-        templateLibrary = new TemplateLibraryService(
-            paths, new ReliablePlateFileStore(FileStorage), plateLibrary, log, dispatch: work => Framework.Run(work), operations: ownedOperations);
+        // All Library persistence runs on the framework thread, as profile IO always has, and
+        // stops between files if unloading ever stops waiting for it (see OwnedOperations).
+        var fileStore = new ShutdownGuardedFileStore(new ReliablePlateFileStore(FileStorage), ownedOperations);
+        plateLibrary = new PlateLibraryService(paths, fileStore, log, dispatch: work => Framework.Run(work), operations: ownedOperations);
+        templateLibrary = new TemplateLibraryService(paths, fileStore, plateLibrary, log, dispatch: work => Framework.Run(work), operations: ownedOperations);
 
         var jobCatalog = new JobCatalog();
         characterIdentityService = new CharacterIdentityService(jobCatalog);
@@ -222,9 +223,33 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Dalamud calls this directly on whichever thread is unloading the plugin (it only moves a sync
+    /// plugin's Dispose to the framework thread), and keeps the plugin's services alive until it
+    /// returns. Everything the windows and <see cref="WindowSystem"/> use is torn down on the
+    /// framework thread, where Draw runs; the waits in between never depend on that thread.
+    /// </summary>
     public async ValueTask DisposeAsync()
     {
-        // First, nothing new can start: no drawing, menus, commands or login events.
+        // First, nothing new can start: no drawing, menus, commands, login events or shortcuts.
+        await OnFrameworkThreadAsync("UI shutdown", StopNewWork).ConfigureAwait(false);
+
+        // Then any save, rename, import, export, … already running finishes before anything it uses
+        // is disposed (see PluginShutdown for what happens if one outlasts the timeout).
+        await PluginShutdown.RunAsync(
+            ownedOperations,
+            OwnedOperations.DefaultShutdownTimeout,
+            () => OnFrameworkThreadAsync("window and texture disposal", DisposeUnusedByOperations),
+            DisposeUsedByOperations,
+            log).ConfigureAwait(false);
+    }
+
+    private Task OnFrameworkThreadAsync(string name, Action teardown) =>
+        FrameworkThreadTeardown.RunAsync(
+            name, teardown, Framework.RunOnFrameworkThread, () => Framework.IsFrameworkUnloading, FrameworkThreadTeardown.DefaultTimeout, log);
+
+    private void StopNewWork()
+    {
         PluginInterface.UiBuilder.Draw -= WindowSystem.Draw;
         PluginInterface.UiBuilder.OpenMainUi -= ToggleMainUi;
         PluginInterface.UiBuilder.OpenConfigUi -= ToggleMainUi;
@@ -235,15 +260,12 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
         commands.Unregister();
         WindowSystem.RemoveAllWindows();
         keyboardShortcutService.Dispose();
-
-        // Then any save, rename, import, export, … already running finishes (Dalamud keeps the
-        // plugin's services alive until this returns) before anything it uses is disposed. Not on
-        // the framework thread's context: waiting must never depend on a thread that may be the
-        // one unloading us.
-        await PluginShutdown.RunAsync(ownedOperations, OwnedOperations.DefaultShutdownTimeout, DisposeServices, log).ConfigureAwait(false);
     }
 
-    private void DisposeServices()
+    /// <summary>Windows, textures and fonts: drawing only, never used by an owned file operation.
+    /// (An import still running keeps its staged files: the import window disposes them only once
+    /// the import ends.)</summary>
+    private void DisposeUnusedByOperations()
     {
         plateLibraryWindow.Dispose();
         basicProfileEditorWindow.Dispose();
@@ -252,13 +274,16 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
         packageImportWindow.Dispose();
         imageTextureCache.Clear();
         thumbnailTextures.Clear();
-        thumbnailService.Dispose();
         templateThumbnailTextures.Clear();
         templateThumbnailService.Dispose();
         proceduralTextureCache.Dispose();
         builtInArtTextureCache.Dispose();
         fontService.Dispose();
     }
+
+    /// <summary>The Plate thumbnail service: a save or delete still running calls into it (via
+    /// PlateSaved and PlateDeleted), so it's disposed only once every owned operation has ended.</summary>
+    private void DisposeUsedByOperations() => thumbnailService.Dispose();
 
     private void OnLogin() => characterIdentityService.InvalidateCharacterInfo();
 
