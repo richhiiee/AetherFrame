@@ -133,7 +133,8 @@ public enum ComponentShape
     /// <summary>A small diamond with two short arms (drawn for the top-left corner, mirrored for the others).</summary>
     CornerDiamond,
 
-    /// <summary>Bundled artwork (<see cref="ComponentDefinition.Art"/>) stretched over the placement.</summary>
+    /// <summary>Bundled artwork (<see cref="ComponentDefinition.Art"/>) over the placement, which the paint
+    /// plan has already fitted to the artwork's aspect ratio.</summary>
     Art,
 }
 

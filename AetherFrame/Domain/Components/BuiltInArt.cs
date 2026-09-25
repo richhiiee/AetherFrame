@@ -14,25 +14,34 @@ namespace AetherFrame.Domain.Components;
 /// <param name="Name">Display label only.</param>
 /// <param name="Kind">The one Component kind this artwork is drawn for.</param>
 /// <param name="ResourceName">Manifest resource name of the runtime PNG inside the plugin assembly
-/// (not a filesystem path). Always a square, 8-bit RGBA, power-of-two PNG.</param>
-/// <param name="PixelSize">The runtime PNG's width and height, in pixels.</param>
+/// (not a filesystem path). Always an 8-bit RGBA (or, for opaque art, RGB) PNG (see <c>BundledArtImage</c>).</param>
+/// <param name="PixelWidth">The runtime PNG's width, in pixels.</param>
+/// <param name="PixelHeight">The runtime PNG's height, in pixels. The artwork is always drawn at this
+/// aspect ratio (fitted inside its placement box, never visibly stretched: see <c>ComponentPaintPlan</c>).</param>
 /// <param name="Tintable">True when the artwork is white/greyscale and takes the Component's color;
 /// false draws its own colors, with only the color's alpha applied.</param>
 /// <param name="DefaultOpacity">Alpha of the definition's default color.</param>
 /// <param name="CornerPlacement">For Corner Ornaments: how the one (top-left) drawing serves the
 /// other three corners.</param>
 /// <param name="SizeFactor">Size of the artwork's placement box relative to its kind's standard
-/// procedural box, anchored at the same corner (artwork needs more room than a line mark to read).</param>
+/// procedural box (artwork needs more room than a line mark to read): a Corner Ornament's square,
+/// anchored at the same corner; a Name Backing's or Divider's box, around the same center. Unused
+/// (1) for the kinds whose art fills its whole anchor: Background, Plate Frame, Portrait Frame.</param>
 public sealed record BuiltInArtAsset(
     string Id,
     string Name,
     PlateComponentKind Kind,
     string ResourceName,
-    int PixelSize,
+    int PixelWidth,
+    int PixelHeight,
     bool Tintable,
     float DefaultOpacity,
     CornerArtPlacement CornerPlacement,
-    float SizeFactor);
+    float SizeFactor)
+{
+    /// <summary>Width over height of the runtime artwork (1 for square art).</summary>
+    public float AspectRatio => PixelHeight > 0 ? (float)PixelWidth / PixelHeight : 1f;
+}
 
 /// <summary>How a corner drawing, designed for the top-left corner, is placed in the other corners.</summary>
 public enum CornerArtPlacement
@@ -58,7 +67,8 @@ public static class BuiltInArtCatalog
         "Astrolabe Pivot",
         PlateComponentKind.CornerOrnament,
         ResourcePrefix + "Components.CelestialDream.CornerOrnaments.AstrolabePivot.png",
-        PixelSize: 512,
+        PixelWidth: 512,
+        PixelHeight: 512,
         Tintable: true,
         DefaultOpacity: 0.9f,
         CornerPlacement: CornerArtPlacement.Rotate,

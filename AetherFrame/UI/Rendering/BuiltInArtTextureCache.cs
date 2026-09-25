@@ -14,8 +14,9 @@ namespace AetherFrame.UI.Rendering;
 /// (<see cref="BuiltInArtCatalog"/>). Each artwork is read from its manifest resource and decoded
 /// once, the first time a Plate draws it, into a short chain of halved levels (see
 /// <see cref="BundledArtImage"/>); drawing then only picks a level for the on-screen size — nothing
-/// is decoded, created or allocated per frame. Textures live until the plugin unloads (the whole
-/// chain of one 512px artwork is about 1.4 MB). A resource that is missing or fails to decode is
+/// is decoded, created or allocated per frame. Textures live until the plugin unloads (a level
+/// chain costs about 4/3 of its top level: ~1.4 MB for a 512 x 512 artwork, ~8.4 MB for each
+/// full-resolution Celestial Sakura piece). A resource that is missing or fails to decode is
 /// logged once and simply not drawn, like a missing managed image.
 /// </summary>
 internal sealed class BuiltInArtTextureCache : IDisposable
@@ -57,19 +58,13 @@ internal sealed class BuiltInArtTextureCache : IDisposable
             var bytes = new byte[stream.Length];
             stream.ReadExactly(bytes);
 
-            var top = BundledArtImage.DecodePng(bytes);
-            if (top.Size != art.PixelSize)
-            {
-                throw new InvalidDataException($"expected {art.PixelSize}px, found {top.Size}px");
-            }
-
-            var levels = BundledArtImage.BuildLevels(top);
+            var levels = BundledArtImage.LoadLevels(bytes, art);
             var sizes = new int[levels.Count];
             for (var i = 0; i < levels.Count; i++)
             {
-                sizes[i] = levels[i].Size;
+                sizes[i] = levels[i].LongSide;
                 created.Add(DalamudServices.TextureProvider.CreateFromRaw(
-                    RawImageSpecification.Rgba32(levels[i].Size, levels[i].Size), levels[i].Rgba, $"AetherFrame.Art.{art.Id}.{levels[i].Size}"));
+                    RawImageSpecification.Rgba32(levels[i].Width, levels[i].Height), levels[i].Rgba, $"AetherFrame.Art.{art.Id}.{levels[i].LongSide}"));
             }
 
             return new Entry([.. created], sizes);

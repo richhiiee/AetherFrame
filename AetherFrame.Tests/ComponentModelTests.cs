@@ -124,6 +124,7 @@ public class ComponentCatalogTests
         Assert.Equal(5, (int)PlateComponentKind.CornerOrnament);
         Assert.Equal(6, (int)PlateComponentKind.Divider);
         Assert.Equal(7, (int)PlateComponentKind.SectionHeader);
+        Assert.Equal(8, (int)PlateComponentKind.Background);
     }
 
     [Fact]

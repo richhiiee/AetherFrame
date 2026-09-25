@@ -3,11 +3,16 @@ using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
+using AetherFrame.Domain.Components;
 
 namespace AetherFrame.Domain.Rendering;
 
-/// <summary>One RGBA level of bundled artwork: <see cref="Size"/> x <see cref="Size"/> texels, straight (non-premultiplied) alpha.</summary>
-public sealed record ArtLevel(int Size, byte[] Rgba);
+/// <summary>One RGBA level of bundled artwork: <see cref="Width"/> x <see cref="Height"/> texels, straight (non-premultiplied) alpha.</summary>
+public sealed record ArtLevel(int Width, int Height, byte[] Rgba)
+{
+    /// <summary>The longer side, in texels: what level selection compares with the on-screen size.</summary>
+    public int LongSide => Math.Max(Width, Height);
+}
 
 /// <summary>
 /// Decodes AetherFrame's own bundled artwork PNGs and builds their downsampled levels. Pure logic
@@ -19,21 +24,50 @@ public sealed record ArtLevel(int Size, byte[] Rgba);
 /// levels once, and drawing the smallest level at least as large as the on-screen size (see
 /// <see cref="SelectLevel"/>), keeps thin lines continuous at every size from one bundled PNG.</para>
 ///
-/// <para>The decoder only accepts what the bundled art is required to be — square, power-of-two,
-/// 8-bit RGBA, non-interlaced — and rejects anything else instead of guessing. It is never used for
+/// <para>The decoder only accepts what the bundled art is required to be — 8-bit RGBA or RGB,
+/// non-interlaced, at most <see cref="MaxSize"/> on either side — and rejects anything else instead
+/// of guessing. Square power-of-two art (tinted line art) halves exactly at every level; other sizes
+/// (full-color artwork kept at its approved resolution) round each level up. It is never used for
 /// user images (those go through Dalamud's decoders and <c>ImageSafety</c>).</para>
 /// </summary>
 public static class BundledArtImage
 {
-    /// <summary>Largest bundled art dimension accepted.</summary>
-    public const int MaxSize = 2048;
+    /// <summary>Largest bundled art dimension accepted, on either side.</summary>
+    public const int MaxSize = 4096;
 
-    /// <summary>Smallest level built (below this, a corner mark is a few pixels anyway).</summary>
+    /// <summary>Smallest level built, on the shorter side (below this, a mark is a few pixels anyway).</summary>
     public const int MinLevelSize = 32;
 
     private static ReadOnlySpan<byte> Signature => [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
 
-    /// <summary>Decodes a square, power-of-two, 8-bit RGBA, non-interlaced PNG. Throws <see cref="InvalidDataException"/> otherwise.</summary>
+    /// <summary>
+    /// Everything the texture cache uploads for <paramref name="art"/>, from its bundled PNG: the
+    /// decoded image (which must be exactly the catalog's size) and its levels, with transparent
+    /// edges prepared for the way the art is drawn (see <see cref="BleedIntoTransparentTexels"/>).
+    /// Throws <see cref="InvalidDataException"/> when the PNG isn't what the catalog says.
+    /// </summary>
+    public static IReadOnlyList<ArtLevel> LoadLevels(ReadOnlySpan<byte> png, BuiltInArtAsset art)
+    {
+        var top = DecodePng(png);
+        if (top.Width != art.PixelWidth || top.Height != art.PixelHeight)
+        {
+            throw new InvalidDataException($"expected {art.PixelWidth}x{art.PixelHeight}px, found {top.Width}x{top.Height}px");
+        }
+
+        var levels = BuildLevels(top);
+        if (!art.Tintable)
+        {
+            foreach (var level in levels)
+            {
+                BleedIntoTransparentTexels(level);
+            }
+        }
+
+        return levels;
+    }
+
+    /// <summary>Decodes an 8-bit RGBA or RGB, non-interlaced PNG of at most <see cref="MaxSize"/> per side
+    /// into RGBA (RGB becomes fully opaque). Throws <see cref="InvalidDataException"/> otherwise.</summary>
     public static ArtLevel DecodePng(ReadOnlySpan<byte> png)
     {
         if (png.Length < Signature.Length || !png[..Signature.Length].SequenceEqual(Signature))
@@ -43,6 +77,7 @@ public static class BundledArtImage
 
         var width = 0;
         var height = 0;
+        var channels = 0;
         var sawHeader = false;
         var sawEnd = false;
         using var compressed = new MemoryStream();
@@ -75,15 +110,20 @@ public static class BundledArtImage
                 width = BinaryPrimitives.ReadInt32BigEndian(data);
                 height = BinaryPrimitives.ReadInt32BigEndian(data[4..]);
                 var bitDepth = data[8];
-                var colorType = data[9];
-                if (bitDepth != 8 || colorType != 6 || data[10] != 0 || data[11] != 0 || data[12] != 0)
+                channels = data[9] switch
                 {
-                    throw new InvalidDataException("bundled art must be 8-bit RGBA, non-interlaced");
+                    6 => 4, // RGBA
+                    2 => 3, // RGB
+                    _ => 0,
+                };
+                if (bitDepth != 8 || channels == 0 || data[10] != 0 || data[11] != 0 || data[12] != 0)
+                {
+                    throw new InvalidDataException("bundled art must be 8-bit RGBA or RGB, non-interlaced");
                 }
 
-                if (width != height || width < 1 || width > MaxSize || (width & (width - 1)) != 0)
+                if (width < 1 || height < 1 || width > MaxSize || height > MaxSize)
                 {
-                    throw new InvalidDataException("bundled art must be square with a power-of-two size");
+                    throw new InvalidDataException($"bundled art must be 1 to {MaxSize} pixels on each side");
                 }
 
                 sawHeader = true;
@@ -108,7 +148,7 @@ public static class BundledArtImage
             throw new InvalidDataException("no header");
         }
 
-        const int bytesPerPixel = 4;
+        var bytesPerPixel = channels;
         var stride = width * bytesPerPixel;
         var raw = new byte[(stride + 1) * height];
         compressed.Position = 0;
@@ -145,11 +185,12 @@ public static class BundledArtImage
             }
         }
 
-        return new ArtLevel(width, pixels);
+        return new ArtLevel(width, height, bytesPerPixel == 4 ? pixels : ExpandRgb(pixels, width * height));
     }
 
     /// <summary>
-    /// <paramref name="top"/> followed by successively halved levels down to <see cref="MinLevelSize"/>.
+    /// <paramref name="top"/> followed by successively halved levels, until the shorter side reaches
+    /// <see cref="MinLevelSize"/> (an odd side rounds up, its last texel counted twice).
     /// Each texel averages its 2x2 source texels weighted by alpha (premultiplied), so soft glows keep
     /// their brightness and never pick up the color of fully transparent texels; a texel with no
     /// coverage at all is stored as transparent white, so bilinear filtering never darkens a tint.
@@ -158,22 +199,25 @@ public static class BundledArtImage
     {
         var levels = new List<ArtLevel> { top };
         var current = top;
-        while (current.Size / 2 >= MinLevelSize)
+        while (Math.Min(current.Width, current.Height) / 2 >= MinLevelSize)
         {
-            var size = current.Size / 2;
+            var width = (current.Width + 1) / 2;
+            var height = (current.Height + 1) / 2;
             var source = current.Rgba;
-            var sourceStride = current.Size * 4;
-            var pixels = new byte[size * size * 4];
-            for (var y = 0; y < size; y++)
+            var sourceStride = current.Width * 4;
+            var pixels = new byte[width * height * 4];
+            for (var y = 0; y < height; y++)
             {
-                for (var x = 0; x < size; x++)
+                for (var x = 0; x < width; x++)
                 {
                     int r = 0, g = 0, b = 0, a = 0;
                     for (var dy = 0; dy < 2; dy++)
                     {
                         for (var dx = 0; dx < 2; dx++)
                         {
-                            var s = (((y * 2) + dy) * sourceStride) + (((x * 2) + dx) * 4);
+                            var sy = Math.Min((y * 2) + dy, current.Height - 1);
+                            var sx = Math.Min((x * 2) + dx, current.Width - 1);
+                            var s = (sy * sourceStride) + (sx * 4);
                             var alpha = source[s + 3];
                             r += source[s] * alpha;
                             g += source[s + 1] * alpha;
@@ -182,7 +226,7 @@ public static class BundledArtImage
                         }
                     }
 
-                    var d = ((y * size) + x) * 4;
+                    var d = ((y * width) + x) * 4;
                     if ((a + 2) / 4 == 0)
                     {
                         pixels[d] = pixels[d + 1] = pixels[d + 2] = 255;
@@ -197,7 +241,7 @@ public static class BundledArtImage
                 }
             }
 
-            current = new ArtLevel(size, pixels);
+            current = new ArtLevel(width, height, pixels);
             levels.Add(current);
         }
 
@@ -205,8 +249,56 @@ public static class BundledArtImage
     }
 
     /// <summary>
-    /// Index into <paramref name="levelSizes"/> (largest first, as <see cref="BuildLevels"/> returns
-    /// them) of the smallest level still at least <paramref name="screenPixels"/> across, so the
+    /// For artwork drawn in its own colors: gives every fully transparent texel next to drawn texels
+    /// the alpha-weighted color of those neighbors (in place; no alpha changes, so nothing visible
+    /// moves). Those texels are invisible themselves, but bilinear filtering blends their color into
+    /// the artwork's edges: black (as the art is exported) would outline every stroke dark, white a
+    /// light halo. Tinted art keeps its white instead (see <see cref="BuildLevels"/>).
+    /// </summary>
+    public static void BleedIntoTransparentTexels(ArtLevel level)
+    {
+        var width = level.Width;
+        var height = level.Height;
+        var pixels = level.Rgba;
+        var source = (byte[])pixels.Clone();
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                var d = ((y * width) + x) * 4;
+                if (source[d + 3] != 0)
+                {
+                    continue;
+                }
+
+                int r = 0, g = 0, b = 0, a = 0;
+                for (var ny = Math.Max(0, y - 1); ny <= Math.Min(height - 1, y + 1); ny++)
+                {
+                    for (var nx = Math.Max(0, x - 1); nx <= Math.Min(width - 1, x + 1); nx++)
+                    {
+                        var s = ((ny * width) + nx) * 4;
+                        var alpha = source[s + 3];
+                        r += source[s] * alpha;
+                        g += source[s + 1] * alpha;
+                        b += source[s + 2] * alpha;
+                        a += alpha;
+                    }
+                }
+
+                if (a > 0)
+                {
+                    pixels[d] = (byte)((r + (a / 2)) / a);
+                    pixels[d + 1] = (byte)((g + (a / 2)) / a);
+                    pixels[d + 2] = (byte)((b + (a / 2)) / a);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Index into <paramref name="levelSizes"/> (each level's <see cref="ArtLevel.LongSide"/>, largest
+    /// first, as <see cref="BuildLevels"/> returns them) of the smallest level whose longer side is
+    /// still at least <paramref name="screenPixels"/> (the drawn longer side), so the
     /// texture is never magnified unless even the largest level is too small, and never minified by
     /// more than 2x.
     /// </summary>
@@ -224,6 +316,21 @@ public static class BundledArtImage
         }
 
         return chosen;
+    }
+
+    /// <summary>RGB texels as fully opaque RGBA.</summary>
+    private static byte[] ExpandRgb(byte[] rgb, int texels)
+    {
+        var rgba = new byte[texels * 4];
+        for (var i = 0; i < texels; i++)
+        {
+            rgba[i * 4] = rgb[i * 3];
+            rgba[(i * 4) + 1] = rgb[(i * 3) + 1];
+            rgba[(i * 4) + 2] = rgb[(i * 3) + 2];
+            rgba[(i * 4) + 3] = 255;
+        }
+
+        return rgba;
     }
 
     private static int Paeth(int a, int b, int c)

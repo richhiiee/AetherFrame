@@ -159,6 +159,10 @@ public enum PlateComponentKind
     CornerOrnament = 5,
     Divider = 6,
     SectionHeader = 7,
+
+    /// <summary>Artwork covering the whole Plate, painted first: over the Plate's own background and
+    /// Pattern, under the portrait and every other element. Builds before 0.1.2 keep it undrawn.</summary>
+    Background = 8,
 }
 
 /// <summary>

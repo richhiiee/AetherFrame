@@ -15,7 +15,8 @@ public enum PlateLayer
     /// <summary>The canvas backdrop behind everything.</summary>
     Backdrop = 0,
 
-    /// <summary>The Plate background (solid, gradient, image).</summary>
+    /// <summary>The Plate background (solid, gradient, image), and Background Components, which paint
+    /// over it and its Pattern (the plan's first steps) and under the portrait.</summary>
     Background = 100,
 
     /// <summary>The background's procedural Pattern (drawn with the background).</summary>
@@ -76,7 +77,8 @@ public enum ComponentStatus
 /// <para><b>Ordering.</b> Elements keep exactly the order <c>ProfilePaintOrder</c> gives them
 /// (ZIndex, ties by list order), so a Plate without components paints exactly as before. Components
 /// are placed by their <see cref="PlateLayer"/> relative to what they decorate:
-/// Portrait Frames then Portrait Overlays immediately after the portrait element; Name Backings
+/// Backgrounds before everything (over the canvas); Portrait Frames then Portrait Overlays
+/// immediately after the portrait element; Name Backings
 /// immediately before the first identity element (name or title); then, after every element,
 /// Decorations, then Plate Frames. Within one layer: ascending <see cref="PlateComponent.LayerOrder"/>,
 /// ties by list order. When the anchor element doesn't exist at all, the component uses the
@@ -110,11 +112,20 @@ public static class ComponentPaintPlan
         PlateComponentKind.PortraitOverlay => PlateLayer.PortraitOverlay,
         PlateComponentKind.NameBacking => PlateLayer.NameBacking,
         PlateComponentKind.CornerOrnament or PlateComponentKind.Divider or PlateComponentKind.SectionHeader => PlateLayer.Decorations,
+        PlateComponentKind.Background => PlateLayer.Background,
         _ => PlateLayer.Foreground,
     };
 
     /// <summary>True for kinds this build can place and draw.</summary>
-    public static bool IsKnownKind(PlateComponentKind kind) => kind is >= PlateComponentKind.PlateFrame and <= PlateComponentKind.SectionHeader;
+    public static bool IsKnownKind(PlateComponentKind kind) => kind is >= PlateComponentKind.PlateFrame and <= PlateComponentKind.Background;
+
+    /// <summary>
+    /// How far (relative) a placement box's aspect ratio may differ from its artwork's and still be
+    /// drawn exactly over the box: 0.1%, well under a pixel on any Plate (the 1672 x 941 Celestial
+    /// Sakura art on the 1280 x 720 canvas differs by 0.053% — 0.4 px over the full height — which is
+    /// rounding in the export, not a different shape). Anything further off is fitted, never stretched.
+    /// </summary>
+    public const float ArtAspectTolerance = 0.001f;
 
     /// <summary>Resolves a component's definition, or says why it can't be drawn.</summary>
     public static ComponentStatus Resolve(PlateComponent component, IComponentCatalog catalog, out ComponentDefinition? definition)
@@ -167,6 +178,7 @@ public static class ComponentPaintPlan
             return;
         }
 
+        var backgroundBand = new List<(PlateComponent Component, ComponentDefinition Definition, int Index)>();
         var portraitBand = new List<(PlateComponent Component, ComponentDefinition Definition, int Index)>();
         var nameBand = new List<(PlateComponent Component, ComponentDefinition Definition, int Index)>();
         var decorationBand = new List<(PlateComponent Component, ComponentDefinition Definition, int Index)>();
@@ -183,6 +195,9 @@ public static class ComponentPaintPlan
             var entry = (component, definition!, i);
             switch (LayerOf(component.Kind))
             {
+                case PlateLayer.Background:
+                    backgroundBand.Add(entry);
+                    break;
                 case PlateLayer.PortraitFrame or PlateLayer.PortraitOverlay:
                     portraitBand.Add(entry);
                     break;
@@ -198,12 +213,16 @@ public static class ComponentPaintPlan
             }
         }
 
+        SortBand(backgroundBand);
         SortBand(portraitBand);
         SortBand(nameBand);
         SortBand(decorationBand);
         SortBand(frameBand);
 
         var unit = Unit(profile);
+
+        // Backgrounds: the whole canvas, under everything else.
+        AddBand(output, backgroundBand, CanvasRect(profile), 0f);
 
         // Anchors: the portrait element, and the identity elements (name, title).
         var portraitElement = BasicSections.Find(profile, ProfileElementRole.BasicPortrait);
@@ -265,7 +284,7 @@ public static class ComponentPaintPlan
                     var divider = new ElementRect(
                         new Vector2(identity.Position.X, identity.Position.Y + identity.Size.Y + (DividerGap * unit)),
                         new Vector2(identity.Size.X, DividerHeight * unit));
-                    output.Add(ComponentStep(component, definition, divider, 0f, false, false));
+                    output.Add(ComponentStep(component, definition, ArtBand(divider, definition), 0f, false, false));
                     break;
 
                 case PlateComponentKind.SectionHeader:
@@ -283,8 +302,10 @@ public static class ComponentPaintPlan
 
         foreach (var (component, definition, _) in frameBand)
         {
-            var inset = PlateFrameInset * unit;
+            // A procedural border sits just inside the edge; artwork covers the whole canvas (the
+            // drawing carries its own margin, so an inset would only shrink it).
             var canvas = CanvasRect(profile);
+            var inset = definition.Art is null ? PlateFrameInset * unit : 0f;
             var rect = new ElementRect(canvas.Position + new Vector2(inset), Vector2.Max(Vector2.Zero, canvas.Size - new Vector2(2f * inset)));
             output.Add(ComponentStep(component, definition, rect, 0f, false, false));
         }
@@ -301,13 +322,31 @@ public static class ComponentPaintPlan
     {
         foreach (var (component, definition, _) in band)
         {
-            output.Add(ComponentStep(component, definition, anchor, anchorRotation, false, false));
+            output.Add(ComponentStep(component, definition, ArtBand(anchor, definition), anchorRotation, false, false));
         }
+    }
+
+    /// <summary>
+    /// A Name Backing's or Divider's box for bundled artwork: grown by the artwork's
+    /// <see cref="ArtSizeFactor"/> around the same center (a plaque or an ornament needs room around
+    /// the text or the line; the art is then fitted inside at its own aspect ratio, see
+    /// <see cref="ComponentStep(PlateComponent, ComponentDefinition, ElementRect, float, bool, bool, bool)"/>).
+    /// Every other placement — and every procedural shape — keeps its box.
+    /// </summary>
+    private static ElementRect ArtBand(ElementRect box, ComponentDefinition definition)
+    {
+        if (definition.Art is null || definition.Kind is not (PlateComponentKind.NameBacking or PlateComponentKind.Divider))
+        {
+            return box;
+        }
+
+        var size = box.Size * ArtSizeFactor(definition);
+        return new ElementRect(box.Position + ((box.Size - size) / 2f), size);
     }
 
     private static void AddCorners(List<PaintStep> output, ProfileDocument profile, PlateComponent component, ComponentDefinition definition, float unit)
     {
-        var size = CornerSize * unit * CornerSizeFactor(definition);
+        var size = CornerSize * unit * ArtSizeFactor(definition);
         var inset = CornerInset * unit;
         var canvas = CanvasRect(profile);
         var right = canvas.Size.X - inset - size;
@@ -358,9 +397,10 @@ public static class ComponentPaintPlan
         return bounds;
     }
 
-    /// <summary>A Corner Ornament's box size relative to <see cref="CornerSize"/>: 1 for procedural
-    /// marks, the artwork's bounded <see cref="BuiltInArtAsset.SizeFactor"/> for bundled art.</summary>
-    public static float CornerSizeFactor(ComponentDefinition definition) =>
+    /// <summary>A placement box's size relative to its kind's standard procedural box (a Corner
+    /// Ornament's <see cref="CornerSize"/> square, a Name Backing's or Divider's box): 1 for procedural
+    /// shapes, the artwork's bounded <see cref="BuiltInArtAsset.SizeFactor"/> for bundled art.</summary>
+    public static float ArtSizeFactor(ComponentDefinition definition) =>
         definition.Art is { SizeFactor: var factor } && float.IsFinite(factor) ? Math.Clamp(factor, 0.25f, 4f) : 1f;
 
     /// <summary>Applies the component's own (bounded) scale and offset to its anchored placement.</summary>
@@ -368,7 +408,10 @@ public static class ComponentPaintPlan
         ComponentStep(component, definition, anchor, anchorRotation, mirrorX, mirrorY, mirrorShape: true);
 
     /// <summary>As above; <paramref name="mirrorX"/>/<paramref name="mirrorY"/> always flip the
-    /// offset, and flip the shape only when <paramref name="mirrorShape"/>.</summary>
+    /// offset, and flip the shape only when <paramref name="mirrorShape"/>. Bundled artwork is then
+    /// fitted inside the box at its own aspect ratio, around the same center (never stretched; see
+    /// <see cref="FitAspect"/>), so the placement — and everything derived from it, like visual
+    /// bounds — is what is drawn.</summary>
     private static PaintStep ComponentStep(PlateComponent component, ComponentDefinition definition, ElementRect anchor, float anchorRotation, bool mirrorX, bool mirrorY, bool mirrorShape)
     {
         var scale = PlateComponentLimits.ClampScale(component.Scale);
@@ -385,10 +428,34 @@ public static class ComponentPaintPlan
 
         var center = anchor.Position + (anchor.Size / 2f) + offset;
         var size = anchor.Size * scale;
+        if (definition.Art is { } art)
+        {
+            size = FitAspect(size, art.AspectRatio);
+        }
+
         var rect = new ElementRect(center - (size / 2f), size);
         var rotation = anchorRotation + PlateComponentLimits.ClampRotation(component.RotationDegrees);
 
         return new PaintStep(LayerOf(component.Kind), null, component, definition, new ComponentPlacement(rect, rotation, mirrorShape && mirrorX, mirrorShape && mirrorY));
+    }
+
+    /// <summary>The largest size with width/height <paramref name="aspect"/> that fits inside
+    /// <paramref name="box"/>; <paramref name="box"/> itself when its own aspect is already within
+    /// <see cref="ArtAspectTolerance"/> of it (or either is degenerate).</summary>
+    public static Vector2 FitAspect(Vector2 box, float aspect)
+    {
+        if (!(aspect > 0f) || !float.IsFinite(aspect) || !(box.X > 0f) || !(box.Y > 0f) || !float.IsFinite(box.X) || !float.IsFinite(box.Y))
+        {
+            return box;
+        }
+
+        var boxAspect = box.X / box.Y;
+        if (MathF.Abs(boxAspect - aspect) <= aspect * ArtAspectTolerance)
+        {
+            return box;
+        }
+
+        return boxAspect > aspect ? new Vector2(box.Y * aspect, box.Y) : new Vector2(box.X, box.X / aspect);
     }
 
     /// <summary>

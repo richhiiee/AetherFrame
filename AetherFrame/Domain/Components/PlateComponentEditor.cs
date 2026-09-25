@@ -25,8 +25,15 @@ public static class PlateComponentEditor
         PlateComponentKind.CornerOrnament, PlateComponentKind.Divider, PlateComponentKind.SectionHeader,
     ];
 
+    /// <summary>Kinds only the Advanced editor adds (no Basic slot), in display order, listed before the Basic ones.</summary>
+    public static readonly PlateComponentKind[] AdvancedOnlyKinds =
+    [
+        PlateComponentKind.Background,
+    ];
+
     public static string KindLabel(PlateComponentKind kind) => kind switch
     {
+        PlateComponentKind.Background => "Background",
         PlateComponentKind.PlateFrame => "Plate Frame",
         PlateComponentKind.PortraitFrame => "Portrait Frame",
         PlateComponentKind.PortraitOverlay => "Portrait Overlay",

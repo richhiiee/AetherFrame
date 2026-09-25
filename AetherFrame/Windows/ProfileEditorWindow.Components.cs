@@ -70,6 +70,11 @@ internal sealed partial class ProfileEditorWindow
         {
             if (combo.Success)
             {
+                foreach (var kind in PlateComponentEditor.AdvancedOnlyKinds)
+                {
+                    DrawAddComponentGroup(kind);
+                }
+
                 foreach (var kind in PlateComponentEditor.BasicSlots)
                 {
                     DrawAddComponentGroup(kind);
@@ -297,6 +302,7 @@ internal sealed partial class ProfileEditorWindow
 
     private static string AnchorDescription(PlateComponentKind kind) => kind switch
     {
+        PlateComponentKind.Background => "the whole Plate, under the portrait and text",
         PlateComponentKind.PortraitFrame or PlateComponentKind.PortraitOverlay => "the portrait (it follows the portrait's position, size, and rotation)",
         PlateComponentKind.NameBacking => "the name and title",
         PlateComponentKind.Divider => "the space under the name and title",
