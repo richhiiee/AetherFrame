@@ -17,30 +17,43 @@ AetherFrame is a [Dalamud](https://github.com/goatcorp/Dalamud) plugin for desig
 
 ## Screenshots
 
-_Screenshots will be added as the interface settles._
+AetherFrame includes a local Plate library, a guided Basic Editor, a freeform Advanced Editor, and a clean in-game Plate Viewer.
 
-<!--
-  To add screenshots: place PNG files in a `docs/screenshots/` folder in this repository and
-  reference them with relative paths, for example:
+### Plate Viewer
 
-  ![Plate Library](docs/screenshots/plate-library.png)
+![A finished Celestial Sakura Plate shown in the AetherFrame Plate Viewer](docs/screenshots/plate-viewer.png)
 
-  Suggested set: Plate Library, Basic editor, Advanced editor, Plate Viewer, Clean Preview.
--->
+A finished Celestial Sakura Plate in the Plate Viewer, a clean presentation view for the saved Active Plate, opened with `/af view`.
 
-| Plate Library | Basic editor | Advanced editor | Plate Viewer |
-|---|---|---|---|
-| _coming soon_ | _coming soon_ | _coming soon_ | _coming soon_ |
+### Editing and Plate Management
+
+#### My Plates
+
+![The My Plates window with saved Plate cards](docs/screenshots/my-plates.png)
+
+Create, organize, duplicate, import, preview, and choose the Active Plate from a local Plate library.
+
+#### Basic Editor
+
+![The AetherFrame Basic Editor editing the Celestial Sakura Plate](docs/screenshots/basic-editor.png)
+
+A familiar Adventure Plate-style workflow for quickly editing layout, identity, details, message content, and visual styling.
+
+#### Advanced Editor
+
+![The AetherFrame Advanced Editor with the Layers panel and canvas](docs/screenshots/advanced-editor.png)
+
+Freeform control over text, images, Components, layering, placement, scaling, rotation, and the Plate canvas.
 
 ---
 
 ## Features
 
-### Plates and the Plate Library
+### Plates and My Plates
 
 - **Multiple saved Plates.** Each Plate is a complete, independent design. Keep as many as you like.
-- **Plate Library ("My Plates").** Browse, search, preview, rename, duplicate and delete Plates, and choose which Plate is Active for each character. Duplicating a Plate is an easy way to keep several variations of a look side by side.
-- **Plate previews.** Library cards and a preview pane show each Plate at a glance.
+- **My Plates.** Browse, search, preview, rename, duplicate and delete Plates, and choose which Plate is Active for each character. Duplicating a Plate is an easy way to keep several variations of a look side by side.
+- **Plate previews.** Plate cards in My Plates and a preview pane show each Plate at a glance.
 - **Plate Viewer.** A dedicated window that shows a Plate fitted to its size.
 - **Clean Preview.** Hide the editor UI and see the Plate exactly as it will look.
 
