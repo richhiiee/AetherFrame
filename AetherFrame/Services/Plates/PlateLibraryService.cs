@@ -180,15 +180,6 @@ internal sealed class PlateLibraryService
         }
     }
 
-    /// <summary>The last-known name recorded for a character, or null.</summary>
-    internal string? GetLastKnownCharacterName(ulong contentId)
-    {
-        lock (gate)
-        {
-            return bindings.TryGetValue(contentId, out var binding) ? binding.LastKnownCharacterName : null;
-        }
-    }
-
     /// <summary>A copy of the character's binding (including a stale Active id, untouched), or null.</summary>
     internal CharacterBinding? GetBinding(ulong contentId)
     {

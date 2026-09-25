@@ -47,13 +47,4 @@ internal static class LinearGradientLayout
             T(new Vector2(half.X, half.Y)),
             T(new Vector2(-half.X, half.Y)));
     }
-
-    /// <summary>The exact (reference) gradient parameter at a point, for verification.</summary>
-    internal static float ExactT(Vector2 size, float angleDegrees, Vector2 point)
-    {
-        var radians = angleDegrees * (MathF.PI / 180f);
-        var direction = new Vector2(MathF.Cos(radians), MathF.Sin(radians));
-        var halfLength = (MathF.Abs(size.X * direction.X) + MathF.Abs(size.Y * direction.Y)) / 2f;
-        return halfLength > 0f ? (Vector2.Dot(point - (size / 2f), direction) / (2f * halfLength)) + 0.5f : 0.5f;
-    }
 }

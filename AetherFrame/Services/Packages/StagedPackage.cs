@@ -64,8 +64,6 @@ internal sealed class StagedPackage : IDisposable
     /// <summary>The validated preview.png in staging, or null.</summary>
     internal string? PreviewImagePath { get; set; }
 
-    internal bool IsDisposed => disposed;
-
     /// <summary>Every problem, for the log (entry names sanitized; no content, no local paths).</summary>
     internal string DescribeForLog() =>
         $"package \"{PackageManifest.SafeForLog(SourceFileName)}\": {Compatibility}"

@@ -17,19 +17,6 @@ internal sealed class CharacterIdentityService : ICharacterInfoSource
         infoCache = new CharacterInfoCache(ReadInfo, () => Environment.TickCount64);
     }
 
-    internal bool IsCharacterLoggedIn => DalamudServices.PlayerState.IsLoaded;
-
-    internal ulong? CurrentContentId => DalamudServices.PlayerState.IsLoaded
-        ? DalamudServices.PlayerState.ContentId
-        : null;
-
-    /// <summary>The logged-in character's name, or null if none is logged in. Used only as a
-    /// convenience default (e.g. pre-filling the Basic editor's name field) and as descriptive
-    /// metadata — never persisted as an identity check.</summary>
-    internal string? CurrentCharacterName => DalamudServices.PlayerState.IsLoaded
-        ? DalamudServices.PlayerState.CharacterName
-        : null;
-
     /// <summary>
     /// The logged-in character for the Plate Library, or null when none is logged in (never a
     /// fabricated stand-in). The ContentId is only the local binding key; the name and home

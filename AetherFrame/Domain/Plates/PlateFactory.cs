@@ -28,9 +28,6 @@ public static class PlateFactory
         _ => "Blank Plate",
     };
 
-    /// <summary>Whether a new Plate from this layout opens in the Basic Editor (else Advanced).</summary>
-    public static bool OpensInBasicEditor(PlateStartingLayout layout) => layout == PlateStartingLayout.AdventurePlateClassic;
-
     /// <summary>
     /// <see cref="Create(PlateStartingLayout, Guid, string, DateTime)"/> plus the layout's starter
     /// content: an Adventure Plate Classic given <paramref name="starter"/> starts with its Identity

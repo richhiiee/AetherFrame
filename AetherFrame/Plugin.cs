@@ -68,7 +68,7 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
 
     public Plugin()
     {
-        DalamudServices.Initialize(PluginInterface, CommandManager, ClientState, PlayerState, Framework, FileStorage, Log, KeyState, TextureProvider, DataManager, UnlockState, ObjectTable);
+        DalamudServices.Initialize(PluginInterface, PlayerState, Framework, Log, KeyState, TextureProvider, DataManager, UnlockState, ObjectTable);
 
         var savedConfiguration = PluginInterface.GetPluginConfig() as PluginConfiguration;
         Configuration = savedConfiguration ?? new PluginConfiguration();

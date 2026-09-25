@@ -69,26 +69,6 @@ internal sealed class JobCatalog : IFavoriteJobSource
         return null;
     }
 
-    /// <summary>The logged-in character's level in that job, or null when unknown (none logged in, or not unlocked).</summary>
-    internal int? GetCharacterLevel(uint jobId)
-    {
-        try
-        {
-            if (!DalamudServices.PlayerState.IsLoaded
-                || !DalamudServices.DataManager.GetExcelSheet<ClassJob>().TryGetRow(jobId, out var row))
-            {
-                return null;
-            }
-
-            var level = DalamudServices.PlayerState.GetClassJobLevel(row);
-            return level > 0 ? level : null;
-        }
-        catch (Exception)
-        {
-            return null;
-        }
-    }
-
     /// <summary>Game data job names are lower case in some languages ("white mage"); shown title-cased.</summary>
     internal static string FormatName(string name)
     {
