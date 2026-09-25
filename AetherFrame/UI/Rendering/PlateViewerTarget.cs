@@ -44,10 +44,14 @@ internal readonly record struct PlateViewerContent(PlateViewerState State, Profi
 /// logged-in character's Active Plate via <see cref="ActivePlateResolver"/> — or, when there's no
 /// Active Plate, says so. Never picks some other Plate in its place.
 ///
-/// <para>Resolved every frame, so a default request follows Set Active, a delete of the Active
-/// Plate, or a character change while the viewer is open. Any saved Plate that's also the one
-/// open in the editors is shown from the editors' live document (so unsaved edits show without a
-/// reload) — the same rule for an explicit Plate and the Active one.</para>
+/// <para>Resolved every frame, so a default request follows Set Active, a save of the Active
+/// Plate, a delete of the Active Plate, or a character change while the viewer is open.</para>
+///
+/// <para><b>Saved vs live.</b> The default request always presents the Active Plate's last
+/// <i>saved</i> document — the Plate as the character presents it (and, later, as published) —
+/// even while it's open with unsaved edits in Basic or Advanced; saving is what changes it. An
+/// explicit Plate request instead shows the editors' live document when that Plate is the one open
+/// (so unsaved edits show without a reload). Editor Preview is separate and always live.</para>
 /// </summary>
 internal sealed class PlateViewerTarget
 {
@@ -68,7 +72,8 @@ internal sealed class PlateViewerTarget
 
     /// <param name="activePlates">Resolves the default request.</param>
     /// <param name="savedDocument">A saved Plate's read-only document, or null when it can't be shown.</param>
-    /// <param name="liveDocument">The document open in the editors, or null.</param>
+    /// <param name="liveDocument">The document open in the editors, or null. Used only for an
+    /// explicit Plate request, never for the default Active Plate one.</param>
     internal PlateViewerContent Resolve(ActivePlateResolver activePlates, Func<Guid, ProfileDocument?> savedDocument, ProfileDocument? liveDocument)
     {
         switch (Kind)
@@ -77,27 +82,24 @@ internal sealed class PlateViewerTarget
                 return new PlateViewerContent(PlateViewerState.Showing, Document);
 
             case PlateViewerRequestKind.Plate:
-                return ShowPlate(PlateId!.Value, savedDocument(PlateId.Value), liveDocument);
+                var plateId = PlateId!.Value;
+                var document = liveDocument?.ProfileId == plateId ? liveDocument : savedDocument(plateId);
+                return document is null
+                    ? new PlateViewerContent(PlateViewerState.PlateUnavailable)
+                    : new PlateViewerContent(PlateViewerState.Showing, document);
 
             default:
+                // The saved Active Plate only: unsaved editor changes never show here.
                 var active = activePlates.ResolveForCurrentCharacter();
                 return active.Status switch
                 {
-                    ActivePlateStatus.Resolved => ShowPlate(active.PlateId!.Value, active.Document, liveDocument),
+                    ActivePlateStatus.Resolved => new PlateViewerContent(PlateViewerState.Showing, active.Document),
                     ActivePlateStatus.NoActivePlate => new PlateViewerContent(PlateViewerState.NoActivePlate),
                     ActivePlateStatus.NoCharacter => new PlateViewerContent(PlateViewerState.NoCharacter),
                     ActivePlateStatus.LibraryUnavailable => new PlateViewerContent(PlateViewerState.LibraryUnavailable),
                     _ => new PlateViewerContent(PlateViewerState.PlateUnavailable),
                 };
         }
-    }
-
-    private static PlateViewerContent ShowPlate(Guid plateId, ProfileDocument? saved, ProfileDocument? live)
-    {
-        var document = live?.ProfileId == plateId ? live : saved;
-        return document is null
-            ? new PlateViewerContent(PlateViewerState.PlateUnavailable)
-            : new PlateViewerContent(PlateViewerState.Showing, document);
     }
 
     private void Set(PlateViewerRequestKind kind, Guid? plateId, ProfileDocument? document)

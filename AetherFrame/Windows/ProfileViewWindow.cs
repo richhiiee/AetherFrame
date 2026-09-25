@@ -15,16 +15,17 @@ namespace AetherFrame.Windows;
 /// <summary>
 /// The Plate Viewer: a read-only presentation of one Plate — no inspector, no selection, no
 /// editing of any kind, no editor chrome of any kind; the finished Plate is the entire point of
-/// this window. For the Plate open in the editors it renders that same live in-memory
-/// <see cref="ProfileDocument"/> (so it reflects unsaved edits without a reload); for any other
-/// Plate, the Library's saved copy; for a Template preview, the Template's document. Either way via
+/// this window. For an explicitly requested Plate that's open in the editors it renders that same
+/// live in-memory <see cref="ProfileDocument"/> (so it reflects unsaved edits without a reload); for
+/// any other Plate, and always for the default Active Plate request, the Library's saved copy; for
+/// a Template preview, the Template's document. Either way via
 /// the shared <see cref="ProfileRenderer"/> with element-bounds chrome always off. Viewing never
 /// changes a Plate, its dirty state, its undo history, or which Plate is Active.
 ///
 /// <para><b>What it shows</b> (<see cref="PlateViewerTarget"/>): an explicitly requested Plate or
 /// Template document; otherwise — the default request, e.g. <c>/aetherframe view</c> — the
-/// logged-in character's Active Plate. With no Active Plate it shows an intentional empty state
-/// pointing at My Plates, never some other Plate.</para>
+/// logged-in character's Active Plate, always as last saved (never the editors' unsaved state). With
+/// no Active Plate it shows an intentional empty state pointing at My Plates, never some other Plate.</para>
 ///
 /// <para><b>Presentation.</b> Like Clean Preview, the Plate floats directly over the game: the
 /// window is exactly the Plate's composition (its fitted visual bounds — canvas plus any

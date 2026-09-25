@@ -117,7 +117,7 @@ public class PlateViewerTargetTests
     }
 
     [Fact]
-    public async Task ActivePlate_OpenInTheEditors_ShowsTheLiveDocument()
+    public async Task ActivePlate_OpenInTheEditors_ShowsTheSavedDocument_NotTheLiveOne()
     {
         using var fixture = new LibraryFixture();
         var library = await fixture.LoadAsync();
@@ -127,7 +127,8 @@ public class PlateViewerTargetTests
         var content = Resolve(new PlateViewerTarget(), library, new CurrentCharacterStub(), live);
 
         Assert.Equal(PlateViewerState.Showing, content.State);
-        Assert.Same(live, content.Document);
+        Assert.Same(library.GetSavedDocument(active.PlateId), content.Document);
+        Assert.NotSame(live, content.Document);
     }
 
     [Fact]
