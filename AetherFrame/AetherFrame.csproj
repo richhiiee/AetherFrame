@@ -34,7 +34,7 @@
   <ItemGroup>
     <None Remove="Assets\**" />
     <EmbeddedResource Include="Assets\**\*.png">
-      <LogicalName>AetherFrame.Assets.$([System.String]::Copy('%(RecursiveDir)').Replace('\', '.'))%(Filename)%(Extension)</LogicalName>
+      <LogicalName>AetherFrame.Assets.$([System.String]::Copy('%(RecursiveDir)').Replace('\', '.').Replace('/', '.'))%(Filename)%(Extension)</LogicalName>
     </EmbeddedResource>
   </ItemGroup>
 </Project>
