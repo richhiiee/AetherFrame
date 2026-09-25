@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Numerics;
-using System.Threading.Tasks;
 using AetherFrame.Domain.Profiles;
 using AetherFrame.Services;
 using AetherFrame.UI.Editor;
@@ -34,7 +33,6 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable, IEditor
 
     private const string ElementContextMenuId = "##AetherFrameElementContextMenu";
     private const string CanvasResizePopupId = "##AetherFrameCanvasResizePopup";
-    private const string UnsavedChangesPopupId = "Unsaved Changes##AetherFrameUnsavedChanges";
     private const string ZoomMenuPopupId = "##AetherFrameZoomMenu";
 
     private static readonly float[] ZoomPresets = [0.25f, 0.5f, 0.75f, 1f, 1.5f, 2f, 3f, 4f];
@@ -74,12 +72,8 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable, IEditor
 
     private bool pendingZoomMenu;
 
-    // Unsaved-changes protection: the action waiting on the user's Save/Discard/Cancel answer,
-    // and (after Save) the save it's waiting on.
-    private GuardedAction? guardedAction;
-    private bool pendingGuardPrompt;
-    private Task<bool>? guardSaveTask;
-    private bool closeConfirmed;
+    // Unsaved-changes protection when the window closes (shared with the Basic editor's own).
+    private readonly EditorCloseGuard closeGuard;
 
     // Clean Preview presentation (see PreDraw): the editor's own rectangle, captured every editing
     // frame so the preview fits inside it and the editor returns to it; whether the transparent
@@ -92,9 +86,6 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable, IEditor
     private CleanPreviewLayout? previewLayout;
     private WindowSizeConstraints? editorSizeConstraints;
     private bool editorAllowsBackgroundBlur = true;
-
-    // Whether the window was open at the previous PreOpenCheck (so a close is noticed exactly once).
-    private bool openLastFrame;
 
     // Inspector tab and focus requests, raised by canvas/layers interactions.
     private bool selectElementTabPending;
@@ -128,6 +119,7 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable, IEditor
         this.surfaces = surfaces;
         backgroundPanel = new BackgroundStylePanel(editorSession, renderResources, OpenImageFileDialog);
         actionBar = new EditorActionBar(commands, EditorSurfaceKind.Advanced, openLibrary, openBasicEditor);
+        closeGuard = new EditorCloseGuard(editorSession, commands);
 
         // Title bar, left to right: Dalamud's Window Options (Settings) | Minimize | Close — all three
         // Dalamud's own, the same as every other AetherFrame window (see TitleBarOrder). Minimize is
@@ -146,25 +138,7 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable, IEditor
     /// "still open" here and the unsaved-changes question asked, so Dalamud never starts closing
     /// (no close sound, no fade-out flicker). OnClose remains the fallback for anything else.
     /// </summary>
-    public override void PreOpenCheck()
-    {
-        if (!IsOpen && openLastFrame && !closeConfirmed && profileService.CurrentProfile is not null)
-        {
-            editorSession.CommitPendingEdits();
-            if (CloseGuard.ShouldVeto(wasOpen: true, isOpen: false, closeConfirmed, hasPlate: true, editorSession.IsDirty))
-            {
-                IsOpen = true;
-                RequestGuardedAction(GuardedAction.Close);
-            }
-        }
-
-        openLastFrame = IsOpen;
-    }
-
-    private enum GuardedAction
-    {
-        Close,
-    }
+    public override void PreOpenCheck() => IsOpen = closeGuard.PreOpenCheck(IsOpen);
 
     public void Dispose()
     {
@@ -199,7 +173,7 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable, IEditor
     /// </summary>
     public void CloseForHandoff()
     {
-        closeConfirmed = true;
+        closeGuard.ConfirmClose();
         IsOpen = false;
     }
 
@@ -214,16 +188,14 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable, IEditor
         editorSession.CommitPendingEdits();
         editorSession.EndInteraction();
 
-        if (!closeConfirmed && profileService.CurrentProfile is not null && editorSession.IsDirty)
+        if (closeGuard.ShouldReopenOnClose())
         {
             // The unsaved-changes question needs the normal editor window, not the preview's.
             editorSession.PreviewActive = false;
             IsOpen = true;
-            RequestGuardedAction(GuardedAction.Close);
             return;
         }
 
-        closeConfirmed = false;
         editorSession.PreviewActive = false;
 
         // Draw won't run again until the window reopens, so this is the only reliable place to
@@ -324,7 +296,10 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable, IEditor
 
         PublishKeyboardFocusState();
         ApplyPendingShortcutActions();
-        AdvanceGuardedSave();
+        if (closeGuard.Advance())
+        {
+            IsOpen = false;
+        }
 
         if (editorSession.PreviewActive)
         {
@@ -341,7 +316,7 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable, IEditor
         DrawCanvasResizePromptPopup();
         DrawZoomMenuPopup();
         actionBar.DrawPopups();
-        DrawUnsavedChangesPopup();
+        EditorClosePrompt.Draw(closeGuard, () => IsOpen = false);
 
         // Commits an edit whose widget never reported "deactivated after edit" (see method).
         editorSession.CommitPendingEditsIfIdle(ImGui.IsAnyItemActive());
@@ -501,121 +476,6 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable, IEditor
             }
         }
     }
-
-    // ---------------------------------------------------------------- unsaved-changes protection
-
-
-    /// <summary>
-    /// Runs <paramref name="action"/> right away when there's nothing unsaved; otherwise asks
-    /// Save / Discard / Cancel first. The single choke point in this window for anything that would
-    /// otherwise silently lose unsaved work (closing the editor; switching Plates is guarded by My
-    /// Plates, which opens them).
-    /// </summary>
-    private void RequestGuardedAction(GuardedAction action)
-    {
-        editorSession.CommitPendingEdits();
-
-        if (!editorSession.IsDirty)
-        {
-            RunGuardedAction(action);
-            return;
-        }
-
-        guardedAction = action;
-        guardSaveTask = null;
-        pendingGuardPrompt = true;
-    }
-
-    private void RunGuardedAction(GuardedAction action)
-    {
-        guardedAction = null;
-        guardSaveTask = null;
-
-        switch (action)
-        {
-            case GuardedAction.Close:
-                closeConfirmed = true;
-                IsOpen = false;
-                break;
-        }
-    }
-
-    /// <summary>After "Save" in the prompt: once that save finishes, run the waiting action — or,
-    /// if it failed, keep everything open with the error showing.</summary>
-    private void AdvanceGuardedSave()
-    {
-        if (guardSaveTask is not { IsCompleted: true } task || guardedAction is not { } action)
-        {
-            return;
-        }
-
-        guardSaveTask = null;
-        editorSession.SyncWithCurrentProfile();
-
-        if (task.IsCompletedSuccessfully && task.Result)
-        {
-            RunGuardedAction(action);
-        }
-        else
-        {
-            guardedAction = null;
-        }
-    }
-
-    private void DrawUnsavedChangesPopup()
-    {
-        if (pendingGuardPrompt)
-        {
-            ImGui.OpenPopup(UnsavedChangesPopupId);
-            pendingGuardPrompt = false;
-        }
-
-        if (!ImGui.BeginPopupModal(UnsavedChangesPopupId, ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoSavedSettings))
-        {
-            return;
-        }
-
-        if (guardedAction is not { } action)
-        {
-            ImGui.CloseCurrentPopup();
-            ImGui.EndPopup();
-            return;
-        }
-
-        ImGui.TextUnformatted("This Plate has unsaved changes. Save them before closing?");
-
-        var canSave = CanSaveNow();
-        ImGui.Spacing();
-
-        var buttonSize = new Vector2(110f, 0f);
-        using (ImRaii.Disabled(!canSave || guardSaveTask is not null))
-        {
-            if (ImGui.Button(guardSaveTask is null ? "Save" : "Saving...", buttonSize))
-            {
-                guardSaveTask = editorSession.SaveProfileAsync();
-                ImGui.CloseCurrentPopup();
-            }
-        }
-
-        ImGui.SameLine();
-        if (ImGui.Button("Discard", buttonSize))
-        {
-            editorSession.DiscardChanges();
-            ImGui.CloseCurrentPopup();
-            RunGuardedAction(action);
-        }
-
-        ImGui.SameLine();
-        if (ImGui.Button("Cancel", buttonSize))
-        {
-            guardedAction = null;
-            ImGui.CloseCurrentPopup();
-        }
-
-        ImGui.EndPopup();
-    }
-
-    private bool CanSaveNow() => !profileService.IsBusy;
 
     // ---------------------------------------------------------------- Clean Preview
 

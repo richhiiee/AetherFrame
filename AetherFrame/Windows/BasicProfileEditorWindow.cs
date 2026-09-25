@@ -67,6 +67,10 @@ internal sealed partial class BasicProfileEditorWindow : Window, IDisposable, IE
     private readonly EditorSurfaceCoordinator surfaces;
     private readonly BackgroundStylePanel backgroundPanel;
     private readonly EditorActionBar actionBar;
+    private readonly KeyboardShortcutService keyboardShortcuts;
+
+    // Unsaved-changes protection when the window closes: the same guard the Advanced editor has.
+    private readonly EditorCloseGuard closeGuard;
 
     // Which category is shown, Focus Preview, and zoom: view state only, never part of the Plate.
     private readonly BasicEditorNavigation navigation = new();
@@ -91,7 +95,8 @@ internal sealed partial class BasicProfileEditorWindow : Window, IDisposable, IE
         Action openAdvancedEditor,
         Action openLibrary,
         EditorSurfaceCoordinator surfaces,
-        EditorDocumentCommands commands)
+        EditorDocumentCommands commands,
+        KeyboardShortcutService keyboardShortcuts)
         : base("AetherFrame Basic Editor##BasicProfileEditorWindow")
     {
         SizeConstraints = new WindowSizeConstraints
@@ -114,6 +119,8 @@ internal sealed partial class BasicProfileEditorWindow : Window, IDisposable, IE
         this.surfaces = surfaces;
         backgroundPanel = new BackgroundStylePanel(editorSession, renderResources, OpenImageFileDialog);
         actionBar = new EditorActionBar(commands, EditorSurfaceKind.Basic, openLibrary, openAdvancedEditor);
+        this.keyboardShortcuts = keyboardShortcuts;
+        closeGuard = new EditorCloseGuard(editorSession, commands);
     }
 
     public void Dispose()
@@ -130,11 +137,37 @@ internal sealed partial class BasicProfileEditorWindow : Window, IDisposable, IE
         BringToFront();
     }
 
-    /// <summary>Handing editing to the Advanced editor, which continues the same session.</summary>
-    public void CloseForHandoff() => IsOpen = false;
+    /// <summary>
+    /// Runs every frame before Dalamud checks whether the window is open. A close that would lose
+    /// unsaved work — the title bar Close, Escape, a toggle from elsewhere — is turned back into
+    /// "still open" here and Save / Discard / Cancel asked instead (see <see cref="EditorCloseGuard"/>).
+    /// </summary>
+    public override void PreOpenCheck() => IsOpen = closeGuard.PreOpenCheck(IsOpen);
 
+    /// <summary>
+    /// Handing editing to the Advanced editor, which continues the same session (document, dirty
+    /// state, history), so the unsaved-changes question doesn't apply.
+    /// </summary>
+    public void CloseForHandoff()
+    {
+        closeGuard.ConfirmClose();
+        IsOpen = false;
+    }
+
+    /// <summary>
+    /// Called once when the window closes. A close that slipped past <see cref="PreOpenCheck"/> with
+    /// unsaved work reopens the window and asks instead.
+    /// </summary>
     public override void OnClose()
     {
+        if (closeGuard.ShouldReopenOnClose())
+        {
+            IsOpen = true;
+            return;
+        }
+
+        // Draw won't run again until the window reopens: stop claiming shortcuts right away.
+        keyboardShortcuts.SetEditorFocusState(editorFocused: false, textInputActive: false);
         fileDialogManager.Reset();
     }
 
@@ -158,7 +191,16 @@ internal sealed partial class BasicProfileEditorWindow : Window, IDisposable, IE
                 openLibrary();
             }
 
+            keyboardShortcuts.SetEditorFocusState(editorFocused: false, textInputActive: false);
             return;
+        }
+
+        // Ctrl+S / Ctrl+Z / Ctrl+Y, exactly as the action bar's Save, Undo and Redo.
+        keyboardShortcuts.SetDocumentShortcutFocusState(ImGui.IsWindowFocused(ImGuiFocusedFlags.RootAndChildWindows), ImGui.GetIO().WantTextInput);
+        ApplyShortcuts();
+        if (closeGuard.Advance())
+        {
+            IsOpen = false;
         }
 
         // Opening Basic mode never creates or changes anything: section elements (and the
@@ -225,9 +267,34 @@ internal sealed partial class BasicProfileEditorWindow : Window, IDisposable, IE
 
         DrawResetLayoutPopup();
         actionBar.DrawPopups();
+        EditorClosePrompt.Draw(closeGuard, () => IsOpen = false);
 
         // Commits a color/slider edit whose widget never reported "deactivated after edit".
         editorSession.CommitPendingEditsIfIdle(ImGui.IsAnyItemActive());
+    }
+
+    /// <summary>
+    /// The document shortcuts queued by <see cref="KeyboardShortcutService"/> (Basic only gets
+    /// those), applied through the same commands as the action bar — so Ctrl+S never saves a clean
+    /// Plate, exactly like the Save button.
+    /// </summary>
+    private void ApplyShortcuts()
+    {
+        foreach (var action in keyboardShortcuts.DequeuePendingActions())
+        {
+            switch (action.Kind)
+            {
+                case EditorShortcutActionKind.Save:
+                    actionBar.Commands.Save();
+                    break;
+                case EditorShortcutActionKind.Undo:
+                    actionBar.Commands.Undo();
+                    break;
+                case EditorShortcutActionKind.Redo:
+                    actionBar.Commands.Redo();
+                    break;
+            }
+        }
     }
 
     // ---------------------------------------------------------------- navigation

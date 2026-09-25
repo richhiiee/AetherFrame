@@ -27,10 +27,15 @@ internal readonly record struct EditorShortcutAction(EditorShortcutActionKind Ki
 /// stop the game from also reacting to the same key press.
 ///
 /// Detection and suppression happen here, on the framework thread. Applying the resulting
-/// editor action (Undo, nudge, etc.) is deliberately left to <c>ProfileEditorWindow</c>'s next
-/// Draw: <c>EditorSession</c>/<c>ProfileService</c> mutation methods are only safe to call from
-/// the render thread, so this queue (guarded by <see cref="gate"/>) is the thread-safe handoff
+/// editor action (Undo, nudge, etc.) is deliberately left to the open editor window's next Draw:
+/// <c>EditorSession</c>/<c>ProfileService</c> mutation methods are only safe to call from the
+/// render thread, so this queue (guarded by <see cref="gate"/>) is the thread-safe handoff
 /// between the framework thread and the render thread.
+///
+/// <para>Both editors publish their focus here (only one is ever open). The Advanced editor gets
+/// every shortcut; the Basic editor only the document ones its shared action bar offers —
+/// Ctrl+S, Ctrl+Z, Ctrl+Y / Ctrl+Shift+Z (see <see cref="SetDocumentShortcutFocusState"/>) — so
+/// no other key is ever taken from the game while Basic is focused.</para>
 /// </summary>
 internal sealed class KeyboardShortcutService : IDisposable
 {
@@ -54,13 +59,14 @@ internal sealed class KeyboardShortcutService : IDisposable
 
     private DateTime lastUpdateUtc = DateTime.UtcNow;
 
-    // Published by ProfileEditorWindow's previous Draw (or OnClose); read here on the next
+    // Published by the open editor's previous Draw (or OnClose); read here on the next
     // Framework.Update tick. Volatile: written on the render thread, read on the framework
     // thread.
     private volatile bool editorFocused;
     private volatile bool textInputActive;
     private volatile bool previewActive;
     private volatile bool canvasInteractionActive;
+    private volatile bool documentShortcutsOnly;
 
     internal KeyboardShortcutService()
     {
@@ -92,6 +98,18 @@ internal sealed class KeyboardShortcutService : IDisposable
         this.textInputActive = textInputActive;
         this.previewActive = previewActive;
         this.canvasInteractionActive = canvasInteractionActive;
+        documentShortcutsOnly = false;
+    }
+
+    /// <summary>
+    /// The Basic editor's form of <see cref="SetEditorFocusState(bool, bool)"/>: only the shared
+    /// action bar's document shortcuts — Save (even mid-typing, as in Advanced), Undo and Redo (not
+    /// while typing, where they stay the text field's own) — are recognized and kept from the game.
+    /// </summary>
+    internal void SetDocumentShortcutFocusState(bool editorFocused, bool textInputActive)
+    {
+        SetEditorFocusState(editorFocused, textInputActive);
+        documentShortcutsOnly = true;
     }
 
     /// <summary>Drains and returns any shortcut actions queued since the last call.</summary>
@@ -148,6 +166,13 @@ internal sealed class KeyboardShortcutService : IDisposable
             return;
         }
 
+        if (documentShortcutsOnly)
+        {
+            DetectHistoryShortcuts(keyState, ctrlDown, shiftDown);
+            ResetHeldKeys(keepSaveKey: true, keepHistoryKeys: true);
+            return;
+        }
+
         var escapeDown = keyState[VirtualKey.ESCAPE];
         var escapePressed = escapeDown && !previousEscapeDown;
         previousEscapeDown = escapeDown;
@@ -193,30 +218,11 @@ internal sealed class KeyboardShortcutService : IDisposable
             SuppressGameKey(keyState, VirtualKey.F);
         }
 
-        var zDown = keyState[VirtualKey.Z];
-        var zPressed = zDown && !previousZDown;
-        previousZDown = zDown;
-
-        var yDown = keyState[VirtualKey.Y];
-        var yPressed = yDown && !previousYDown;
-        previousYDown = yDown;
+        DetectHistoryShortcuts(keyState, ctrlDown, shiftDown);
 
         var deleteDown = keyState[VirtualKey.DELETE];
         var deletePressed = deleteDown && !previousDeleteDown;
         previousDeleteDown = deleteDown;
-
-        // Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y: recognizing one of these consumes Z or Y here and
-        // nothing else interprets that same press.
-        if (ctrlDown && zPressed)
-        {
-            Enqueue(shiftDown ? EditorShortcutActionKind.Redo : EditorShortcutActionKind.Undo);
-            SuppressGameKey(keyState, VirtualKey.Z);
-        }
-        else if (ctrlDown && yPressed)
-        {
-            Enqueue(EditorShortcutActionKind.Redo);
-            SuppressGameKey(keyState, VirtualKey.Y);
-        }
 
         if (deletePressed)
         {
@@ -252,17 +258,47 @@ internal sealed class KeyboardShortcutService : IDisposable
     }
 
     /// <summary>
+    /// Ctrl+Z (Undo), Ctrl+Shift+Z and Ctrl+Y (Redo): recognizing one of these consumes Z or Y
+    /// here and nothing else interprets that same press.
+    /// </summary>
+    private void DetectHistoryShortcuts(IKeyState keyState, bool ctrlDown, bool shiftDown)
+    {
+        var zDown = keyState[VirtualKey.Z];
+        var zPressed = zDown && !previousZDown;
+        previousZDown = zDown;
+
+        var yDown = keyState[VirtualKey.Y];
+        var yPressed = yDown && !previousYDown;
+        previousYDown = yDown;
+
+        if (ctrlDown && zPressed)
+        {
+            Enqueue(shiftDown ? EditorShortcutActionKind.Redo : EditorShortcutActionKind.Undo);
+            SuppressGameKey(keyState, VirtualKey.Z);
+        }
+        else if (ctrlDown && yPressed)
+        {
+            Enqueue(EditorShortcutActionKind.Redo);
+            SuppressGameKey(keyState, VirtualKey.Y);
+        }
+    }
+
+    /// <summary>
     /// Releases held-key state so a later focus regain starts clean rather than treating an
     /// already-held key as a fresh press or resuming mid-repeat.
     /// </summary>
-    private void ResetHeldKeys(bool keepSaveKey = false, bool keepEscapeKey = false)
+    private void ResetHeldKeys(bool keepSaveKey = false, bool keepEscapeKey = false, bool keepHistoryKeys = false)
     {
         leftRepeat.Reset();
         rightRepeat.Reset();
         upRepeat.Reset();
         downRepeat.Reset();
-        previousZDown = false;
-        previousYDown = false;
+        if (!keepHistoryKeys)
+        {
+            previousZDown = false;
+            previousYDown = false;
+        }
+
         previousDeleteDown = false;
         previousDDown = false;
         previousFDown = false;

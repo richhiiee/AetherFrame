@@ -6,6 +6,7 @@ using AetherFrame.Domain.Plates;
 using AetherFrame.Services;
 using AetherFrame.Services.Plates;
 using AetherFrame.Services.Templates;
+using AetherFrame.UI.Editor;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Utility.Raii;
 
@@ -86,7 +87,7 @@ internal sealed partial class PlateLibraryWindow
     }
 
     /// <summary>
-    /// The selected-Plate action menu: Preview, Edit, Open Advanced Editor, Set Active, Duplicate,
+    /// The selected-Plate action menu: Preview, Edit, Open in Basic / Advanced Editor, Set Active, Duplicate,
     /// Save as Template, Export, Rename, Delete — one reusable menu shown on a card's right-click,
     /// replacing the old persistent action bar. Every item reuses the exact same service calls,
     /// <see cref="RunOperation{T}"/> plumbing, and existing Rename/Delete/Save-as-Template popups
@@ -108,10 +109,17 @@ internal sealed partial class PlateLibraryWindow
 
             if (ImGui.MenuItem("Edit"))
             {
+                RequestEdit(plate.PlateId);
+            }
+
+            EditorWidgets.Tooltip("Opens the editor that suits this Plate: Basic for Adventure Plate layouts,\nAdvanced for freeform designs.");
+
+            if (ImGui.MenuItem("Open in Basic Editor"))
+            {
                 RequestOpen(plate.PlateId, basic: true);
             }
 
-            if (ImGui.MenuItem("Open Advanced Editor"))
+            if (ImGui.MenuItem("Open in Advanced Editor"))
             {
                 RequestOpen(plate.PlateId, basic: false);
             }
@@ -179,6 +187,21 @@ internal sealed partial class PlateLibraryWindow
         string.IsNullOrWhiteSpace(character.Name) ? "this character" : character.Name;
 
     // ---------------------------------------------------------------- opening Plates
+
+    /// <summary>
+    /// Edit (and a double-click): the editor already showing this Plate, if one is; otherwise the one
+    /// its content suits (<see cref="EditorSurfaceChooser"/>) — Basic for an Adventure Plate layout,
+    /// Advanced for Blank Canvas and freeform Plates. Judged from the open document when it's the
+    /// open Plate (it may have unsaved changes), else from its saved version.
+    /// </summary>
+    private void RequestEdit(Guid plateId)
+    {
+        var isOpen = profileService.OpenPlateId == plateId;
+        var kind = isOpen && activeEditor() is { } showing
+            ? showing
+            : EditorSurfaceChooser.ForDocument(isOpen ? profileService.CurrentProfile : library.GetSavedDocument(plateId));
+        RequestOpen(plateId, kind == EditorSurfaceKind.Basic);
+    }
 
     /// <summary>
     /// Opens a Plate in an editor. Switching away from a Plate with unsaved changes asks first;

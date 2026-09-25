@@ -1,4 +1,5 @@
 using System;
+using AetherFrame.Domain.Profiles;
 
 namespace AetherFrame.UI.Editor;
 
@@ -6,6 +7,19 @@ internal enum EditorSurfaceKind
 {
     Basic,
     Advanced,
+}
+
+/// <summary>
+/// Which editor opens a Plate when the player doesn't pick one (My Plates' Edit and double-click,
+/// Use Template): decided by the Plate's content, never by how it was made. A Plate with Adventure
+/// Plate Classic structure — any Basic section (see <see cref="BasicEditorSession.CanResetLayout"/>)
+/// — opens in the Basic Editor; anything else (Blank Canvas, a freeform design, a Plate that can't
+/// be read) opens in the Advanced Editor. Explicitly choosing an editor always overrides this.
+/// </summary>
+internal static class EditorSurfaceChooser
+{
+    internal static EditorSurfaceKind ForDocument(ProfileDocument? document) =>
+        document is not null && BasicEditorSession.CanResetLayout(document) ? EditorSurfaceKind.Basic : EditorSurfaceKind.Advanced;
 }
 
 /// <summary>An editor window that edits the open Plate (the Basic or Advanced editor).</summary>

@@ -131,6 +131,25 @@ public class EditorActionBarTests
         Assert.Equal(AdventurePlateOrientation.Mirrored, harness.Library.OpenDocumentForEditing(harness.PlateId).BasicPlate!.Orientation);
     }
 
+    [Fact]
+    public async Task TheSaveShortcut_InBasic_SavesOnlyUnsavedChanges()
+    {
+        // Ctrl+S in the Basic editor runs the action bar's own Save command.
+        using var harness = await NewClassicAsync();
+        var commands = Commands(harness);
+        harness.SimulateBasicFrame();
+
+        Assert.False(commands.Save()); // clean: nothing happens
+        Assert.Equal(0, harness.Library.FindPlate(harness.PlateId)!.Revision);
+
+        harness.Basic.AddPlaystyle("Roleplay");
+        Assert.True(await commands.SaveAsync());
+        harness.Session.SyncWithCurrentProfile();
+
+        Assert.False(commands.IsDirty);
+        Assert.Equal(["Roleplay"], harness.Library.OpenDocumentForEditing(harness.PlateId).BasicPlate!.Playstyles);
+    }
+
     // ---------------------------------------------------------------- revert
 
     [Fact]

@@ -389,8 +389,9 @@ internal sealed partial class PlateLibraryWindow
     }
 
     /// <summary>Use Template: creates the new Plate, then opens it in Basic or Advanced depending
-    /// on whether its content actually has Basic structure (see <see cref="BasicEditorSession.CanResetLayout"/>)
-    /// — never a fixed choice per Template kind, so an arbitrary user Template opens sensibly.</summary>
+    /// on whether its content actually has Basic structure (see <see cref="EditorSurfaceChooser"/>,
+    /// the same rule as Edit) — never a fixed choice per Template kind, so an arbitrary user
+    /// Template opens sensibly.</summary>
     private void UseTemplate(Guid templateId)
     {
         var character = characterIdentity.CurrentCharacter;
@@ -405,8 +406,7 @@ internal sealed partial class PlateLibraryWindow
                 statusMessage = $"Created your first Plate. It's now {DescribeCharacter(owner)}'s Active Plate.";
             }
 
-            var document = library.GetSavedDocument(result.PlateId);
-            var basic = document is not null && BasicEditorSession.CanResetLayout(document);
+            var basic = EditorSurfaceChooser.ForDocument(library.GetSavedDocument(result.PlateId)) == EditorSurfaceKind.Basic;
             RequestOpen(result.PlateId, basic);
         });
     }
@@ -751,7 +751,7 @@ internal sealed partial class PlateLibraryWindow
         }
 
         var document = templates.GetSavedDocument(chosenTemplateId);
-        var destinationText = document is not null && BasicEditorSession.CanResetLayout(document) ? "Basic Editor" : "Advanced Editor";
+        var destinationText = EditorSurfaceChooser.ForDocument(document) == EditorSurfaceKind.Basic ? "Basic Editor" : "Advanced Editor";
         return new ChooserSelection(summary.DisplayName, $"Saved {summary.ModifiedUtc.ToLocalTime():g}.", destinationText, summary.SupportsPreview);
     }
 

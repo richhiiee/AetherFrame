@@ -61,6 +61,7 @@ internal sealed partial class PlateLibraryWindow : Window, IDisposable
     private readonly HashSet<Guid> listedPlateIds = new();
     private readonly Action openBasicEditor;
     private readonly Action openAdvancedEditor;
+    private readonly Func<EditorSurfaceKind?> activeEditor;
     private readonly Action<Guid> showInViewer;
     private readonly Action<ProfileDocument> showDocumentInViewer;
     private readonly PlatePackageService packages;
@@ -86,6 +87,7 @@ internal sealed partial class PlateLibraryWindow : Window, IDisposable
         ProfileRenderResources renderResources,
         Action openBasicEditor,
         Action openAdvancedEditor,
+        Func<EditorSurfaceKind?> activeEditor,
         Action<Guid> showInViewer,
         Action<ProfileDocument> showDocumentInViewer,
         PlatePackageService packages,
@@ -111,6 +113,7 @@ internal sealed partial class PlateLibraryWindow : Window, IDisposable
         this.renderResources = renderResources;
         this.openBasicEditor = openBasicEditor;
         this.openAdvancedEditor = openAdvancedEditor;
+        this.activeEditor = activeEditor;
         this.showInViewer = showInViewer;
         this.showDocumentInViewer = showDocumentInViewer;
         this.packages = packages;
@@ -339,7 +342,7 @@ internal sealed partial class PlateLibraryWindow : Window, IDisposable
 
         if (hovered && ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left) && plate.IsReady)
         {
-            RequestOpen(plate.PlateId, basic: true);
+            RequestEdit(plate.PlateId);
         }
 
         var contextMenuId = $"##PlateCardMenu{plate.PlateId:N}";
