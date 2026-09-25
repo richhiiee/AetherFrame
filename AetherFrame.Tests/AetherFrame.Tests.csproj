@@ -8,6 +8,11 @@
     copied). Everything listed here must stay free of Dalamud/ImGui dependencies; Dalamud glue
     lives elsewhere (Hosting/, UI/, Windows/, and the Dalamud-facing services).
   -->
+
+  <!-- The plugin's product version, so the linked AetherFrameBuildInfo reads the same assembly
+       metadata here as it does in the plugin. -->
+  <Import Project="..\Version.props" />
+
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>

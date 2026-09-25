@@ -6,6 +6,7 @@ using AetherFrame.Persistence;
 using AetherFrame.Services;
 using AetherFrame.Services.Assets;
 using AetherFrame.Services.Commands;
+using AetherFrame.Services.Diagnostics;
 using AetherFrame.Services.Fonts;
 using AetherFrame.Services.Packages;
 using AetherFrame.Services.Plates;
@@ -163,7 +164,8 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
         PluginInterface.UiBuilder.OpenMainUi += ToggleMainUi;
         PluginInterface.UiBuilder.OpenConfigUi += ToggleMainUi;
 
-        Log.Information($"===AetherFrame loaded ({PluginInterface.Manifest.Name})===");
+        // Names the exact build in dalamud.log, so a stale dev DLL is obvious.
+        Log.Information($"==={AetherFrameBuildInfo.Current.Describe()} loaded ({PluginInterface.Manifest.Name})===");
     }
 
     public async Task LoadAsync(CancellationToken cancellationToken)
