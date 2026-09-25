@@ -368,7 +368,8 @@ internal sealed partial class PlateLibraryWindow
             pendingGuardPrompt = false;
         }
 
-        if (!ImGui.BeginPopupModal(UnsavedPopupId, ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoSavedSettings))
+        using var popup = ImRaii.PopupModal(UnsavedPopupId, ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoSavedSettings);
+        if (!popup.Success)
         {
             return;
         }
@@ -376,7 +377,6 @@ internal sealed partial class PlateLibraryWindow
         if (guardedOpen is not { } open)
         {
             ImGui.CloseCurrentPopup();
-            ImGui.EndPopup();
             return;
         }
 
@@ -411,8 +411,6 @@ internal sealed partial class PlateLibraryWindow
             guardedOpen = null;
             ImGui.CloseCurrentPopup();
         }
-
-        ImGui.EndPopup();
     }
 
     // ---------------------------------------------------------------- rename

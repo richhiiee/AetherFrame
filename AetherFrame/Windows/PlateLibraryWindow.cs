@@ -356,10 +356,12 @@ internal sealed partial class PlateLibraryWindow : Window, IDisposable
             ImGui.OpenPopup(contextMenuId);
         }
 
-        if (ImGui.BeginPopup(contextMenuId))
+        using (var menu = ImRaii.Popup(contextMenuId))
         {
-            DrawPlateContextMenuItems(plate, character, activePlateId);
-            ImGui.EndPopup();
+            if (menu.Success)
+            {
+                DrawPlateContextMenuItems(plate, character, activePlateId);
+            }
         }
 
         if (hovered && plate.Problem is { } problem)
