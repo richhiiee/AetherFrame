@@ -13,11 +13,13 @@ public sealed record FavoriteJob(uint Id, string Name, string Abbreviation);
 /// <summary>
 /// The Favorite Jobs rules: an ordered list of game job ids (the first is the primary favorite),
 /// its heading (FAVORITE JOB for one, FAVORITE JOBS for more), and the one line of text the Plate
-/// shows. Full names come first ("Astrologian, White Mage"); only when they don't fit the value's
-/// box — measured, never by counting jobs — does it switch to the game's abbreviations
-/// ("AST · WHM · RDM · DNC"), in the same order. If even those don't fit, the value's auto fit
-/// shrinks the text (the safe fitting every Basic value has); no job is ever dropped to make room.
-/// Pure: no game data, no fonts (the caller measures).
+/// shows. The value stores the full names ("Astrologian, White Mage"); what it shows is derived
+/// each time it's drawn (<see cref="DisplayText"/>): the full names while they fit the value's box
+/// at its current font, size and width — measured, never by counting jobs — else the game's
+/// abbreviations ("AST · WHM · RDM · DNC") in the same order; if even those don't fit, the value's
+/// auto fit shrinks the text (the safe fitting every Basic value has). No job is ever dropped, and
+/// the stored ids and their order never change for display. Pure: no game data, no fonts (the caller
+/// provides both).
 /// </summary>
 public static class BasicFavoriteJobs
 {
@@ -29,10 +31,6 @@ public static class BasicFavoriteJobs
 
     private const string NameSeparator = ", ";
     private const string AbbreviationSeparator = " · ";
-
-    // Only when no font is ready to measure with: a generous average advance per character, so an
-    // estimate errs toward abbreviating rather than toward overflowing.
-    private const float EstimatedAdvance = 0.6f;
 
     /// <summary>
     /// The Plate's Favorite Jobs, in order. A Plate saved before multiple Favorite Jobs has only its
@@ -107,22 +105,49 @@ public static class BasicFavoriteJobs
     }
 
     /// <summary>
-    /// The text to show in a box <paramref name="availableWidth"/> wide: the full names when their
-    /// measured width fits, otherwise the abbreviations (whose fit, if they still don't, is left to
-    /// the value's auto fit). <paramref name="measure"/> gives a candidate's rendered width.
+    /// What the Favorite Jobs value shows right now, in place of its stored text — or null to show
+    /// the stored text as it is. Evaluated from the element's current state every time the Plate is
+    /// drawn, so a change to anything that matters (the jobs or their order, font family, size, style,
+    /// letter spacing, symbols, the box's width after a layout change or another editor's edit) is
+    /// reflected immediately. Null when the value isn't Basic's full-names text for these jobs (its
+    /// text was written in the Advanced editor, or in another language), when there are no jobs, when
+    /// the full names fit, or when no font can measure yet (the stored full names then show, with
+    /// auto fit). Otherwise the abbreviations, with the value's own prefix and suffix.
     /// </summary>
-    public static string Choose(IReadOnlyList<FavoriteJob> jobs, Func<string, float> measure, float availableWidth)
+    /// <param name="profile">The Plate.</param>
+    /// <param name="element">Its Favorite Jobs value element.</param>
+    /// <param name="findJob">Game data: a job's name and abbreviation by row id.</param>
+    /// <param name="measure">The rendered width of a display string in <paramref name="element"/>'s current style, or null while its font isn't ready.</param>
+    public static string? DisplayText(ProfileDocument profile, TextProfileElement element, Func<uint, FavoriteJob?> findJob, Func<string, float?> measure)
     {
-        if (jobs.Count == 0)
+        if (element.Role != ProfileElementRole.BasicJob)
         {
-            return string.Empty;
+            return null;
         }
 
-        var full = FullText(jobs);
-        return measure(full) <= availableWidth + 0.01f ? full : AbbreviatedText(jobs);
-    }
+        var ids = IdsOf(profile);
+        if (ids.Count == 0)
+        {
+            return null;
+        }
 
-    /// <summary>A conservative width estimate for <paramref name="text"/> in <paramref name="element"/>'s style, for when no font can measure it.</summary>
-    public static float EstimateWidth(TextProfileElement element, string text) =>
-        text.Length == 0 ? 0f : (text.Length * element.FontSize * EstimatedAdvance) + (Math.Max(0f, element.LetterSpacing) * (text.Length - 1));
+        var jobs = new List<FavoriteJob>(ids.Count);
+        foreach (var id in ids)
+        {
+            if (findJob(id) is not { } job)
+            {
+                return null;
+            }
+
+            jobs.Add(job);
+        }
+
+        if (element.Text != FullText(jobs) || measure(element.GetDisplayText()) is not { } width)
+        {
+            return null;
+        }
+
+        var available = Math.Max(0f, element.Size.X - (2f * TextProfileElement.LayoutPadding));
+        return width <= available + 0.01f ? null : string.Concat(element.Prefix, AbbreviatedText(jobs), element.Suffix);
+    }
 }

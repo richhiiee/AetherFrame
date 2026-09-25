@@ -85,7 +85,9 @@ internal static class ProfileRenderer
         {
             if (step.Element is { } element)
             {
-                DrawElement(drawList, element, canvasOrigin, scale, resources, options);
+                // The Favorite Jobs' display is derived here, from the Plate as it is this frame.
+                var displayOverride = element is TextProfileElement text ? FavoriteJobsDisplay.Resolve(profile, text, resources) : null;
+                DrawElement(drawList, element, canvasOrigin, scale, resources, options, displayOverride);
             }
             else
             {
@@ -119,7 +121,8 @@ internal static class ProfileRenderer
 
     /// <summary>Draws a single element at its logical Position/Size, scaled from canvasOrigin.</summary>
     internal static void DrawElement(
-        ImDrawListPtr drawList, ProfileElement element, Vector2 canvasOrigin, float scale, ProfileRenderResources resources, in ProfileRenderOptions options)
+        ImDrawListPtr drawList, ProfileElement element, Vector2 canvasOrigin, float scale, ProfileRenderResources resources, in ProfileRenderOptions options,
+        string? displayOverride = null)
     {
         switch (element)
         {
@@ -142,7 +145,7 @@ internal static class ProfileRenderer
                 }
 
                 var placeholder = options.PlaceholderProvider?.Invoke(textElement);
-                ProfileTextRenderer.Draw(drawList, textElement, screenPos, screenSize, scale, resources.Fonts, placeholder);
+                ProfileTextRenderer.Draw(drawList, textElement, screenPos, screenSize, scale, resources.Fonts, placeholder, displayOverride);
                 break;
             }
 

@@ -11,12 +11,14 @@ namespace AetherFrame.UI.Rendering;
 /// </summary>
 internal sealed class ProfileRenderResources
 {
-    internal ProfileRenderResources(ImageTextureCache images, ProfileFontService fonts, ProceduralTextureCache textures, BuiltInArtTextureCache art)
+    internal ProfileRenderResources(
+        ImageTextureCache images, ProfileFontService fonts, ProceduralTextureCache textures, BuiltInArtTextureCache art, UI.Editor.IFavoriteJobSource jobs)
     {
         Images = images;
         Fonts = fonts;
         Textures = textures;
         Art = art;
+        Jobs = jobs;
     }
 
     internal ImageTextureCache Images { get; }
@@ -26,4 +28,7 @@ internal sealed class ProfileRenderResources
     internal ProceduralTextureCache Textures { get; }
 
     internal BuiltInArtTextureCache Art { get; }
+
+    /// <summary>Game job names and abbreviations, for the Favorite Jobs' derived display (<see cref="FavoriteJobsDisplay"/>).</summary>
+    internal UI.Editor.IFavoriteJobSource Jobs { get; }
 }

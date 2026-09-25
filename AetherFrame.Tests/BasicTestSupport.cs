@@ -155,7 +155,7 @@ internal sealed class BasicHarness : IDisposable
         Assets = new AssetStorageService(Fixture.Paths.AssetsDirectory, Fixture.Paths.AssetStagingDirectory, new AssetMetadataStore(Fixture.Paths.AssetMetadataDirectory));
         Session = new EditorSession(Profiles, Assets, new FakeImages(), Fixture.Log, () => ++frame);
         Identity = new BasicIdentitySession(Profiles, Session, Character, Measurer, new FakeTitles());
-        Basic = new BasicEditorSession(Profiles, Session, Assets, Identity, Character, new FakeJobs(), Measurer);
+        Basic = new BasicEditorSession(Profiles, Session, Assets, Identity, Character, new FakeJobs());
         Surfaces = new EditorSurfaceCoordinator(() =>
         {
             Session.CommitPendingEdits();
@@ -288,9 +288,9 @@ internal static class BasicDocuments
         PlateFactory.Create(PlateStartingLayout.AdventurePlateClassic, Guid.NewGuid(), "Test", new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc), new PlateStarterContent(character));
 
     /// <summary>
-    /// A Classic Plate as an earlier version made it: with the character's level ("Lv. 90") shown
-    /// before the Favorite Job, in the compact row Basic managed. Basic no longer creates levels, but
-    /// Plates like this exist and must keep working.
+    /// A Classic Plate as an earlier version saved it: with the character's level ("Lv. 90") shown
+    /// before the Favorite Job, both Basic-managed. Not yet loaded — opening it (e.g.
+    /// <see cref="BasicHarness.OpenDocumentAsync"/>) applies the load-time upgrade.
     /// </summary>
     internal static ProfileDocument LegacyClassic(BasicCharacterInfo character)
     {
@@ -303,19 +303,39 @@ internal static class BasicDocuments
         return document;
     }
 
-    /// <summary>Adds a Basic-managed level element exactly as earlier versions did (text, stored level, placement).</summary>
+    /// <summary>
+    /// Adds a level exactly where earlier versions put one: a "Lv. N" box at the start of the Favorite
+    /// Job cell, the job after it, both at their recorded (Basic-managed) placements, and the level
+    /// stored in the settings.
+    /// </summary>
     internal static void AddLegacyLevel(ProfileDocument document, int level)
     {
         var settings = document.BasicPlate ??= new BasicPlateSettings();
-        settings.Level = level;
-        var element = (TextProfileElement)AdventurePlateClassicLayout.CreateElement(ProfileElementRole.BasicLevel, document);
-        element.Text = BasicPlateText.Level(level);
-        element.ZIndex = document.Elements.Count == 0 ? 0 : document.Elements.Max(e => e.ZIndex) + 1;
+        var job = Find(document, ProfileElementRole.BasicJob);
+        var scaleX = AdventurePlateClassicLayout.CanvasScale(document).X;
+        var levelWidth = 60f * scaleX;
+        var gap = 11f * scaleX;
+
+        var element = new TextProfileElement
+        {
+            Role = ProfileElementRole.BasicLevel,
+            Text = BasicPlateText.Level(level),
+            FontFamily = job.FontFamily,
+            FontSize = job.FontSize,
+            Color = job.Color,
+            Position = job.Position,
+            Size = new Vector2(levelWidth, job.Size.Y),
+            ZIndex = document.Elements.Max(e => e.ZIndex) + 1,
+        };
         document.Elements.Add(element);
+        settings.Level = level;
         settings.SetPlacement(ProfileElementRole.BasicLevel, new ElementRect(element.Position, element.Size));
 
-        // The compact row: the level box sized to its text, the job right after it.
-        BasicPlateEditor.UpgradeFavoriteJobRow(document);
+        job.Position += new Vector2(levelWidth + gap, 0f);
+        job.Size -= new Vector2(levelWidth + gap, 0f);
+        settings.SetPlacement(ProfileElementRole.BasicJob, new ElementRect(job.Position, job.Size));
+
+        static TextProfileElement Find(ProfileDocument d, ProfileElementRole role) => BasicSections.FindText(d, role)!;
     }
 
     internal static BasicPlateEditor Editor(ProfileDocument document) =>

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using AetherFrame.Domain.Basic;
 using AetherFrame.Domain.Profiles;
 
 namespace AetherFrame.UI.Rendering;
@@ -14,7 +15,9 @@ internal static class ProfilePaintOrder
 {
     /// <summary>
     /// Clears <paramref name="buffer"/> and fills it with <paramref name="profile"/>'s elements in
-    /// paint order (bottom first). Hidden elements are skipped unless <paramref name="includeHidden"/>.
+    /// paint order (bottom first). Hidden elements — and the retired Level
+    /// (<see cref="BasicSections.IsRetired"/>), which is kept but never drawn or hit — are skipped
+    /// unless <paramref name="includeHidden"/> (the Layers panel, which lists every element).
     /// </summary>
     internal static void Fill(ProfileDocument profile, List<ProfileElement> buffer, bool includeHidden)
     {
@@ -26,7 +29,7 @@ internal static class ProfilePaintOrder
 
         foreach (var element in elements)
         {
-            if (!includeHidden && !element.Visible)
+            if (!includeHidden && (!element.Visible || BasicSections.IsRetired(element.Role)))
             {
                 continue;
             }

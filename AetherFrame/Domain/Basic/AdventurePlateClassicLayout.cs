@@ -69,27 +69,6 @@ public static class AdventurePlateClassicLayout
     private const float ValueHeight = 34f;
     private const float PlaystyleHeight = 58f;
 
-    // "Lv. 90  Paladin" reads as one compact row: the level is left-aligned, flush with the column's
-    // left edge like every other Details value, and the job starts right after the level's actual
-    // rendered text plus LevelJobGap (see LevelJobColumns) — never at a fixed column sized for the
-    // widest level, which left "Lv. 1" and "Lv. 100" alike reading as two separate columns.
-    /// <summary>The gap between the level text's end and the job name, in reference pixels.</summary>
-    public const float LevelJobGap = 11f;
-
-    /// <summary>The level box's width (reference pixels) while it shows no text.</summary>
-    public const float EmptyLevelWidth = 1f;
-
-    // AetherFrame Sans (PT Sans Regular, 1000 units per em) advance widths for the characters a
-    // level ever shows ("Lv. " and digits), read from the embedded font; anything else uses a digit's.
-    private const float SansUnitsPerEm = 1000f;
-    private const int SansFallbackAdvance = 545;
-    private static readonly Dictionary<char, int> SansAdvances = new()
-    {
-        ['L'] = 517, ['v'] = 482, ['.'] = 214, [' '] = 267,
-        ['0'] = 545, ['1'] = 545, ['2'] = 545, ['3'] = 545, ['4'] = 545,
-        ['5'] = 545, ['6'] = 545, ['7'] = 545, ['8'] = 545, ['9'] = 545,
-    };
-
     // Typography (reference canvas pixels; scaled with the canvas height).
 
     /// <summary>
@@ -114,6 +93,7 @@ public static class AdventurePlateClassicLayout
         [ProfileElementRole.BasicFreeCompanyHeading] = (SecondColumn, Row1Top, ColumnWidth, HeadingHeight),
         [ProfileElementRole.BasicFreeCompany] = (SecondColumn, Row1Top + HeadingHeight, ColumnWidth, ValueHeight),
         [ProfileElementRole.BasicJobHeading] = (0f, Row2Top, ColumnWidth, HeadingHeight),
+        [ProfileElementRole.BasicJob] = (0f, Row2Top + HeadingHeight, ColumnWidth, ValueHeight),
         [ProfileElementRole.BasicActiveHoursHeading] = (SecondColumn, Row2Top, ColumnWidth, HeadingHeight),
         [ProfileElementRole.BasicActiveHours] = (SecondColumn, Row2Top + HeadingHeight, ColumnWidth, ValueHeight),
         [ProfileElementRole.BasicPlaystyleHeading] = (0f, Row3Top, PanelWidth, HeadingHeight),
@@ -138,7 +118,8 @@ public static class AdventurePlateClassicLayout
     /// <summary>
     /// Where the layout places the element with <paramref name="role"/>, on this Plate's canvas; null
     /// for roles the layout doesn't place individually (the Identity Header's name and title,
-    /// placed as one header within <see cref="GetIdentityRegion"/>, and non-Basic elements).
+    /// placed as one header within <see cref="GetIdentityRegion"/>, the retired Level, and
+    /// non-Basic elements). Favorite Jobs has its whole cell: nothing shares its row any more.
     /// </summary>
     public static ElementRect? GetRect(ProfileElementRole role, AdventurePlateOrientation orientation, ProfileDocument profile)
     {
@@ -157,13 +138,6 @@ public static class AdventurePlateClassicLayout
             var growth = HeadingGrowth(role, profile);
             position.Y -= growth;
             size.Y += growth;
-        }
-        else if (role is ProfileElementRole.BasicLevel or ProfileElementRole.BasicJob)
-        {
-            var (levelWidth, jobX) = LevelJobColumns(profile);
-            var x = role == ProfileElementRole.BasicLevel ? 0f : jobX;
-            position = new Vector2(PanelLeft(orientation) + x, Row2Top + HeadingHeight);
-            size = new Vector2(role == ProfileElementRole.BasicLevel ? levelWidth : ColumnWidth - jobX, ValueHeight);
         }
         else
         {
@@ -200,54 +174,6 @@ public static class AdventurePlateClassicLayout
     {
         var tallest = (HeadingHeight + MaxHeadingGrowth) * FontScale(profile);
         return Math.Clamp(MathF.Floor(tallest - (2f * TextProfileElement.LayoutPadding)), TextProfileElement.MinFontSize, TextProfileElement.MaxFontSize);
-    }
-
-    /// <summary>
-    /// The Favorite Job row, in reference pixels from the column's left edge: the level box's width
-    /// and the job's left edge. The job starts <see cref="LevelJobGap"/> after the level's rendered
-    /// text (measured at the level element's own size); the level box ends exactly there, so the two
-    /// boxes touch but never overlap, and the level text (inset by the text padding on both sides)
-    /// always fits without auto-fit shrinking it. With no visible level text the job starts flush at
-    /// the column.
-    /// </summary>
-    public static (float LevelWidth, float JobX) LevelJobColumns(ProfileDocument profile)
-    {
-        var textWidth = BasicSections.Find(profile, ProfileElementRole.BasicLevel) is TextProfileElement { Visible: true } level
-            ? MeasureLevelText(string.Concat(level.Prefix, level.Text, level.Suffix), level.FontSize, level.LetterSpacing)
-            : 0f;
-
-        // Canvas units to reference pixels (the layout is authored on the reference canvas).
-        var scaleX = CanvasScale(profile).X;
-        var referenceWidth = scaleX > 0f && float.IsFinite(scaleX) ? textWidth / scaleX : textWidth;
-        if (!(referenceWidth > 0f))
-        {
-            // No level showing: the job starts at the column's edge; the (empty or hidden) level
-            // keeps a sliver of a box just before it, so the two still never overlap.
-            return (EmptyLevelWidth, EmptyLevelWidth);
-        }
-
-        var jobX = Math.Min(referenceWidth + LevelJobGap, ColumnWidth / 2f);
-        return (jobX, jobX);
-    }
-
-    /// <summary>
-    /// The rendered width, in canvas units, of <paramref name="text"/> at <paramref name="fontSize"/> in
-    /// AetherFrame Sans (what the Basic level uses), including letter spacing between characters.
-    /// </summary>
-    public static float MeasureLevelText(string text, float fontSize, float letterSpacing)
-    {
-        if (string.IsNullOrEmpty(text) || !(fontSize > 0f))
-        {
-            return 0f;
-        }
-
-        var units = 0;
-        foreach (var character in text)
-        {
-            units += SansAdvances.TryGetValue(character, out var advance) ? advance : SansFallbackAdvance;
-        }
-
-        return (units / SansUnitsPerEm * fontSize) + (Math.Max(0f, letterSpacing) * (text.Length - 1));
     }
 
     /// <summary>The region the Identity Header fills: top of the details panel, full panel width.</summary>
@@ -296,7 +222,6 @@ public static class AdventurePlateClassicLayout
     {
         ProfileElementRole.BasicName => BasicNameColor.Automatic(theme),
         ProfileElementRole.BasicTitle => theme.AccentTextColor,
-        ProfileElementRole.BasicLevel => theme.SoftTextColor,
         _ when BasicSections.IsHeading(role) => theme.AccentTextColor,
         _ => theme.TextColor,
     };

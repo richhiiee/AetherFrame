@@ -217,7 +217,7 @@ public class BasicEditorViewTests
         Assert.Equal(
             [
                 BasicEditorPanel.BackgroundTheme, BasicEditorPanel.PlateLayout, BasicEditorPanel.Portrait, BasicEditorPanel.Identity,
-                BasicEditorPanel.HomeWorld, BasicEditorPanel.JobAndLevel, BasicEditorPanel.FreeCompany,
+                BasicEditorPanel.HomeWorld, BasicEditorPanel.FavoriteJobs, BasicEditorPanel.FreeCompany,
                 BasicEditorPanel.Playstyle, BasicEditorPanel.ActiveHours, BasicEditorPanel.Message,
             ],
             BasicEditorView.PanelOrder);
@@ -264,68 +264,3 @@ public class BasicEditorViewTests
 }
 
 /// <summary>Favorite Job and Level read as one unit on the Plate.</summary>
-// Plates from before multiple Favorite Jobs, which still show a level before the job.
-public class JobAndLevelLayoutTests
-{
-    [Fact]
-    public void TheLevel_SitsJustBeforeTheJob_OnTheSameLine()
-    {
-        var document = BasicDocuments.LegacyClassic(FakeCharacter.Hero);
-        var level = BasicSections.FindText(document, ProfileElementRole.BasicLevel)!;
-        var job = BasicSections.FindText(document, ProfileElementRole.BasicJob)!;
-
-        Assert.Equal(level.Position.Y, job.Position.Y);
-        Assert.InRange(job.Position.X - (level.Position.X + level.Size.X), 0f, 10f);
-        Assert.Equal(TextAlignment.Left, level.Alignment);
-        Assert.Equal(BasicSections.Find(document, ProfileElementRole.BasicJobHeading)!.Position.X, level.Position.X);
-    }
-
-    [Theory]
-    [InlineData(1)]
-    [InlineData(9)]
-    [InlineData(100)]
-    public void TheLevel_AlignsFlushWithTheOtherDetailValues(int levelValue)
-    {
-        // "Lv. 1" and "Lv. 100" are different widths; the level text must start at the same X either
-        // way — the same column left edge every other Details value (Home World, Free Company...)
-        // already starts at. Regression coverage for the level being right-aligned in its box, which
-        // left a visible gap before short levels instead of a fixed, always-present indent.
-        var document = BasicDocuments.LegacyClassic(FakeCharacter.Hero with { Level = levelValue });
-        var world = BasicSections.FindText(document, ProfileElementRole.BasicWorld)!;
-        var level = BasicSections.FindText(document, ProfileElementRole.BasicLevel)!;
-
-        Assert.Equal(TextAlignment.Left, level.Alignment);
-        Assert.Equal(world.Position.X, level.Position.X);
-    }
-
-    [Fact]
-    public void TheLevel_AlignsFlushWithTheOtherDetailValues_Mirrored()
-    {
-        var document = BasicDocuments.LegacyClassic(FakeCharacter.Hero with { Level = 1 });
-        BasicDocuments.Editor(document).SetOrientation(AdventurePlateOrientation.Mirrored);
-        var world = BasicSections.FindText(document, ProfileElementRole.BasicWorld)!;
-        var level = BasicSections.FindText(document, ProfileElementRole.BasicLevel)!;
-
-        Assert.Equal(TextAlignment.Left, level.Alignment);
-        Assert.Equal(world.Position.X, level.Position.X);
-    }
-
-    [Fact]
-    public async Task ApplyingAndResetting_JobAndLevelTogether_IsOneUndoStep()
-    {
-        using var harness = await BasicHarness.OpenDocumentAsync(BasicDocuments.LegacyClassic(FakeCharacter.Hero));
-        harness.DragInAdvanced(ProfileElementRole.BasicJob, new Vector2(20, 20));
-        harness.DragInAdvanced(ProfileElementRole.BasicLevel, new Vector2(20, 20));
-        var dragged = harness.Json();
-
-        harness.Basic.ApplySectionLayout([BasicSection.Job, BasicSection.Level]);
-        Assert.Empty(BasicEditorSession.CustomizedSections(harness.Document));
-        harness.Session.Undo();
-        Assert.Equal(dragged, harness.Json());
-
-        harness.Basic.ResetSection([BasicSection.Job, BasicSection.Level]);
-        Assert.Empty(BasicEditorSession.CustomizedSections(harness.Document));
-        harness.Session.Undo();
-        Assert.Equal(dragged, harness.Json());
-    }
-}

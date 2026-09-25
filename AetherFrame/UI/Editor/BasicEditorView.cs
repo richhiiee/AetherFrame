@@ -31,7 +31,7 @@ internal enum BasicEditorPanel
     Portrait,
     Identity,
     HomeWorld,
-    JobAndLevel,
+    FavoriteJobs,
     FreeCompany,
     Playstyle,
     ActiveHours,
@@ -129,7 +129,7 @@ internal static class BasicEditorView
         [BasicEditorCategory.Identity] = [BasicEditorPanel.Identity],
         [BasicEditorCategory.Details] =
         [
-            BasicEditorPanel.HomeWorld, BasicEditorPanel.JobAndLevel, BasicEditorPanel.FreeCompany,
+            BasicEditorPanel.HomeWorld, BasicEditorPanel.FavoriteJobs, BasicEditorPanel.FreeCompany,
             BasicEditorPanel.Playstyle, BasicEditorPanel.ActiveHours,
         ],
         [BasicEditorCategory.Message] = [BasicEditorPanel.Message],
@@ -160,7 +160,7 @@ internal static class BasicEditorView
         BasicEditorCategory.Identity => [BasicSection.Identity],
         BasicEditorCategory.Details =>
         [
-            BasicSection.World, BasicSection.Job, BasicSection.Level, BasicSection.FreeCompany,
+            BasicSection.World, BasicSection.Job, BasicSection.FreeCompany,
             BasicSection.Playstyle, BasicSection.ActiveHours,
         ],
         BasicEditorCategory.Message => [BasicSection.Message],
@@ -193,8 +193,7 @@ internal static class BasicEditorView
 
         var sections = SectionsOf(category);
         var customized = sections.Any(s => BasicPlateEditor.IsSectionCustomized(profile, s));
-        // A legacy Level hidden in Basic is simply retired, not a hidden section to point out.
-        var hidden = sections.Any(s => s != BasicSection.Level && BasicSections.Exists(profile, s) && !BasicSections.IsVisible(profile, s))
+        var hidden = sections.Any(s => BasicSections.Exists(profile, s) && !BasicSections.IsVisible(profile, s))
             || (category == BasicEditorCategory.Identity && BasicSections.Find(profile, ProfileElementRole.BasicName) is { Visible: false });
         var collision = BasicPlateEditor.FindOverlaps(profile).Any(o => Involves(o.First) || Involves(o.Second));
         return new BasicCategoryStatus(customized, hidden, collision, false);

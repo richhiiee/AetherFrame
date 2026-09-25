@@ -87,7 +87,7 @@ public class ClassicGridTests
         foreach (var group in Groups.Where(g => g != BasicSection.Identity))
         {
             var bounds = AdventurePlateClassicLayout.GetGroupBounds(group, orientation, document);
-            foreach (var role in BasicSections.LayoutGroupOf(group).SelectMany(BasicPlateEditor.RolesOf))
+            foreach (var role in BasicSections.LayoutGroupOf(group).SelectMany(BasicPlateEditor.RolesOf).Where(r => !BasicSections.IsRetired(r)))
             {
                 var rect = AdventurePlateClassicLayout.GetRect(role, orientation, document)!.Value;
                 Assert.Equal(bounds, bounds.Union(rect));
@@ -175,15 +175,14 @@ public class ClassicGridTests
     // ---------------------------------------------------------------- content fits its cell
 
     [Theory]
-    [InlineData("Astrologian", 100)]
-    [InlineData("Pictomancer", 1)]
-    [InlineData("Blue Mage", 100)]
-    public void LongJobNames_AndAnyLevel_FitTheirCells(string job, int level)
+    [InlineData("Astrologian")]
+    [InlineData("Pictomancer")]
+    [InlineData("Blue Mage")]
+    public void LongJobNames_FitTheirCell(string job)
     {
-        // A Plate from before multiple Favorite Jobs, still showing its level before the job.
-        var document = BasicDocuments.LegacyClassic(FakeCharacter.Hero with { JobName = job, Level = level });
+        var document = BasicDocuments.Classic(FakeCharacter.Hero with { JobName = job });
         AssertFits(document, ProfileElementRole.BasicJob);
-        AssertFits(document, ProfileElementRole.BasicLevel);
+        Assert.Null(BasicSections.Find(document, ProfileElementRole.BasicLevel));
     }
 
     [Fact]

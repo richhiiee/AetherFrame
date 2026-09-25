@@ -19,10 +19,8 @@ public class BasicSectionOwnershipTests
 {
     private static readonly Vector2 SmallNudge = new(0, 6);
 
-    // Plates from before multiple Favorite Jobs, which still show a level: the Favorite Job and the
-    // Level remain one layout group there.
     private static Task<BasicHarness> NewClassicAsync() =>
-        BasicHarness.OpenDocumentAsync(BasicDocuments.LegacyClassic(FakeCharacter.Hero));
+        BasicHarness.CreatePlateAsync(PlateStartingLayout.AdventurePlateClassic, new PlateStarterContent(FakeCharacter.Hero));
 
     private static ElementRect RectOf(ProfileDocument document, ProfileElementRole role) =>
         BasicDocuments.RectOf(BasicSections.Find(document, role)!);
@@ -39,79 +37,39 @@ public class BasicSectionOwnershipTests
     [Theory]
     [InlineData(AdventurePlateOrientation.Normal, AdventurePlateOrientation.Mirrored)]
     [InlineData(AdventurePlateOrientation.Mirrored, AdventurePlateOrientation.Normal)]
-    public async Task MovingLevelInAdvanced_ThenSwitchingOrientationAndBack_MovesNeitherJobNorLevel(
+    public async Task MovingFavoriteJobsInAdvanced_ThenSwitchingOrientationAndBack_NeverMovesThem(
         AdventurePlateOrientation start, AdventurePlateOrientation other)
     {
         using var harness = await NewClassicAsync();
         harness.Basic.SetOrientation(start);
-        var document = harness.Document;
-
-        harness.DragInAdvanced(ProfileElementRole.BasicLevel, SmallNudge);
-        var job = RectOf(document, ProfileElementRole.BasicJob);
-        var level = RectOf(document, ProfileElementRole.BasicLevel);
-
-        Assert.True(BasicEditorSession.IsSectionCustomized(document, BasicSection.Level));
-        Assert.True(BasicEditorSession.IsSectionCustomized(document, BasicSection.Job));
-        Assert.Equal([BasicSection.Job], BasicEditorSession.CustomizedSections(document));
+        harness.DragInAdvanced(ProfileElementRole.BasicJob, SmallNudge);
+        var job = RectOf(harness.Document, ProfileElementRole.BasicJob);
+        Assert.True(BasicEditorSession.IsSectionCustomized(harness.Document, BasicSection.Job));
 
         harness.Basic.SetOrientation(other);
-        Assert.Equal(job, RectOf(document, ProfileElementRole.BasicJob));
-        Assert.Equal(level, RectOf(document, ProfileElementRole.BasicLevel));
-
         harness.Basic.SetOrientation(start);
 
-        Assert.Equal(job, RectOf(document, ProfileElementRole.BasicJob));
-        Assert.Equal(level, RectOf(document, ProfileElementRole.BasicLevel));
-        Assert.True(BasicEditorSession.IsSectionCustomized(document, BasicSection.Job));
-        Assert.False(Overlap(RectOf(document, ProfileElementRole.BasicJob), RectOf(document, ProfileElementRole.BasicLevel)));
-
-        // Everything else still followed the orientation.
-        Assert.Equal(LayoutRect(document, ProfileElementRole.BasicWorld, start), RectOf(document, ProfileElementRole.BasicWorld));
-
-        // Reclaiming places both together, compactly, in the current orientation.
-        harness.Basic.ApplyLayout();
-
-        Assert.Equal(LayoutRect(document, ProfileElementRole.BasicJob, start), RectOf(document, ProfileElementRole.BasicJob));
-        Assert.Equal(LayoutRect(document, ProfileElementRole.BasicLevel, start), RectOf(document, ProfileElementRole.BasicLevel));
-        Assert.Empty(BasicEditorSession.CustomizedSections(document));
+        Assert.Equal(job, RectOf(harness.Document, ProfileElementRole.BasicJob));
     }
 
     [Fact]
-    public async Task MovingJobInAdvanced_KeepsLevelWithIt_Too()
+    public async Task ReclaimingFavoriteJobs_PlacesThemInTheirCell()
     {
-        using var harness = await NewClassicAsync();
-        harness.DragInAdvanced(ProfileElementRole.BasicJob, SmallNudge);
-        var level = RectOf(harness.Document, ProfileElementRole.BasicLevel);
-
-        harness.Basic.SetOrientation(AdventurePlateOrientation.Mirrored);
-
-        Assert.Equal(level, RectOf(harness.Document, ProfileElementRole.BasicLevel));
-        Assert.True(BasicEditorSession.IsSectionCustomized(harness.Document, BasicSection.Level));
-    }
-
-    [Theory]
-    [InlineData((int)BasicSection.Job)]
-    [InlineData((int)BasicSection.Level)]
-    public async Task ReclaimingFromEitherSection_PlacesBoth(int sectionValue)
-    {
-        var section = (BasicSection)sectionValue;
         foreach (var reclaim in new Action<BasicHarness>[]
         {
-            h => h.Basic.ApplySectionLayout(section),
-            h => h.Basic.ResetSection(section),
+            h => h.Basic.ApplySectionLayout(BasicSection.Job),
+            h => h.Basic.ResetSection(BasicSection.Job),
             h => h.Basic.ResetBasicLayout(),
             h => h.Basic.ApplyLayout(),
         })
         {
             using var harness = await NewClassicAsync();
             harness.DragInAdvanced(ProfileElementRole.BasicJob, new Vector2(0, 40));
-            harness.DragInAdvanced(ProfileElementRole.BasicLevel, new Vector2(0, 80));
 
             reclaim(harness);
 
             var document = harness.Document;
             Assert.Equal(LayoutRect(document, ProfileElementRole.BasicJob, AdventurePlateOrientation.Normal), RectOf(document, ProfileElementRole.BasicJob));
-            Assert.Equal(LayoutRect(document, ProfileElementRole.BasicLevel, AdventurePlateOrientation.Normal), RectOf(document, ProfileElementRole.BasicLevel));
             Assert.False(BasicEditorSession.IsSectionCustomized(document, BasicSection.Job));
         }
     }
@@ -127,7 +85,7 @@ public class BasicSectionOwnershipTests
     public void MovingOnlyAHeading_KeepsItsValueWithIt_ThroughOrientationChanges(int sectionValue)
     {
         var section = (BasicSection)sectionValue;
-        var document = BasicDocuments.LegacyClassic(FakeCharacter.Hero);
+        var document = BasicDocuments.Classic(FakeCharacter.Hero);
         var editor = BasicDocuments.Editor(document);
         var definition = BasicSections.Get(section);
         BasicSections.Find(document, definition.Heading!.Value)!.Position += SmallNudge;
@@ -148,7 +106,7 @@ public class BasicSectionOwnershipTests
     [Fact]
     public void MovingOnlyAValue_KeepsItsHeadingWithIt()
     {
-        var document = BasicDocuments.LegacyClassic(FakeCharacter.Hero);
+        var document = BasicDocuments.Classic(FakeCharacter.Hero);
         var heading = RectOf(document, ProfileElementRole.BasicMessageHeading);
         BasicSections.Find(document, ProfileElementRole.BasicMessage)!.Size += new Vector2(0, -20);
 
@@ -188,7 +146,7 @@ public class BasicSectionOwnershipTests
     [Fact]
     public void RepeatedOrientationRoundTrips_NeverDrift()
     {
-        var document = BasicDocuments.LegacyClassic(FakeCharacter.Hero);
+        var document = BasicDocuments.Classic(FakeCharacter.Hero);
         var editor = BasicDocuments.Editor(document);
         editor.CreatePortrait(Guid.NewGuid());
         var normal = BasicDocuments.Placements(document);
@@ -210,9 +168,8 @@ public class BasicSectionOwnershipTests
     public async Task RepeatedRoundTrips_WithACustomizedGroup_NeverDriftEither()
     {
         using var harness = await NewClassicAsync();
-        harness.DragInAdvanced(ProfileElementRole.BasicLevel, SmallNudge);
+        harness.DragInAdvanced(ProfileElementRole.BasicJob, SmallNudge);
         var job = RectOf(harness.Document, ProfileElementRole.BasicJob);
-        var level = RectOf(harness.Document, ProfileElementRole.BasicLevel);
         var world = RectOf(harness.Document, ProfileElementRole.BasicWorld);
 
         for (var i = 0; i < 5; i++)
@@ -222,67 +179,6 @@ public class BasicSectionOwnershipTests
         }
 
         Assert.Equal(job, RectOf(harness.Document, ProfileElementRole.BasicJob));
-        Assert.Equal(level, RectOf(harness.Document, ProfileElementRole.BasicLevel));
         Assert.Equal(world, RectOf(harness.Document, ProfileElementRole.BasicWorld));
-    }
-}
-
-/// <summary>"Lv. 100  Paladin": a compact, overlap-free Job and Level unit on the finished Plate.</summary>
-public class JobAndLevelSpacingTests
-{
-    // Conservative text width estimate for the curated sans font (its real glyphs are narrower
-    // than half an em on average); auto fit shrinks anything wider at render time regardless.
-    private const float EstimatedEmPerCharacter = 0.5f;
-
-    public static IEnumerable<object[]> Cases()
-    {
-        foreach (var orientation in new[] { AdventurePlateOrientation.Normal, AdventurePlateOrientation.Mirrored })
-        {
-            foreach (var job in new[] { "Viper", "Astrologian", "Pictomancer" })
-            {
-                foreach (var level in new[] { 1, 100 })
-                {
-                    yield return [(int)orientation, job, level];
-                }
-            }
-        }
-    }
-
-    [Theory]
-    [MemberData(nameof(Cases))]
-    public void LevelAndJob_NeverOverlap_AndSitCloseTogether(int orientationValue, string jobName, int levelValue)
-    {
-        var document = BasicDocuments.LegacyClassic(FakeCharacter.Hero with { JobName = jobName, Level = levelValue });
-        BasicDocuments.Editor(document).SetOrientation((AdventurePlateOrientation)orientationValue);
-        var world = BasicSections.FindText(document, ProfileElementRole.BasicWorld)!;
-        var level = BasicSections.FindText(document, ProfileElementRole.BasicLevel)!;
-        var job = BasicSections.FindText(document, ProfileElementRole.BasicJob)!;
-        var padding = TextProfileElement.LayoutPadding;
-
-        // The level is measured exactly (the layout uses the embedded font's own glyph widths); the
-        // job, any length, conservatively.
-        float LevelWidth(TextProfileElement e) => AdventurePlateClassicLayout.MeasureLevelText(e.Text, e.FontSize, e.LetterSpacing);
-        float TextWidth(TextProfileElement e) => e.Text.Length * e.FontSize * EstimatedEmPerCharacter;
-
-        // Boxes: same line, level first, no overlap.
-        Assert.Equal(level.Position.Y, job.Position.Y);
-        Assert.True(level.Position.X + level.Size.X <= job.Position.X);
-
-        // Both texts fit their boxes at the default size (no shrinking needed).
-        Assert.True(LevelWidth(level) <= level.Size.X - (2 * padding), $"{level.Text} too wide");
-        Assert.True(TextWidth(job) <= job.Size.X - (2 * padding), $"{job.Text} too wide");
-
-        // Level and job are both left-aligned, like every other Details value — "Lv. 1" and "Lv. 100"
-        // start at the exact same X (flush with the column, matching Home World's own left edge), not
-        // wherever a right-aligned box happened to end for that many digits.
-        Assert.Equal(TextAlignment.Left, level.Alignment);
-        Assert.Equal(TextAlignment.Left, job.Alignment);
-        Assert.Equal(world.Position.X, level.Position.X);
-
-        // The two texts never overlap, and sit exactly the compact gap apart.
-        var levelTextRight = level.Position.X + padding + LevelWidth(level);
-        var jobTextLeft = job.Position.X + padding;
-        Assert.True(jobTextLeft > levelTextRight, $"'{level.Text}' ({LevelWidth(level)}px) should end before '{job.Text}' starts");
-        Assert.Equal(AdventurePlateClassicLayout.LevelJobGap * AdventurePlateClassicLayout.CanvasScale(document).X, jobTextLeft - levelTextRight, 3);
     }
 }

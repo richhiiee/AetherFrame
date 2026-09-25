@@ -40,7 +40,7 @@ public static class ProfileElementNames
         ProfileElementRole.BasicWorldHeading => "Home World Heading",
         ProfileElementRole.BasicJob => "Favorite Job",
         ProfileElementRole.BasicJobHeading => "Favorite Job Heading",
-        ProfileElementRole.BasicLevel => "Level",
+        ProfileElementRole.BasicLevel => "Level (retired, not shown)",
         ProfileElementRole.BasicFreeCompany => "Free Company",
         ProfileElementRole.BasicFreeCompanyHeading => "Free Company Heading",
         ProfileElementRole.BasicPlaystyle => "Playstyle",

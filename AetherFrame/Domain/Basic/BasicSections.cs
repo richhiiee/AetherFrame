@@ -42,8 +42,8 @@ public static class BasicSections
             [ProfileElementRole.BasicName, ProfileElementRole.BasicTitle]),
         new(BasicSection.World, "Home World", ProfileElementRole.BasicWorldHeading, "HOME WORLD", [ProfileElementRole.BasicWorld]),
         new(BasicSection.Job, "Favorite Jobs", ProfileElementRole.BasicJobHeading, "FAVORITE JOB", [ProfileElementRole.BasicJob]),
-        // No longer part of Basic (never created or edited there); kept so a Plate that already shows a
-        // level still has it recognized, placed with its Favorite Job, and hideable.
+        // Retired (see IsRetired): kept only so a Plate from an earlier version keeps its level element,
+        // recognized and preserved exactly, while nothing shows, places or edits it.
         new(BasicSection.Level, "Level", null, string.Empty, [ProfileElementRole.BasicLevel]),
         new(BasicSection.FreeCompany, "Free Company", ProfileElementRole.BasicFreeCompanyHeading, "FREE COMPANY", [ProfileElementRole.BasicFreeCompany]),
         new(BasicSection.Playstyle, "Playstyle", ProfileElementRole.BasicPlaystyleHeading, "PLAYSTYLE", [ProfileElementRole.BasicPlaystyle]),
@@ -218,6 +218,15 @@ public static class BasicSections
 
         return false;
     }
+
+    /// <summary>
+    /// The level earlier versions showed before the Favorite Job: retired. A Plate that has one keeps
+    /// the element and <see cref="BasicPlateSettings.Level"/> exactly as saved (so saving, templates,
+    /// packages and older builds round-trip it), but it's never drawn, hit, placed, styled, created
+    /// or counted as part of a section anywhere: the Favorite Jobs are presented without it. The
+    /// Advanced editor still lists it in Layers, so it stays reachable (and deletable) there.
+    /// </summary>
+    public static bool IsRetired(ProfileElementRole role) => role == ProfileElementRole.BasicLevel;
 
     /// <summary>
     /// Finished rendering (Plate Viewer, Clean Preview, the Basic preview) skips a section heading

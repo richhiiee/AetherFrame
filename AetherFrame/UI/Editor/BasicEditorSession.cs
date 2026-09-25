@@ -27,7 +27,6 @@ internal sealed class BasicEditorSession
     private readonly EditorSession editorSession;
     private readonly AssetStorageService assetStorage;
     private readonly IFavoriteJobSource jobs;
-    private readonly IIdentityTextMeasurer measurer;
 
     // Set only by operations this class performs itself (currently just portrait asset import,
     // which happens before any EditorSession call exists to own the failure). Anything routed
@@ -40,14 +39,12 @@ internal sealed class BasicEditorSession
         AssetStorageService assetStorage,
         BasicIdentitySession identity,
         ICharacterInfoSource characterInfo,
-        IFavoriteJobSource jobs,
-        IIdentityTextMeasurer measurer)
+        IFavoriteJobSource jobs)
     {
         this.profileService = profileService;
         this.editorSession = editorSession;
         this.assetStorage = assetStorage;
         this.jobs = jobs;
-        this.measurer = measurer;
         Identity = identity;
         CharacterInfo = characterInfo;
     }
@@ -142,20 +139,13 @@ internal sealed class BasicEditorSession
     private List<uint> CurrentFavoriteJobIds() =>
         profileService.CurrentProfile is { } profile ? FavoriteJobIds(profile) : new List<uint>();
 
-    /// <summary>One undo step: the new list, its text measured with the Plate's real fonts.</summary>
+    /// <summary>One undo step: the new list (its full-names text; the display is derived when drawn).</summary>
     private void SetFavoriteJobs(List<uint> ids, uint namedId = 0, string? name = null)
     {
         var described = ids.ConvertAll(id => id == namedId && name is { Length: > 0 } && jobs.Find(id) is null
             ? new FavoriteJob(id, name, string.Empty)
             : DescribeJob(id));
-        Edit(editor => editor.SetFavoriteJobs(described, MeasureText));
-    }
-
-    private float? MeasureText(TextProfileElement element, string text)
-    {
-        var probe = (TextProfileElement)element.Clone();
-        probe.Text = text;
-        return measurer.TryMeasureNaturalWidth(probe, out var width) ? width : null;
+        Edit(editor => editor.SetFavoriteJobs(described));
     }
 
     internal void AddPlaystyle(string entry) => Edit(editor => editor.AddPlaystyle(entry));

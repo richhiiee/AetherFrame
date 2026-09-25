@@ -18,8 +18,9 @@ public class AdventurePlateLayoutTests
     private static ElementRect Rect(ProfileElementRole role, AdventurePlateOrientation orientation, ProfileDocument? document = null) =>
         AdventurePlateClassicLayout.GetRect(role, orientation, document ?? BasicDocuments.Blank())!.Value;
 
+    // Every role the layout places (the retired Level isn't placed at all).
     private static IEnumerable<ProfileElementRole> SectionRoles() =>
-        BasicSections.ElementSections.SelectMany(BasicPlateEditor.RolesOf);
+        BasicSections.ElementSections.SelectMany(BasicPlateEditor.RolesOf).Where(r => !BasicSections.IsRetired(r));
 
     [Fact]
     public void Normal_PutsThePortraitLeft_AndTheDetailsPanelRight()
@@ -39,11 +40,12 @@ public class AdventurePlateLayoutTests
         Assert.Equal(new Vector2(40, 196), Rect(ProfileElementRole.BasicWorldHeading, AdventurePlateOrientation.Mirrored).Position);
         Assert.Equal(40f, AdventurePlateClassicLayout.GetIdentityRegion(AdventurePlateOrientation.Mirrored, BasicDocuments.Blank()).Position.X);
 
-        // Inside the panel nothing reorders: World stays left of Free Company, the level just before the job name.
+        // Inside the panel nothing reorders: World stays left of Free Company, Favorite Jobs left of Active Hours.
         foreach (var orientation in new[] { AdventurePlateOrientation.Normal, AdventurePlateOrientation.Mirrored })
         {
             Assert.True(Rect(ProfileElementRole.BasicWorld, orientation).Position.X < Rect(ProfileElementRole.BasicFreeCompany, orientation).Position.X);
-            Assert.True(Rect(ProfileElementRole.BasicLevel, orientation).Position.X < Rect(ProfileElementRole.BasicJob, orientation).Position.X);
+            Assert.True(Rect(ProfileElementRole.BasicJob, orientation).Position.X < Rect(ProfileElementRole.BasicActiveHours, orientation).Position.X);
+            Assert.Null(AdventurePlateClassicLayout.GetRect(ProfileElementRole.BasicLevel, orientation, BasicDocuments.Blank()));
         }
 
         // Every panel element moves by the same amount.

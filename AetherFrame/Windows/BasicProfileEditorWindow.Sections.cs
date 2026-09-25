@@ -185,7 +185,7 @@ internal sealed partial class BasicProfileEditorWindow
         DrawLayoutBlock(
             profile,
             new LayoutRow("Home World", [BasicSection.World], "Reset Home World"),
-            new LayoutRow("Favorite Jobs", [BasicSection.Job, BasicSection.Level], "Reset Favorite Jobs"),
+            new LayoutRow("Favorite Jobs", [BasicSection.Job], "Reset Favorite Jobs"),
             new LayoutRow("Free Company", [BasicSection.FreeCompany], "Reset Free Company"),
             new LayoutRow("Playstyle", [BasicSection.Playstyle], "Reset Playstyle"),
             new LayoutRow("Active Hours", [BasicSection.ActiveHours], "Reset Active Hours"));
@@ -193,8 +193,8 @@ internal sealed partial class BasicProfileEditorWindow
 
     /// <summary>
     /// Favorite Jobs: the chosen jobs in order (the first is the primary favorite) with Up, Down and
-    /// Remove on each, then a searchable list to add more and "Use current". No level anywhere; a
-    /// Plate from an earlier version that still shows one gets a quiet way to hide it (kept, not deleted).
+    /// Remove on each, then a searchable list to add more and "Add current". No level anywhere: the
+    /// level earlier versions showed is retired (kept in the Plate, never shown or edited in Basic).
     /// </summary>
     private void DrawFavoriteJobs(ProfileDocument profile, BasicCharacterInfo? info)
     {
@@ -303,18 +303,6 @@ internal sealed partial class BasicProfileEditorWindow
         }
 
         Hint("Shown as full names when they fit, otherwise as job abbreviations (AST, WHM...).");
-
-        // A level shown by an earlier version: Basic no longer shows or edits one.
-        if (BasicSections.Find(profile, ProfileElementRole.BasicLevel) is { Visible: true })
-        {
-            ImGui.TextDisabled("This Plate still shows a level from an earlier version.");
-            if (ImGui.SmallButton("Hide Level"))
-            {
-                basicEditorSession.SetSectionVisible(BasicSection.Level, false);
-            }
-
-            ToolTip("Hides it (undoable); it's kept and can still be shown again in the Advanced Editor.");
-        }
     }
 
     // ---------------------------------------------------------------- playstyle and active hours (in Details)

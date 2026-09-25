@@ -85,12 +85,15 @@ internal static class ProfileTextRenderer
         Vector2 screenSize,
         float scale,
         ProfileFontService fonts,
-        string? placeholder)
+        string? placeholder,
+        string? displayOverride = null)
     {
         // Prefix/Suffix decorations are composed here, at draw time (cached, no per-frame
-        // allocation); the stored Text itself never contains them.
+        // allocation); the stored Text itself never contains them. A derived display (the Favorite
+        // Jobs' abbreviations) replaces the composed text — a stable cached string, so the layout
+        // cache below still recognizes it frame to frame.
         var isPlaceholder = string.IsNullOrEmpty(element.Text);
-        var content = isPlaceholder ? placeholder : element.GetDisplayText();
+        var content = isPlaceholder ? placeholder : displayOverride ?? element.GetDisplayText();
         if (string.IsNullOrEmpty(content) || scale <= 0f)
         {
             return;
@@ -158,10 +161,16 @@ internal static class ProfileTextRenderer
     /// with what's drawn. Excludes padding. Returns false (width 0) if no built face of the
     /// element's font is available yet, rather than measuring with a stand-in font.
     /// </summary>
-    internal static bool TryMeasureNaturalWidth(TextProfileElement element, ProfileFontService fonts, out float width)
+    internal static bool TryMeasureNaturalWidth(TextProfileElement element, ProfileFontService fonts, out float width) =>
+        TryMeasureNaturalWidth(element, element.GetDisplayText(), fonts, out width);
+
+    /// <summary>
+    /// <see cref="TryMeasureNaturalWidth(TextProfileElement, ProfileFontService, out float)"/> for any
+    /// <paramref name="text"/> in <paramref name="element"/>'s style (font, size, bold, italic, letter spacing).
+    /// </summary>
+    internal static bool TryMeasureNaturalWidth(TextProfileElement element, string text, ProfileFontService fonts, out float width)
     {
         width = 0f;
-        var text = element.GetDisplayText();
         if (text.Length == 0)
         {
             return true;

@@ -95,7 +95,11 @@ internal sealed class BasicPlateEditor
         return sections;
     }
 
-    /// <summary>The existing elements of the section's whole layout group (not the Identity Header).</summary>
+    /// <summary>
+    /// The existing elements of the section's whole layout group (not the Identity Header), without
+    /// the retired Level (see <see cref="BasicSections.IsRetired"/>): it neither decides whether a
+    /// group is customized nor is ever placed, styled or reset with it.
+    /// </summary>
     internal static List<ProfileElement> GroupElements(ProfileDocument profile, BasicSection section)
     {
         var elements = new List<ProfileElement>();
@@ -103,7 +107,7 @@ internal sealed class BasicPlateEditor
         {
             foreach (var role in RolesOf(member))
             {
-                if (BasicSections.Find(profile, role) is { } element)
+                if (!BasicSections.IsRetired(role) && BasicSections.Find(profile, role) is { } element)
                 {
                     elements.Add(element);
                 }
@@ -318,23 +322,17 @@ internal sealed class BasicPlateEditor
             }
         }
 
-        if (section is BasicSection.Level or BasicSection.Job)
-        {
-            // A shown or hidden level moves the job to follow it (or back to the column's edge).
-            ReflowFavoriteJobRow();
-        }
     }
 
     /// <summary>
     /// Sets the Favorite Jobs, in order (the first is the primary favorite; duplicates dropped, at
     /// most <see cref="BasicFavoriteJobs.MaxJobs"/>): the stored ids (and the primary one older
-    /// builds read), the value's text — full names when they fit its box, else the standard
-    /// abbreviations (see <see cref="BasicFavoriteJobs.Choose"/>) — and the heading, FAVORITE JOB or
-    /// FAVORITE JOBS (unless it was given its own caption). <paramref name="measure"/> gives a
-    /// text's rendered width in the value's style, or null while no font can measure it (then a
-    /// conservative estimate decides). Creates the section on the first job; never moves anything.
+    /// builds read), the value's stored text — always the full names, the canonical form; whether
+    /// they're shown in full or abbreviated is decided whenever the Plate is drawn (see
+    /// <see cref="BasicFavoriteJobs.DisplayText"/>) — and the heading, FAVORITE JOB or FAVORITE JOBS
+    /// (unless it was given its own caption). Creates the section on the first job; never moves anything.
     /// </summary>
-    internal void SetFavoriteJobs(IEnumerable<FavoriteJob> jobs, Func<TextProfileElement, string, float?>? measure = null)
+    internal void SetFavoriteJobs(IEnumerable<FavoriteJob> jobs)
     {
         var list = BasicFavoriteJobs.Normalize(jobs);
         Settings.FavoriteJobIds = list.ConvertAll(job => job.Id);
@@ -342,10 +340,7 @@ internal sealed class BasicPlateEditor
 
         if (list.Count > 0 || BasicSections.FindText(Profile, ProfileElementRole.BasicJob) is not null)
         {
-            var value = EnsureText(ProfileElementRole.BasicJob);
-            var available = Math.Max(0f, value.Size.X - (2f * TextProfileElement.LayoutPadding));
-            var text = BasicFavoriteJobs.Choose(list, candidate => measure?.Invoke(value, candidate) ?? BasicFavoriteJobs.EstimateWidth(value, candidate), available);
-            value.Text = Limit(text, TextProfileElement.MaxTextLength);
+            EnsureText(ProfileElementRole.BasicJob).Text = Limit(BasicFavoriteJobs.FullText(list), TextProfileElement.MaxTextLength);
         }
 
         if (BasicSections.FindText(Profile, ProfileElementRole.BasicJobHeading) is { } heading && BasicFavoriteJobs.IsDefaultHeading(heading.Text))
@@ -641,71 +636,29 @@ internal sealed class BasicPlateEditor
         return element;
     }
 
-    // The job's placement follows the level's rendered text (see AdventurePlateClassicLayout.
-    // LevelJobColumns), so whenever the level is placed, a job Basic still manages follows it.
-    private void Place(ProfileElement element)
-    {
-        var jobFollows = element.Role == ProfileElementRole.BasicLevel
-            && BasicSections.Find(Profile, ProfileElementRole.BasicJob) is { } job && IsManaged(Profile, job) ? job : null;
-
-        PlaceCore(element);
-        if (jobFollows is not null)
-        {
-            PlaceCore(jobFollows);
-        }
-    }
+    private void Place(ProfileElement element) => PlaceCore(element);
 
     /// <summary>
-    /// Loading: a Favorite Job row Basic still manages, placed by an earlier version of the layout
-    /// (the fixed-width level column), is re-placed by the current compact rule and its placement
-    /// recorded, so it keeps following the layout. A customized (or never-tracked) row is untouched.
-    /// Returns whether anything changed.
+    /// Loading: a Favorite Jobs value Basic still manages, placed by an earlier version of the
+    /// layout (after a level, or after the old fixed level column), is re-placed to fill its whole
+    /// cell — the Favorite Jobs are presented without the retired Level — and its placement
+    /// recorded, so it keeps following the layout. The Level element itself is never touched; a
+    /// customized (or never-tracked) value is untouched too. Returns whether anything changed.
     /// </summary>
     internal static bool UpgradeFavoriteJobRow(ProfileDocument profile)
     {
-        if (profile.BasicPlate is not { } settings || IsSectionCustomized(profile, BasicSection.Job))
+        if (profile.BasicPlate is not { } settings || IsSectionCustomized(profile, BasicSection.Job)
+            || BasicSections.Find(profile, ProfileElementRole.BasicJob) is not { } job
+            || AdventurePlateClassicLayout.GetRect(ProfileElementRole.BasicJob, GetOrientation(profile), profile) is not { } rect
+            || rect.Matches(job.Position, job.Size))
         {
             return false;
         }
 
-        var changed = false;
-        foreach (var role in (ReadOnlySpan<ProfileElementRole>)[ProfileElementRole.BasicLevel, ProfileElementRole.BasicJob])
-        {
-            if (BasicSections.Find(profile, role) is not { } element
-                || AdventurePlateClassicLayout.GetRect(role, GetOrientation(profile), profile) is not { } rect
-                || rect.Matches(element.Position, element.Size))
-            {
-                continue;
-            }
-
-            element.Position = rect.Position;
-            element.Size = rect.Size;
-            settings.SetPlacement(role, rect);
-            changed = true;
-        }
-
-        return changed;
-    }
-
-    /// <summary>
-    /// After the level's text or visibility changed: re-places the Favorite Job row (level, then job)
-    /// so the job keeps its compact gap after the level — only while Basic manages the row; a
-    /// customized row never moves.
-    /// </summary>
-    private void ReflowFavoriteJobRow()
-    {
-        if (IsSectionCustomized(Profile, BasicSection.Job))
-        {
-            return;
-        }
-
-        foreach (var role in (ReadOnlySpan<ProfileElementRole>)[ProfileElementRole.BasicLevel, ProfileElementRole.BasicJob])
-        {
-            if (BasicSections.Find(Profile, role) is { } element)
-            {
-                PlaceCore(element);
-            }
-        }
+        job.Position = rect.Position;
+        job.Size = rect.Size;
+        settings.SetPlacement(ProfileElementRole.BasicJob, rect);
+        return true;
     }
 
     private void PlaceCore(ProfileElement element)

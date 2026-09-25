@@ -120,7 +120,7 @@ public class BasicEditorNavigationTests
     [Fact]
     public void EverySection_BelongsToExactlyOneCategory()
     {
-        foreach (var section in Enum.GetValues<BasicSection>())
+        foreach (var section in Enum.GetValues<BasicSection>().Where(s => s != BasicSection.Level)) // the Level is retired
         {
             var owners = BasicEditorView.Categories.Where(c => BasicEditorView.SectionsOf(c).Contains(section)).ToList();
             Assert.Single(owners);
@@ -129,7 +129,7 @@ public class BasicEditorNavigationTests
 
         Assert.Empty(BasicEditorView.SectionsOf(BasicEditorCategory.Style));
         Assert.Equal(
-            [BasicSection.World, BasicSection.Job, BasicSection.Level, BasicSection.FreeCompany, BasicSection.Playstyle, BasicSection.ActiveHours],
+            [BasicSection.World, BasicSection.Job, BasicSection.FreeCompany, BasicSection.Playstyle, BasicSection.ActiveHours],
             BasicEditorView.SectionsOf(BasicEditorCategory.Details));
         Assert.Equal(BasicEditorCategory.Identity, BasicEditorView.CategoryOf(BasicSection.Identity));
         Assert.Equal(BasicEditorCategory.Portrait, BasicEditorView.CategoryOf(BasicSection.Portrait));
@@ -146,7 +146,7 @@ public class BasicEditorNavigationTests
         Assert.Equal([BasicEditorPanel.BackgroundTheme, BasicEditorPanel.PlateLayout], BasicEditorView.PanelsOf(BasicEditorCategory.Style));
         Assert.Equal(["Style", "Portrait", "Identity", "Details", "Message"], BasicEditorView.Categories.Select(BasicEditorView.Title));
         Assert.Equal(
-            [BasicEditorPanel.HomeWorld, BasicEditorPanel.JobAndLevel, BasicEditorPanel.FreeCompany, BasicEditorPanel.Playstyle, BasicEditorPanel.ActiveHours],
+            [BasicEditorPanel.HomeWorld, BasicEditorPanel.FavoriteJobs, BasicEditorPanel.FreeCompany, BasicEditorPanel.Playstyle, BasicEditorPanel.ActiveHours],
             BasicEditorView.PanelsOf(BasicEditorCategory.Details));
     }
 
