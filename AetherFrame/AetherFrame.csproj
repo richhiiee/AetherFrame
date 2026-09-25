@@ -7,14 +7,13 @@
     <!-- Manifest fields (see https://github.com/goatcorp/DalamudPackager/blob/827d88dc/DalamudPackager/DalamudPackager.cs#L420) -->
     <Author>richhiiee</Author>
     <Name>AetherFrame</Name>
-    <Punchline>Character-bound profile overlays.</Punchline>
-    <Description>Design character Plates: start from an Adventure Plate-style layout in the Basic editor, or build freeform layouts with text, images and decorative Components in the Advanced editor.</Description>
+    <Punchline>Design character Plates in a familiar Basic Editor or a freeform Advanced Editor.</Punchline>
+    <Description>Design character Plates: start from an Adventure Plate-style layout in the Basic Editor, or build freeform layouts with text, images and decorative Components in the Advanced Editor.</Description>
     <RepoUrl>https://github.com/richhiiee/AetherFrame</RepoUrl>
-    <Tags>aetherframe;profiles</Tags>
-    <!-- Approved icon. AetherFrame itself is private, so raw.githubusercontent.com can't serve
-         a file from it anonymously; the icon instead lives in the public AetherFrameAssets repo
-         (https://github.com/richhiiee/AetherFrameAssets), which DalamudPackager's manifest needs
-         to be able to fetch unauthenticated. -->
+    <Tags>aetherframe;plates;adventure-plate;profile;customization</Tags>
+    <!-- Approved icon, served from the AetherFrameAssets repo
+         (https://github.com/richhiiee/AetherFrameAssets), which DalamudPackager's manifest must be
+         able to fetch unauthenticated. -->
     <IconUrl>https://raw.githubusercontent.com/richhiiee/AetherFrameAssets/master/images/icon.png</IconUrl>
   </PropertyGroup>
 
