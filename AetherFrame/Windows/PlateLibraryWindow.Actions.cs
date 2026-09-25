@@ -7,6 +7,7 @@ using AetherFrame.Services;
 using AetherFrame.Services.Plates;
 using AetherFrame.Services.Templates;
 using AetherFrame.UI.Editor;
+using AetherFrame.UI.Library;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
@@ -130,7 +131,7 @@ internal sealed partial class PlateLibraryWindow
                 var plateId = plate.PlateId;
                 var name = plate.DisplayName;
                 RunOperation("set the Active Plate", () => library.SetActivePlateAsync(who, plateId),
-                    () => statusMessage = $"\"{name}\" is now {DescribeCharacter(who)}'s Active Plate.");
+                    () => statusMessage = MyPlatesCharacterText.NowActive(name));
             }
         }
 
@@ -178,9 +179,6 @@ internal sealed partial class PlateLibraryWindow
             }
         }
     }
-
-    private static string DescribeCharacter(CharacterContext character) =>
-        string.IsNullOrWhiteSpace(character.Name) ? "this character" : character.Name;
 
     // ---------------------------------------------------------------- opening Plates
 
@@ -511,8 +509,10 @@ internal sealed partial class PlateLibraryWindow
         var activeForOthers = plate.ActiveForContentIds.Count - (activeForCurrent ? 1 : 0);
         if (activeForCurrent)
         {
-            ImGui.TextColored(EditorWidgets.WarningColor, $"This is {DescribeCharacter(character!.Value)}'s Active Plate.");
-            ImGui.TextColored(EditorWidgets.WarningColor, $"{DescribeCharacter(character.Value)} will be left without an Active Plate.");
+            foreach (var line in MyPlatesCharacterText.DeletingCurrentActive)
+            {
+                ImGui.TextColored(EditorWidgets.WarningColor, line);
+            }
         }
 
         if (activeForOthers > 0)

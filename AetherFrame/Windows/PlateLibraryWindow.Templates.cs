@@ -10,6 +10,7 @@ using AetherFrame.Services.Plates;
 using AetherFrame.Services.Templates;
 using AetherFrame.Services.Thumbnails;
 using AetherFrame.UI.Editor;
+using AetherFrame.UI.Library;
 using AetherFrame.UI.Rendering;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
@@ -401,9 +402,9 @@ internal sealed partial class PlateLibraryWindow
             activeView = LibraryView.MyPlates;
             selectedPlateId = result.PlateId;
             searchText = string.Empty;
-            if (result.BecameActive && character is { } owner)
+            if (result.BecameActive && character is not null)
             {
-                statusMessage = $"Created your first Plate. It's now {DescribeCharacter(owner)}'s Active Plate.";
+                statusMessage = MyPlatesCharacterText.FirstPlateCreated;
             }
 
             var basic = EditorSurfaceChooser.ForDocument(library.GetSavedDocument(result.PlateId)) == EditorSurfaceKind.Basic;
@@ -685,8 +686,8 @@ internal sealed partial class PlateLibraryWindow
     private void DrawTemplateChooserFooter()
     {
         var character = characterIdentity.CurrentCharacter;
-        ImGui.TextColored(EditorWidgets.DimTextColor, character is { } who
-            ? $"New Plate will belong to {DescribeCharacter(who)}. It becomes Active only if it's the character's first Plate."
+        ImGui.TextColored(EditorWidgets.DimTextColor, character is not null
+            ? MyPlatesCharacterText.NewPlateBelongsToCurrent
             : "No character is logged in, so the new Plate won't belong to a character yet.");
 
         ImGui.Spacing();

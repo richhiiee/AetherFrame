@@ -11,6 +11,7 @@ using AetherFrame.Services.Plates;
 using AetherFrame.Services.Templates;
 using AetherFrame.Services.Thumbnails;
 using AetherFrame.UI.Editor;
+using AetherFrame.UI.Library;
 using AetherFrame.UI.Rendering;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
@@ -244,16 +245,13 @@ internal sealed partial class PlateLibraryWindow : Window, IDisposable
         ImGui.SetNextItemWidth(220f);
         ImGui.InputTextWithHint("##PlateSearch", "Search Plates...", ref searchText, 64);
 
-        ImGui.SameLine();
-        ImGui.AlignTextToFramePadding();
-        if (character is { } who)
+        // Never the character's name or World (see MyPlatesCharacterText): only whether one is
+        // logged in at all, since Set Active needs one.
+        if (MyPlatesCharacterText.HeaderStatus(character) is { } characterStatus)
         {
-            var name = string.IsNullOrWhiteSpace(who.Name) ? "your character" : who.Name;
-            ImGui.TextDisabled(who.HomeWorld is { } world ? $"Playing as {name} @ {world}" : $"Playing as {name}");
-        }
-        else
-        {
-            ImGui.TextDisabled("No character logged in");
+            ImGui.SameLine();
+            ImGui.AlignTextToFramePadding();
+            ImGui.TextDisabled(characterStatus);
             EditorWidgets.Tooltip("You can still browse, preview, create, and edit Plates.\nLog in to a character to choose its Active Plate.");
         }
 
