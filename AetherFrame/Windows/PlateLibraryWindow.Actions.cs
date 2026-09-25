@@ -32,8 +32,8 @@ internal sealed partial class PlateLibraryWindow
     private bool pendingGuardPrompt;
     private bool pendingBasicGuidancePopup;
 
-    // The Plate waiting on the one-time Basic suggestion's answer.
-    private Guid basicGuidancePlateId;
+    // The one-time Basic suggestion waiting to be answered, for the (already open) Plate.
+    private BasicGuidancePrompt basicGuidancePrompt;
 
     private Guid renameTargetId;
     private string renameBuffer = string.Empty;
@@ -127,7 +127,7 @@ internal sealed partial class PlateLibraryWindow
 
             if (ImGui.MenuItem("Open in Advanced Editor"))
             {
-                RequestAdvanced(plate.PlateId);
+                RequestOpen(plate.PlateId, basic: false);
             }
         }
 
@@ -236,24 +236,11 @@ internal sealed partial class PlateLibraryWindow
     }
 
     /// <summary>
-    /// Open in Advanced Editor: straight there — except the very first time a player who has never
-    /// used the Basic Editor chooses Advanced, when Basic is suggested once (see <see cref="BasicGuidance"/>).
-    /// </summary>
-    private void RequestAdvanced(Guid plateId)
-    {
-        if (basicGuidance.ShouldSuggestBasic)
-        {
-            basicGuidancePlateId = plateId;
-            pendingBasicGuidancePopup = true;
-            return;
-        }
-
-        RequestOpen(plateId, basic: false);
-    }
-
-    /// <summary>
-    /// The one-time suggestion: Try Basic Editor (the suggested choice) or Continue to Advanced;
-    /// closing it also continues to Advanced. Either way it never appears again.
+    /// The one-time suggestion before the first Advanced Editor (see <see cref="ShowEditor"/>).
+    /// For a Plate that suits Basic: Try Basic Editor (the suggested choice, opening this Plate in
+    /// Basic) or Continue to Advanced. For a freeform Plate, which can't sensibly open in Basic: what
+    /// Basic is and how to start with it, and Continue to Advanced only. Closing it always continues
+    /// to Advanced, and any answer handles the guidance for good.
     /// </summary>
     private void DrawBasicGuidancePopup()
     {
@@ -269,25 +256,36 @@ internal sealed partial class PlateLibraryWindow
         {
             if (popup.Success)
             {
+                var offerBasic = basicGuidancePrompt == BasicGuidancePrompt.OfferBasic;
                 using (ImRaii.TextWrapPos(ImGui.GetCursorPosX() + (380f * ImGuiHelpers.GlobalScale)))
                 {
                     ImGui.TextUnformatted("Basic Editor is the easiest place to start and uses familiar FFXIV style controls.");
                     ImGui.Spacing();
                     ImGui.TextDisabled("Advanced Editor gives you freeform positioning, layering and additional controls.");
+                    if (!offerBasic)
+                    {
+                        ImGui.Spacing();
+                        ImGui.TextUnformatted("This Plate is a freeform design, so it opens in the Advanced Editor.");
+                        ImGui.TextDisabled("To start in the Basic Editor, choose Create Plate and pick Adventure Plate Classic.");
+                    }
                 }
 
                 ImGui.Spacing();
                 var buttonSize = new Vector2(170f * ImGuiHelpers.GlobalScale, 0f);
-                using (ImRaii.PushColor(ImGuiCol.Button, EditorWidgets.ActiveToggleColor))
+                if (offerBasic)
                 {
-                    if (ImGui.Button("Try Basic Editor", buttonSize))
+                    using (ImRaii.PushColor(ImGuiCol.Button, EditorWidgets.ActiveToggleColor))
                     {
-                        openBasic = true;
-                        ImGui.CloseCurrentPopup();
+                        if (ImGui.Button("Try Basic Editor", buttonSize))
+                        {
+                            openBasic = true;
+                            ImGui.CloseCurrentPopup();
+                        }
                     }
+
+                    ImGui.SameLine();
                 }
 
-                ImGui.SameLine();
                 if (ImGui.Button("Continue to Advanced", buttonSize))
                 {
                     openBasic = false;
@@ -303,8 +301,10 @@ internal sealed partial class PlateLibraryWindow
 
         if (openBasic is { } basic)
         {
+            // Handled first, so this Advanced open isn't asked about again.
             basicGuidance.MarkHandled();
-            RequestOpen(basicGuidancePlateId, basic);
+            basicGuidancePrompt = BasicGuidancePrompt.None;
+            ShowEditor(basic);
         }
     }
 
@@ -326,16 +326,32 @@ internal sealed partial class PlateLibraryWindow
         }
     }
 
+    /// <summary>
+    /// Shows the open Plate in an editor. Every way My Plates opens the Advanced Editor comes
+    /// through here — Open in Advanced Editor, Edit and double-click on a Plate that opens in
+    /// Advanced, Use Template (Blank Canvas and other freeform Templates), and opening after the
+    /// unsaved-changes prompt — so this is where a player who has never used the Basic Editor is
+    /// asked once, before their first Advanced Editor (see <see cref="BasicGuidance"/>). The only
+    /// other way into Advanced, switching from the Basic Editor, needs no question: opening Basic
+    /// already handled it.
+    /// </summary>
     private void ShowEditor(bool basic)
     {
         if (basic)
         {
             openBasicEditor();
+            return;
         }
-        else
+
+        var prompt = basicGuidance.PromptBeforeAdvanced(activeEditor() == EditorSurfaceKind.Advanced, profileService.CurrentProfile);
+        if (prompt != BasicGuidancePrompt.None)
         {
-            openAdvancedEditor();
+            basicGuidancePrompt = prompt;
+            pendingBasicGuidancePopup = true;
+            return;
         }
+
+        openAdvancedEditor();
     }
 
     /// <summary>After "Save" in the unsaved-changes prompt: open the next Plate once the save

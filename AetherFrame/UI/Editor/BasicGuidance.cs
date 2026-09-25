@@ -1,3 +1,5 @@
+using AetherFrame.Domain.Profiles;
+
 namespace AetherFrame.UI.Editor;
 
 /// <summary>Where the one persisted guidance flag lives (the plugin configuration).</summary>
@@ -8,6 +10,22 @@ internal interface IBasicGuidanceStore
 
     /// <summary>Persists the configuration.</summary>
     void Save();
+}
+
+/// <summary>What to ask before the Advanced Editor opens (see <see cref="BasicGuidance.PromptBeforeAdvanced"/>).</summary>
+internal enum BasicGuidancePrompt
+{
+    /// <summary>Nothing: open the Advanced Editor.</summary>
+    None,
+
+    /// <summary>Suggest Basic, offering to open this Plate there (Try Basic Editor) or continue to Advanced.</summary>
+    OfferBasic,
+
+    /// <summary>
+    /// The Plate is freeform and can't sensibly open in Basic: explain Basic (and how to start with
+    /// it) and continue to Advanced — never offering to open this Plate in Basic.
+    /// </summary>
+    AdvancedOnly,
 }
 
 /// <summary>How the configuration holding the guidance flag was found when the plugin loaded.</summary>
@@ -24,10 +42,12 @@ internal enum GuidanceConfigOrigin
 }
 
 /// <summary>
-/// The one-time "New to AetherFrame?" suggestion: the first time a player chooses the Advanced
-/// Editor themselves, before they've ever used the Basic Editor, Basic is suggested once — never
-/// required. Choosing either editor in that prompt (or closing it, which continues to Advanced)
-/// handles it for good, and so does simply opening the Basic Editor first. One persisted flag.
+/// The one-time "New to AetherFrame?" suggestion: before a player enters the Advanced Editor for
+/// the first time — by any route: Open in Advanced Editor, Edit or double-click on a Plate that
+/// opens in Advanced, creating a Blank Canvas or other freeform Plate — Basic is suggested once,
+/// never required. Answering the prompt (or closing it, which continues to Advanced) handles it
+/// for good, and so does simply opening the Basic Editor first; so switching to Advanced from
+/// Basic never asks. One persisted flag.
 ///
 /// <para><b>Existing installs.</b> An update must not nag players who already know AetherFrame, so
 /// the flag is only left unhandled for a genuinely new player: a configuration saved before the flag
@@ -47,6 +67,23 @@ internal sealed class BasicGuidance
 
     /// <summary>Whether choosing the Advanced Editor should suggest the Basic Editor first.</summary>
     internal bool ShouldSuggestBasic => resolved && !store.BasicGuidanceHandled;
+
+    /// <summary>
+    /// What to ask before the Advanced Editor opens <paramref name="plate"/>: nothing once the
+    /// guidance is handled (or not yet decided), or when the Advanced Editor is already showing (the
+    /// player is already in it); otherwise the suggestion — offering to open this Plate in Basic only
+    /// when its content suits Basic (<see cref="EditorSurfaceChooser"/>), so a freeform Plate is
+    /// never sent to an editor it doesn't work in.
+    /// </summary>
+    internal BasicGuidancePrompt PromptBeforeAdvanced(bool advancedAlreadyOpen, ProfileDocument? plate)
+    {
+        if (!ShouldSuggestBasic || advancedAlreadyOpen)
+        {
+            return BasicGuidancePrompt.None;
+        }
+
+        return EditorSurfaceChooser.ForDocument(plate) == EditorSurfaceKind.Basic ? BasicGuidancePrompt.OfferBasic : BasicGuidancePrompt.AdvancedOnly;
+    }
 
     /// <summary>
     /// Whether an install found with <paramref name="origin"/> has already handled the guidance: a

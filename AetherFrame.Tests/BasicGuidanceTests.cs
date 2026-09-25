@@ -1,3 +1,7 @@
+using System;
+using System.Threading.Tasks;
+using AetherFrame.Domain.Plates;
+using AetherFrame.Domain.Profiles;
 using AetherFrame.UI.Editor;
 using Xunit;
 
@@ -133,6 +137,90 @@ public class BasicGuidanceTests
 
         Assert.False(guidance.ShouldSuggestBasic);
         Assert.True(store.BasicGuidanceHandled);
+    }
+
+    // ---------------------------------------------------------------- before the first Advanced Editor
+
+    [Fact]
+    public void BeforeTheFirstAdvancedEditor_APlateThatSuitsBasic_IsOfferedBasic()
+    {
+        var (guidance, _) = NewInstall();
+
+        Assert.Equal(BasicGuidancePrompt.OfferBasic, guidance.PromptBeforeAdvanced(advancedAlreadyOpen: false, BasicDocuments.Classic(FakeCharacter.Hero)));
+    }
+
+    [Fact]
+    public void BeforeTheFirstAdvancedEditor_ABlankCanvas_IsNeverOfferedBasic()
+    {
+        var (guidance, _) = NewInstall();
+
+        Assert.Equal(BasicGuidancePrompt.AdvancedOnly, guidance.PromptBeforeAdvanced(advancedAlreadyOpen: false, BasicDocuments.Blank()));
+    }
+
+    [Fact]
+    public void BeforeTheFirstAdvancedEditor_AFreeformPlate_IsNeverOfferedBasic()
+    {
+        var (guidance, _) = NewInstall();
+        var freeform = BasicDocuments.Blank();
+        freeform.Elements.Add(new TextProfileElement { Text = "Freeform", ZIndex = 0 });
+        freeform.Elements.Add(new ImageProfileElement { AssetId = Guid.NewGuid(), ZIndex = 1 });
+
+        Assert.Equal(BasicGuidancePrompt.AdvancedOnly, guidance.PromptBeforeAdvanced(advancedAlreadyOpen: false, freeform));
+        Assert.Equal(BasicGuidancePrompt.AdvancedOnly, guidance.PromptBeforeAdvanced(advancedAlreadyOpen: false, plate: null));
+    }
+
+    [Theory]
+    [InlineData(PlateStartingLayout.AdventurePlateClassic, true)]
+    [InlineData(PlateStartingLayout.Blank, false)]
+    public async Task ANewlyCreatedPlate_IsAskedAboutByItsContent(PlateStartingLayout layout, bool offerBasic)
+    {
+        // Use Template / Create Plate: the prompt judges the Plate just created and opened.
+        using var harness = await BasicHarness.CreatePlateAsync(layout, new PlateStarterContent(FakeCharacter.Hero));
+        var (guidance, _) = NewInstall();
+
+        var expected = offerBasic ? BasicGuidancePrompt.OfferBasic : BasicGuidancePrompt.AdvancedOnly;
+        Assert.Equal(expected, guidance.PromptBeforeAdvanced(advancedAlreadyOpen: false, harness.Profiles.CurrentProfile));
+    }
+
+    [Fact]
+    public void WithTheAdvancedEditorAlreadyShowing_NothingIsAsked()
+    {
+        var (guidance, _) = NewInstall();
+
+        Assert.Equal(BasicGuidancePrompt.None, guidance.PromptBeforeAdvanced(advancedAlreadyOpen: true, BasicDocuments.Classic(FakeCharacter.Hero)));
+    }
+
+    [Fact]
+    public void SwitchingToAdvancedFromBasic_IsNeverAsked()
+    {
+        var (guidance, _) = NewInstall();
+        guidance.MarkHandled(); // the Basic Editor opened
+
+        Assert.Equal(BasicGuidancePrompt.None, guidance.PromptBeforeAdvanced(advancedAlreadyOpen: false, BasicDocuments.Classic(FakeCharacter.Hero)));
+        Assert.Equal(BasicGuidancePrompt.None, guidance.PromptBeforeAdvanced(advancedAlreadyOpen: false, BasicDocuments.Blank()));
+    }
+
+    [Fact]
+    public void OnceAnswered_NoAdvancedRouteIsAskedAgain()
+    {
+        var (guidance, _) = NewInstall();
+        Assert.Equal(BasicGuidancePrompt.AdvancedOnly, guidance.PromptBeforeAdvanced(false, BasicDocuments.Blank()));
+
+        guidance.MarkHandled(); // Continue to Advanced, or closed
+
+        Assert.Equal(BasicGuidancePrompt.None, guidance.PromptBeforeAdvanced(false, BasicDocuments.Blank()));
+        Assert.Equal(BasicGuidancePrompt.None, guidance.PromptBeforeAdvanced(false, BasicDocuments.Classic(FakeCharacter.Hero)));
+    }
+
+    [Fact]
+    public void AnEstablishedPlayer_OrAnUndecidedInstall_IsNeverAsked()
+    {
+        var undecided = new BasicGuidance(new FakeStore());
+        Assert.Equal(BasicGuidancePrompt.None, undecided.PromptBeforeAdvanced(false, BasicDocuments.Blank()));
+
+        var established = new BasicGuidance(new FakeStore());
+        established.Resolve(GuidanceConfigOrigin.Missing, libraryHasPlates: true);
+        Assert.Equal(BasicGuidancePrompt.None, established.PromptBeforeAdvanced(false, BasicDocuments.Classic(FakeCharacter.Hero)));
     }
 
     [Theory]
