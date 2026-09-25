@@ -8,7 +8,7 @@
     <Author>richhiiee</Author>
     <Name>AetherFrame</Name>
     <Punchline>Character-bound profile overlays.</Punchline>
-    <Description>AetherFrame lets you build character-bound profiles made of simple text elements.</Description>
+    <Description>Design character Plates: start from an Adventure Plate-style layout in the Basic editor, or build freeform layouts with text, images and decorative Components in the Advanced editor.</Description>
     <RepoUrl>https://github.com/richhiiee/AetherFrame</RepoUrl>
     <Tags>aetherframe;profiles</Tags>
     <!-- Approved icon. AetherFrame itself is private, so raw.githubusercontent.com can't serve
