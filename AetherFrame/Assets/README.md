@@ -107,7 +107,9 @@ is 992 x 1586 (0.6255), which is 0.076% off, so it is drawn exactly over the por
 All of these are starting points. Scale, Offset, Rotation and Layer order work on them exactly as
 on every other Component.
 
-**Memory.** Each piece is about 1.57 megapixels. With its levels, each takes about 8.4 MB of GPU
-memory and is decoded once, the first time a Plate draws it (about 59 MB if all seven are drawn).
+**Memory and loading.** Each piece is about 1.57 megapixels. With its levels, each takes about
+8.4 MB of GPU memory (about 59 MB if all seven are drawn). Each is decoded, prepared and uploaded
+once, the first time a Plate draws it. That takes about 45–55 ms of CPU per piece, so it runs on
+the thread pool (`BuiltInArtLoader`), not inside Draw. The piece appears a frame or a few later.
 If that ever matters, the Celestial Dream route is available: approved, reduced runtime copies
 made from the full-size sources.
