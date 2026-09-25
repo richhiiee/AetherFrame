@@ -39,12 +39,6 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable, IEditor
 
     private const ImGuiWindowFlags EditorFlags = ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse;
 
-    /// <summary>Clean Preview's presentation: no background, border (see PreDraw), title bar or
-    /// chrome; placed and sized by <see cref="CleanPreviewLayout"/>, so not movable or resizable.</summary>
-    internal const ImGuiWindowFlags CleanPreviewFlags = ImGuiWindowFlags.NoTitleBar | ImGuiWindowFlags.NoBackground
-        | ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoMove | ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse
-        | ImGuiWindowFlags.NoCollapse;
-
     private readonly ProfileService profileService;
     private readonly EditorSession editorSession;
     private readonly KeyboardShortcutService keyboardShortcutService;
@@ -75,17 +69,8 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable, IEditor
     // Unsaved-changes protection when the window closes (shared with the Basic editor's own).
     private readonly EditorCloseGuard closeGuard;
 
-    // Clean Preview presentation (see PreDraw): the editor's own rectangle, captured every editing
-    // frame so the preview fits inside it and the editor returns to it; whether the transparent
-    // presentation is in effect (and its style pushes need popping in PostDraw); and the size
-    // constraints set aside meanwhile (the editor's minimum size would otherwise inflate the preview).
-    private Vector2 editorWindowPos;
-    private Vector2 editorWindowSize;
-    private bool presentingPreview;
-    private bool previewPresentationApplied;
-    private CleanPreviewLayout? previewLayout;
-    private WindowSizeConstraints? editorSizeConstraints;
-    private bool editorAllowsBackgroundBlur = true;
+    // Preview: the shared Clean Preview, which the Basic editor's Preview uses too.
+    private readonly CleanPreviewPresenter cleanPreview;
 
     // Inspector tab and focus requests, raised by canvas/layers interactions.
     private bool selectElementTabPending;
@@ -120,6 +105,7 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable, IEditor
         backgroundPanel = new BackgroundStylePanel(editorSession, renderResources, OpenImageFileDialog);
         actionBar = new EditorActionBar(commands, EditorSurfaceKind.Advanced, openLibrary, openBasicEditor);
         closeGuard = new EditorCloseGuard(editorSession, commands);
+        cleanPreview = new CleanPreviewPresenter(this, editorSession, profileService, renderResources, EditorFlags);
 
         // Title bar, left to right: Dalamud's Window Options (Settings) | Minimize | Close — all three
         // Dalamud's own, the same as every other AetherFrame window (see TitleBarOrder). Minimize is
@@ -204,75 +190,14 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable, IEditor
         fileDialogManager.Reset();
     }
 
-    public override void PreDraw()
-    {
-        presentingPreview = false;
-        if (editorSession.PreviewActive && profileService.CurrentProfile is { } profile && editorWindowSize is { X: > 0f, Y: > 0f }
-            && CleanPreviewLayout.Compute(editorWindowPos, editorWindowSize, ProfileVisualBounds.Compute(profile), CleanPreviewLayout.DefaultCloseButtonSize * ImGuiHelpers.GlobalScale) is { } layout)
-        {
-            // Clean Preview: this same window shrinks to exactly the Plate's fitted visual bounds
-            // (plus its close control) within the rectangle the editor occupied, and draws nothing
-            // of its own — no background, border, title bar, padding or blur (CleanPreviewPresentation);
-            // the Plate is drawn without the renderer's workspace backdrop. Only the Plate, its
-            // artwork and the close control show over the game, and the window takes mouse input
-            // only there (see CleanPreviewLayout for why it can't be click-through).
-            if (!previewPresentationApplied)
-            {
-                editorSizeConstraints = SizeConstraints;
-                editorAllowsBackgroundBlur = AllowBackgroundBlur;
-                previewPresentationApplied = true;
-            }
+    /// <summary>Clean Preview's presentation (see <see cref="CleanPreviewPresenter"/>), or the editor's own.</summary>
+    public override void PreDraw() => cleanPreview.PreDraw();
 
-            AllowBackgroundBlur = CleanPreviewPresentation.AllowBackgroundBlur;
-            previewLayout = layout;
-            SizeConstraints = null;
-            ImGui.SetNextWindowPos(layout.WindowPos, ImGuiCond.Always);
-            ImGui.SetNextWindowSize(layout.WindowSize, ImGuiCond.Always);
-            Flags = CleanPreviewFlags;
-            RespectCloseHotkey = false; // Escape belongs to Clean Preview
-
-            // Popped in PostDraw (Dalamud calls it after End on every frame PreDraw ran).
-            ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, CleanPreviewPresentation.WindowPadding);
-            ImGui.PushStyleVar(ImGuiStyleVar.WindowBorderSize, CleanPreviewPresentation.WindowBorderSize);
-            ImGui.PushStyleColor(ImGuiCol.WindowBg, CleanPreviewPresentation.BackgroundColor);
-            ImGui.PushStyleColor(ImGuiCol.ChildBg, CleanPreviewPresentation.BackgroundColor);
-            presentingPreview = true;
-            return;
-        }
-
-        if (previewPresentationApplied)
-        {
-            // Leaving Clean Preview (by any path): the editor comes back exactly where and as large as it was.
-            previewPresentationApplied = false;
-            SizeConstraints = editorSizeConstraints;
-            AllowBackgroundBlur = editorAllowsBackgroundBlur;
-            ImGui.SetNextWindowPos(editorWindowPos, ImGuiCond.Always);
-            ImGui.SetNextWindowSize(editorWindowSize, ImGuiCond.Always);
-        }
-
-        // The layout is sized to fit exactly; the panels scroll themselves. Escape belongs to
-        // Clean Preview while it's up, so the window-close hotkey stands down then.
-        Flags = EditorFlags;
-        RespectCloseHotkey = !editorSession.PreviewActive;
-    }
-
-    public override void PostDraw()
-    {
-        if (presentingPreview)
-        {
-            ImGui.PopStyleColor(2);
-            ImGui.PopStyleVar(2);
-            presentingPreview = false;
-        }
-    }
+    public override void PostDraw() => cleanPreview.PostDraw();
 
     public override void Draw()
     {
-        if (!presentingPreview)
-        {
-            editorWindowPos = ImGui.GetWindowPos();
-            editorWindowSize = ImGui.GetWindowSize();
-        }
+        cleanPreview.CaptureEditorRect();
 
         // Drawn unconditionally so an in-progress file pick isn't stranded if the profile
         // becomes unavailable (e.g. character logs out) while the dialog is open.
@@ -303,7 +228,7 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable, IEditor
 
         if (editorSession.PreviewActive)
         {
-            DrawCleanPreview(profile);
+            cleanPreview.Draw(profile);
         }
         else
         {
@@ -354,7 +279,7 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable, IEditor
     /// </summary>
     private void DrawToolbar(ProfileDocument profile)
     {
-        actionBar.Draw(profile, editorSession.PreviewActive, EnterPreview, "Preview: the finished Plate only, over the game (Esc to exit)", editorSession.ErrorMessage);
+        actionBar.Draw(profile, editorSession.PreviewActive, () => EditorPreview.Enter(editorSession), EditorPreview.Tooltip, editorSession.ErrorMessage);
 
         var atCapacity = profile.Elements.Count >= ProfileDocument.MaxElementCount;
         using (ImRaii.Disabled(atCapacity))
@@ -477,60 +402,6 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable, IEditor
         }
     }
 
-    // ---------------------------------------------------------------- Clean Preview
-
-    private void EnterPreview()
-    {
-        editorSession.CommitPendingEdits();
-        editorSession.EndInteraction();
-        editorSession.PreviewActive = true;
-    }
-
-    /// <summary>
-    /// The finished profile alone, drawn through exactly the same renderer call as Profile View: no
-    /// panels, toolbar, guides, snapping guides, selection, placeholders, or any other editor chrome.
-    /// Normally the window itself is shrunk to the Plate's visual bounds and draws nothing of its
-    /// own (see PreDraw and <see cref="CleanPreviewLayout"/>), and the Plate is drawn without the
-    /// workspace backdrop, so it sits directly over the game. An always-visible close control sits
-    /// at the top-right of the visual bounds (Escape also exits).
-    /// </summary>
-    private void DrawCleanPreview(ProfileDocument profile)
-    {
-        var available = ImGui.GetContentRegionAvail();
-        var windowPos = ImGui.GetWindowPos();
-        if (presentingPreview && previewLayout is { } layout)
-        {
-            ProfileRenderer.Draw(ImGui.GetWindowDrawList(), profile, windowPos + layout.CanvasOffset, layout.Scale, renderResources, CleanPreviewPresentation.RenderOptions);
-            DrawCleanPreviewCloseButton(windowPos + layout.CloseButtonOffset, layout.CloseButtonSize);
-            return;
-        }
-
-        // The one frame between entering preview and PreDraw applying its presentation (or no
-        // layout at all): the old in-window fit, so the Plate never blinks out.
-        var buttonSize = CleanPreviewLayout.DefaultCloseButtonSize * ImGuiHelpers.GlobalScale;
-        if (available.X >= 1f && available.Y >= 1f)
-        {
-            var fit = PlateViewFit.Fit(available, ProfileVisualBounds.Compute(profile));
-            if (fit.Scale > 0f)
-            {
-                ProfileRenderer.Draw(ImGui.GetWindowDrawList(), profile, ImGui.GetCursorScreenPos() + fit.CanvasOffset, fit.Scale, renderResources, CleanPreviewPresentation.RenderOptions);
-            }
-        }
-
-        var contentMax = windowPos + ImGui.GetWindowContentRegionMax();
-        var contentMin = windowPos + ImGui.GetWindowContentRegionMin();
-        DrawCleanPreviewCloseButton(new Vector2(contentMax.X - buttonSize, contentMin.Y), buttonSize);
-    }
-
-    /// <summary>Clean Preview's close control: AetherFrame's shared Close look (<see cref="PresentationControls"/>). Leaves the preview.</summary>
-    private void DrawCleanPreviewCloseButton(Vector2 min, float size)
-    {
-        if (PresentationControls.Close("##CleanPreviewClose", min, size, "Exit Preview (Esc)"))
-        {
-            editorSession.PreviewActive = false;
-        }
-    }
-
     // ---------------------------------------------------------------- keyboard
 
     /// <summary>
@@ -606,7 +477,7 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable, IEditor
                     FitCanvas();
                     break;
                 case EditorShortcutActionKind.ExitPreview:
-                    editorSession.PreviewActive = false;
+                    EditorPreview.Exit(editorSession);
                     break;
             }
         }

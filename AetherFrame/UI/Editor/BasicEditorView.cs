@@ -82,7 +82,7 @@ internal readonly record struct BasicCategoryStatus(bool Customized, bool Hidden
 }
 
 /// <summary>
-/// The Basic editor's navigation state: the selected category, Focus Preview, and preview zoom.
+/// The Basic editor's navigation state: the selected category and the live view's zoom.
 /// Lives as long as the editor window; a different Plate opening starts over on Design. Editing
 /// never changes it, so the user always stays where they are.
 /// </summary>
@@ -92,13 +92,9 @@ internal sealed class BasicEditorNavigation
 
     internal BasicEditorCategory Selected { get; private set; } = BasicEditorCategory.Design;
 
-    internal bool FocusPreview { get; private set; }
-
     internal PreviewZoom Zoom { get; set; } = PreviewZoom.Fit;
 
     internal void Select(BasicEditorCategory category) => Selected = category;
-
-    internal void ToggleFocusPreview() => FocusPreview = !FocusPreview;
 
     /// <summary>
     /// Call every frame with the open Plate. When it's a different Plate (e.g. one just created),
@@ -113,7 +109,6 @@ internal sealed class BasicEditorNavigation
 
         plateId = openPlateId;
         Selected = BasicEditorCategory.Design;
-        FocusPreview = false;
         Zoom = PreviewZoom.Fit;
     }
 }

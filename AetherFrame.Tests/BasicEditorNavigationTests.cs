@@ -29,7 +29,6 @@ public class BasicEditorNavigationTests
         navigation.TrackPlate(Guid.NewGuid());
 
         Assert.Equal(BasicEditorCategory.Design, navigation.Selected);
-        Assert.False(navigation.FocusPreview);
         Assert.Equal(PreviewZoom.Fit, navigation.Zoom);
     }
 
@@ -67,20 +66,19 @@ public class BasicEditorNavigationTests
     }
 
     [Fact]
-    public void FocusPreview_ReturnsToTheSameCategory_AndZoom()
+    public async Task Preview_ReturnsToTheSameCategory_AndZoom()
     {
+        using var harness = await NewClassicAsync();
         var navigation = new BasicEditorNavigation();
-        var plate = Guid.NewGuid();
-        navigation.TrackPlate(plate);
+        navigation.TrackPlate(harness.PlateId);
         navigation.Select(BasicEditorCategory.Identity);
         navigation.Zoom = PreviewZoom.Larger;
 
-        navigation.ToggleFocusPreview();
-        Assert.True(navigation.FocusPreview);
-        navigation.TrackPlate(plate);
-        navigation.ToggleFocusPreview();
+        EditorPreview.Enter(harness.Session);
+        navigation.TrackPlate(harness.Document.ProfileId);
+        EditorPreview.Exit(harness.Session);
+        navigation.TrackPlate(harness.Document.ProfileId);
 
-        Assert.False(navigation.FocusPreview);
         Assert.Equal(BasicEditorCategory.Identity, navigation.Selected);
         Assert.Equal(PreviewZoom.Larger, navigation.Zoom);
     }
@@ -92,14 +90,14 @@ public class BasicEditorNavigationTests
         var navigation = new BasicEditorNavigation();
         navigation.TrackPlate(harness.PlateId);
         navigation.Select(BasicEditorCategory.Message);
-        navigation.ToggleFocusPreview();
+        navigation.Zoom = PreviewZoom.Large;
 
         var created = await harness.Library.CreatePlateAsync(PlateStartingLayout.AdventurePlateClassic, null, starter: new PlateStarterContent(null));
         harness.Profiles.OpenPlate(created.PlateId);
         navigation.TrackPlate(harness.Profiles.OpenPlateId);
 
         Assert.Equal(BasicEditorCategory.Design, navigation.Selected);
-        Assert.False(navigation.FocusPreview);
+        Assert.Equal(PreviewZoom.Fit, navigation.Zoom);
     }
 
     // ---------------------------------------------------------------- responsive layout
@@ -334,7 +332,15 @@ public class BasicEditorNavigationTests
                 _ = BasicEditorView.SummaryOf(harness.Document, category);
             }
 
-            navigation.ToggleFocusPreview();
+            if (frame % 2 == 0)
+            {
+                EditorPreview.Enter(harness.Session);
+            }
+            else
+            {
+                EditorPreview.Exit(harness.Session);
+            }
+
             navigation.Zoom = (PreviewZoom)(frame % 3);
             _ = BasicEditorView.CategoryAt(harness.Document, new Vector2(600, 300), buffer);
         }
