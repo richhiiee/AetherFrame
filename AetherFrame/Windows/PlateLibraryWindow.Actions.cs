@@ -93,7 +93,8 @@ internal sealed partial class PlateLibraryWindow
     }
 
     /// <summary>
-    /// The selected-Plate action menu: Preview, Edit, Open in Basic / Advanced Editor, Set Active, Duplicate,
+    /// The selected-Plate action menu: Preview, Open in Basic / Advanced Editor (always the player's
+    /// explicit choice; a double-click picks automatically), Set Active, Duplicate,
     /// Save as Template, Export, Rename, Delete — one reusable menu shown on a card's right-click,
     /// replacing the old persistent action bar. Every item reuses the exact same service calls,
     /// <see cref="RunOperation{T}"/> plumbing, and existing Rename/Delete/Save-as-Template popups
@@ -112,13 +113,6 @@ internal sealed partial class PlateLibraryWindow
             {
                 showInViewer(plate.PlateId);
             }
-
-            if (ImGui.MenuItem("Edit"))
-            {
-                RequestEdit(plate.PlateId);
-            }
-
-            EditorWidgets.Tooltip("Opens the editor that suits this Plate: Basic for Adventure Plate layouts,\nAdvanced for freeform designs.");
 
             if (ImGui.MenuItem("Open in Basic Editor"))
             {
@@ -195,7 +189,7 @@ internal sealed partial class PlateLibraryWindow
     // ---------------------------------------------------------------- opening Plates
 
     /// <summary>
-    /// Edit (and a double-click): the editor already showing this Plate, if one is; otherwise the one
+    /// A double-click on a Plate: the editor already showing this Plate, if one is; otherwise the one
     /// its content suits (<see cref="EditorSurfaceChooser"/>) — Basic for an Adventure Plate layout,
     /// Advanced for Blank Canvas and freeform Plates. Judged from the open document when it's the
     /// open Plate (it may have unsaved changes), else from its saved version.
