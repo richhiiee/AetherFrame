@@ -224,19 +224,6 @@ internal sealed class BasicIdentitySession
         ctx.RequestLayout(force: false);
     });
 
-    /// <summary>Fills the name from the logged-in character (explicit; never done silently).</summary>
-    internal void UseCharacterName()
-    {
-        if (CharacterName is { } characterName)
-        {
-            Edit(ctx =>
-            {
-                ctx.EnsureElement(ProfileElementRole.BasicName).Text = characterName;
-                ctx.RequestLayout(force: false);
-            });
-        }
-    }
-
     // ---------------------------------------------------------------- title
 
     /// <summary>

@@ -62,12 +62,6 @@ internal sealed partial class BasicProfileEditorWindow
                 identity.CreateHeader();
             }
 
-            if (identity.CharacterName is { } characterName)
-            {
-                ImGui.SameLine();
-                Hint($"Uses \"{characterName}\"");
-            }
-
             DrawTitlePickerPopup(profile);
             return;
         }
@@ -114,9 +108,10 @@ internal sealed partial class BasicProfileEditorWindow
             identity.SetNameVisible(visible);
         }
 
+        // Typed by hand only: the logged-in character's name is never drawn here, not even as a hint.
         var buffer = name?.Text ?? string.Empty;
         ImGui.SetNextItemWidth(-1);
-        if (ImGui.InputTextWithHint("##NameText", identity.CharacterName ?? "No character loaded", ref buffer, 64))
+        if (ImGui.InputTextWithHint("##NameText", "Character Name", ref buffer, 64))
         {
             identity.SetNameText(buffer);
         }
@@ -124,14 +119,6 @@ internal sealed partial class BasicProfileEditorWindow
         if (ImGui.IsItemDeactivatedAfterEdit())
         {
             identity.Commit();
-        }
-
-        if (identity.CharacterName is { Length: > 0 } characterName && name?.Text != characterName)
-        {
-            if (ImGui.SmallButton($"Use \"{characterName}\""))
-            {
-                identity.UseCharacterName();
-            }
         }
     }
 

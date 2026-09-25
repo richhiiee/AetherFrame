@@ -122,10 +122,10 @@ internal sealed partial class BasicProfileEditorWindow
     // ---------------------------------------------------------------- details
 
     /// <summary>
-    /// Everything about the character besides name and title, as one area: the logged-in character
-    /// once at the top, then Home World, Favorite Jobs, and Free Company (each with its
-    /// Show toggle and its "use current" shortcut — nothing is filled in without a click), then
-    /// Playstyle and Active Hours; one Appearance and Advanced Styling group for all of them; one
+    /// Everything about the character besides name and title, as one area: one hint at the top
+    /// (never naming the logged-in character), then Home World, Favorite Jobs, and Free Company
+    /// (each with its Show toggle and its "use current" shortcut — nothing is filled in without a
+    /// click), then Playstyle and Active Hours; one Appearance and Advanced Styling group for all of them; one
     /// Layout block.
     /// </summary>
     private void DrawDetailsCategory(ProfileDocument profile)
@@ -133,7 +133,7 @@ internal sealed partial class BasicProfileEditorWindow
         var info = basicEditorSession.CharacterInfo.CurrentInfo;
         Hint(info is null
             ? "No character loaded. You can still type any value."
-            : $"Logged in as {info.Name}. Use the buttons to fill in current details; nothing changes on its own.");
+            : "Use the buttons to fill in current details; nothing changes on its own.");
 
         // Home World
         FieldHeader(profile, "Home World", BasicSection.World);

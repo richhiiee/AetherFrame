@@ -367,7 +367,6 @@ public class BasicEditorSessionTests
         harness.Basic.UseCurrentWorld();
         harness.Basic.UseCurrentJob();
         harness.Basic.UseCurrentFreeCompany();
-        harness.Identity.UseCharacterName();
 
         Assert.Equal(before, harness.Json());
         Assert.False(harness.Session.CanUndo);

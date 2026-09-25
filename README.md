@@ -4,7 +4,7 @@
 
 **Enhanced character Plates for Final Fantasy XIV.**
 
-**AetherFrame 0.1.2 Alpha** · [Versioning](docs/Versioning.md)
+**AetherFrame 0.1.3 Alpha** · [Versioning](docs/Versioning.md)
 
 AetherFrame is a [Dalamud](https://github.com/goatcorp/Dalamud) plugin for designing character Plates: profile cards that start from the familiar shape of the in-game Adventure Plate and can grow into fully freeform layouts.
 
@@ -61,7 +61,7 @@ Freeform control over text, images, Components, layering, placement, scaling, ro
 
 A structured editor modelled on FFXIV's Adventure Plates. You fill in sections, and AetherFrame handles the layout.
 
-- **Identity and details**: name, title, Home World, Free Company, and up to eight Favorite Jobs in your chosen order, shown as full names when they fit and as job abbreviations when they don't. Your current character's details can be filled in with a click; nothing changes on its own.
+- **Identity and details**: name, title, Home World, Free Company, and up to eight Favorite Jobs in your chosen order, shown as full names when they fit and as job abbreviations when they don't.
 - **Portrait**: import your own image, with Fill / Fit / Stretch framing and a mirrored layout option.
 - **Playstyle, active hours and a free-form message.**
 - **Themes, backgrounds and patterns**: built-in colour themes plus procedural background patterns.
@@ -103,7 +103,7 @@ Reusable decorative pieces you add to a Plate and restyle without redrawing anyt
 
 ## What’s coming
 
-Everything in this section is **planned or future direction**. None of it is available in AetherFrame 0.1.2, and none of it has a release date. For what works today, see [Features](#features).
+Everything in this section is **planned or future direction**. None of it is available in AetherFrame 0.1.3, and none of it has a release date. For what works today, see [Features](#features).
 
 - **More Plate creation tools.** More built-in visual sets and Templates, more typography controls, more backgrounds, images and decorative Components, and continued improvements to the Advanced Editor.
 - **A deeper My Plates experience.** Better organization, restoring Plates from Trash, richer previews, more Template workflows, and easier management of multiple Plates and their variants.
