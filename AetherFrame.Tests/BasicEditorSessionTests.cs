@@ -20,18 +20,12 @@ namespace AetherFrame.Tests;
 /// </summary>
 public class BasicEditorSessionTests
 {
-    private static Task<BasicHarness> NewClassicAsync(BasicCharacterInfo? character = null) =>
-        BasicHarness.CreatePlateAsync(PlateStartingLayout.AdventurePlateClassic, new PlateStarterContent(character ?? FakeCharacter.Hero));
-
-    private static ElementRect LayoutRect(ProfileDocument document, ProfileElementRole role) =>
-        AdventurePlateClassicLayout.GetRect(role, BasicPlateEditor.GetOrientation(document), document)!.Value;
-
     // ---------------------------------------------------------------- opening
 
     [Fact]
     public async Task OpeningBasic_RepeatedlyChangesNothing_AndIsNotDirty()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         harness.Character.CurrentInfo = FakeCharacter.Hero with { HomeWorld = "Odin", Level = 50 };
         var before = harness.Json();
         var count = harness.Document.Elements.Count;
@@ -148,7 +142,7 @@ public class BasicEditorSessionTests
     [Fact]
     public async Task Message_RespectsTheTextLimit()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
 
         harness.Basic.SetText(ProfileElementRole.BasicMessage, new string('x', TextProfileElement.MaxTextLength + 50));
         harness.Basic.CommitTextEdit();
@@ -161,7 +155,7 @@ public class BasicEditorSessionTests
     [Fact]
     public async Task Visibility_IsUndoable_AndDirty_AndKeepsContent()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
 
         harness.Basic.SetSectionVisible(BasicSection.World, false);
 
@@ -180,7 +174,7 @@ public class BasicEditorSessionTests
     [Fact]
     public async Task EveryLayoutAction_IsExactlyOneUndoStep()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         harness.DragInAdvanced(ProfileElementRole.BasicWorld, new Vector2(30, 30));
         harness.DragInAdvanced(ProfileElementRole.BasicName, new Vector2(0, 30));
         var clean = harness.Json();
@@ -208,7 +202,7 @@ public class BasicEditorSessionTests
     [Fact]
     public async Task SliderStyleEdits_CoalesceIntoOneStep()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         var world = BasicSections.FindText(harness.Document, ProfileElementRole.BasicWorld)!;
 
         for (var size = 21; size <= 30; size++)
@@ -229,7 +223,7 @@ public class BasicEditorSessionTests
     [Fact]
     public async Task SaveMakesItClean_AndTheSavedFileHasTheBasicSettings()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         harness.Basic.SetOrientation(AdventurePlateOrientation.Mirrored);
         harness.Basic.AddPlaystyle("Roleplay");
 
@@ -247,7 +241,7 @@ public class BasicEditorSessionTests
     [Fact]
     public async Task DraggingInAdvanced_MarksTheSectionCustomized_AndBasicEditsNeverMoveIt()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         harness.DragInAdvanced(ProfileElementRole.BasicFreeCompany, new Vector2(40, 25));
         var element = BasicSections.Find(harness.Document, ProfileElementRole.BasicFreeCompany)!;
         var draggedTo = BasicDocuments.RectOf(element);
@@ -267,14 +261,14 @@ public class BasicEditorSessionTests
         Assert.True(((TextProfileElement)element).Bold);
 
         harness.Basic.ApplySectionLayout(BasicSection.FreeCompany);
-        Assert.Equal(LayoutRect(harness.Document, ProfileElementRole.BasicFreeCompany), BasicDocuments.RectOf(element));
+        Assert.Equal(BasicDocuments.LayoutRect(harness.Document, ProfileElementRole.BasicFreeCompany), BasicDocuments.RectOf(element));
         Assert.Empty(BasicEditorSession.CustomizedSections(harness.Document));
     }
 
     [Fact]
     public async Task IdentityHeader_CustomizedInAdvanced_StaysPut_ThroughOrientationChanges()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         harness.DragInAdvanced(ProfileElementRole.BasicName, new Vector2(-200, 300));
         var name = BasicSections.Find(harness.Document, ProfileElementRole.BasicName)!;
         var at = BasicDocuments.RectOf(name);
@@ -294,7 +288,7 @@ public class BasicEditorSessionTests
     [Fact]
     public async Task ManagedIdentityHeader_FollowsTheOrientation()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
 
         harness.Basic.SetOrientation(AdventurePlateOrientation.Mirrored);
 
@@ -306,7 +300,7 @@ public class BasicEditorSessionTests
     [Fact]
     public async Task ResetBasicLayout_KeepsAdvancedElements_AndImportedAssets()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         harness.Basic.SetPortrait(harness.ImportablePng());
         var portraitAsset = harness.Basic.Portrait!.AssetId;
         var freeformId = harness.Session.AddTextElement("Advanced only")!.Value;
@@ -331,7 +325,7 @@ public class BasicEditorSessionTests
     [Fact]
     public async Task ReplacingThePortrait_KeepsItsPlacementAndFit()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         harness.Basic.SetPortrait(harness.ImportablePng("a.png"));
         harness.DragInAdvanced(ProfileElementRole.BasicPortrait, new Vector2(10, 10));
         harness.Session.ApplyImmediateEdit(harness.Basic.Portrait!.Id, e => ((ImageProfileElement)e).DisplayMode = ProfileImageFit.Fit);
@@ -350,7 +344,7 @@ public class BasicEditorSessionTests
     [Fact]
     public async Task RemovingThePortrait_IsUndoable()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         harness.Basic.SetPortrait(harness.ImportablePng());
         var id = harness.Basic.Portrait!.Id;
 
@@ -366,7 +360,7 @@ public class BasicEditorSessionTests
     [Fact]
     public async Task WithNoCharacter_UseCurrentActionsDoNothing()
     {
-        using var harness = await NewClassicAsync(FakeCharacter.Hero);
+        using var harness = await BasicHarness.NewClassicAsync(FakeCharacter.Hero);
         harness.Character.CurrentInfo = null;
         var before = harness.Json();
 
@@ -383,7 +377,7 @@ public class BasicEditorSessionTests
     [Fact]
     public async Task LiveCharacterData_OnlyChangesThePlateOnRequest()
     {
-        using var harness = await NewClassicAsync(FakeCharacter.Hero);
+        using var harness = await BasicHarness.NewClassicAsync(FakeCharacter.Hero);
         harness.Character.CurrentInfo = FakeCharacter.Hero with { HomeWorld = "Odin", DataCenter = "Light", JobName = "Dancer", JobId = 38, Level = 92, FreeCompanyTag = "XYZ" };
 
         harness.SimulateBasicFrame();
@@ -406,7 +400,7 @@ public class BasicEditorSessionTests
     [Fact]
     public async Task UserValues_OverrideCharacterDefaults()
     {
-        using var harness = await NewClassicAsync(FakeCharacter.Hero);
+        using var harness = await BasicHarness.NewClassicAsync(FakeCharacter.Hero);
         harness.Character.CurrentInfo = FakeCharacter.Hero;
 
         harness.Basic.SetText(ProfileElementRole.BasicWorld, "Anywhere I roam");
@@ -421,7 +415,7 @@ public class BasicEditorSessionTests
     [Fact]
     public async Task SwitchingEditors_KeepsTheSameDocument_Dirtiness_History_AndSelection()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         harness.Surfaces.Show(EditorSurfaceKind.Basic);
         var document = harness.Document;
 
@@ -457,7 +451,7 @@ public class BasicEditorSessionTests
     [Fact]
     public async Task CreatingAClassicPlate_WithStarterContent_StillFollowsTheActiveRules()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         var first = await harness.Library.CreatePlateAsync(PlateStartingLayout.AdventurePlateClassic, Characters.Alice, starter: new PlateStarterContent(FakeCharacter.Hero));
         var second = await harness.Library.CreatePlateAsync(PlateStartingLayout.AdventurePlateClassic, Characters.Alice, starter: new PlateStarterContent(FakeCharacter.Hero));
 

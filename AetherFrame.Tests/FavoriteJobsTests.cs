@@ -21,9 +21,6 @@ namespace AetherFrame.Tests;
 /// </summary>
 public class FavoriteJobsTests
 {
-    private static Task<BasicHarness> NewClassicAsync() =>
-        BasicHarness.CreatePlateAsync(PlateStartingLayout.AdventurePlateClassic, new PlateStarterContent(null));
-
     private static string JobText(ProfileDocument document) => BasicSections.FindText(document, ProfileElementRole.BasicJob)?.Text ?? string.Empty;
 
     private static string Heading(ProfileDocument document) => BasicSections.FindText(document, ProfileElementRole.BasicJobHeading)!.Text;
@@ -106,7 +103,7 @@ public class FavoriteJobsTests
     [Fact]
     public async Task OneJob_ShowsItsFullName_UnderFavoriteJob()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync(character: null);
 
         Add(harness, FakeJobs.Astrologian);
 
@@ -119,7 +116,7 @@ public class FavoriteJobsTests
     [Fact]
     public async Task SeveralJobs_KeepTheirOrder_UnderFavoriteJobs()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync(character: null);
 
         Add(harness, FakeJobs.Astrologian, FakeJobs.WhiteMage);
 
@@ -132,7 +129,7 @@ public class FavoriteJobsTests
     [Fact]
     public async Task TheHeading_FollowsTheCount_AsJobsAreAddedAndRemoved()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync(character: null);
 
         Add(harness, FakeJobs.Dancer);
         Assert.Equal("FAVORITE JOB", Heading(harness.Document));
@@ -150,7 +147,7 @@ public class FavoriteJobsTests
     [Fact]
     public async Task AHeadingGivenItsOwnCaption_IsLeftAlone()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync(character: null);
         var heading = BasicSections.FindText(harness.Document, ProfileElementRole.BasicJobHeading)!;
         harness.Session.ApplyImmediateEdit(heading.Id, e => ((TextProfileElement)e).Text = "MAINS");
 
@@ -177,7 +174,7 @@ public class FavoriteJobsTests
     [Fact]
     public async Task AddRemoveAndReorder_EditTheOrderedList()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync(character: null);
         Add(harness, FakeJobs.Paladin, FakeJobs.WhiteMage, FakeJobs.Dancer);
 
         harness.Basic.MoveFavoriteJob(2, -1);
@@ -203,7 +200,7 @@ public class FavoriteJobsTests
     [Fact]
     public async Task AJobAlreadyChosen_IsNeverAddedTwice()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync(character: null);
         Add(harness, FakeJobs.Paladin, FakeJobs.WhiteMage);
         var undoSteps = harness.Session.CanUndo;
 
@@ -229,7 +226,7 @@ public class FavoriteJobsTests
     [Fact]
     public async Task UseCurrentJob_AddsTheCurrentJob_OnlyWhenItIsntChosenYet_AndNeverALevel()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync(character: null);
         Add(harness, FakeJobs.WhiteMage);
         harness.Character.CurrentInfo = FakeCharacter.Hero with { JobId = 38, JobName = "Dancer", Level = 92 };
 
@@ -248,7 +245,7 @@ public class FavoriteJobsTests
     [Fact]
     public async Task UseCurrentJob_OnAJobGameDataDoesntList_KeepsTheCharactersJobName()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync(character: null);
         harness.Character.CurrentInfo = FakeCharacter.Hero with { JobId = 99, JobName = "Mystery Job" };
 
         harness.Basic.UseCurrentJob();
@@ -262,7 +259,7 @@ public class FavoriteJobsTests
     [Fact]
     public async Task TheStoredText_IsAlwaysTheFullNames_WhateverIsShown()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync(character: null);
 
         Add(harness, FakeJobs.RedMage, FakeJobs.Astrologian, FakeJobs.WhiteMage, FakeJobs.Dancer);
 
@@ -273,7 +270,7 @@ public class FavoriteJobsTests
     [Fact]
     public async Task FullNames_AreShownWhenTheyFit()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync(character: null);
 
         Add(harness, FakeJobs.Dancer, FakeJobs.Astrologian, FakeJobs.RedMage);
 
@@ -283,7 +280,7 @@ public class FavoriteJobsTests
     [Fact]
     public async Task WhenFullNamesDontFit_TheGamesAbbreviationsAreShown_InTheSameOrder()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync(character: null);
 
         Add(harness, FakeJobs.RedMage, FakeJobs.Astrologian, FakeJobs.WhiteMage, FakeJobs.Dancer);
 
@@ -298,7 +295,7 @@ public class FavoriteJobsTests
     [Fact]
     public async Task ALargerFont_SwitchesTheSameListToAbbreviations_AndASmallerOneBack()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync(character: null);
         Add(harness, FakeJobs.Astrologian, FakeJobs.WhiteMage);
         Assert.Equal("Astrologian, White Mage", Shown(harness.Document)); // 20 px: fits
 
@@ -313,7 +310,7 @@ public class FavoriteJobsTests
     [Fact]
     public async Task AnotherFontFamily_IsMeasuredAgain()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync(character: null);
         Add(harness, FakeJobs.Astrologian, FakeJobs.WhiteMage);
         EditJobStyle(harness, e => e.FontSize = 28f);
         Assert.Equal("Astrologian, White Mage", Shown(harness.Document)); // fits in Sans
@@ -328,7 +325,7 @@ public class FavoriteJobsTests
     [Fact]
     public async Task AChangeOfWidth_FromTheLayoutOrAnotherEditor_IsMeasuredAgainst()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync(character: null);
         Add(harness, FakeJobs.Astrologian, FakeJobs.WhiteMage);
 
         // Narrowed in the Advanced editor.
@@ -349,7 +346,7 @@ public class FavoriteJobsTests
     [Fact]
     public async Task ResetSection_IsMeasuredAgain()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync(character: null);
         Add(harness, FakeJobs.Astrologian, FakeJobs.WhiteMage);
         EditJobStyle(harness, e => e.FontSize = 40f);
         Assert.Equal("AST \u00B7 WHM", Shown(harness.Document));
@@ -380,7 +377,7 @@ public class FavoriteJobsTests
     [Fact]
     public async Task WhenEvenAbbreviationsDontFit_AutoFitShrinksThem_AndNoJobIsDropped()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync(character: null);
 
         Add(harness, FakeJobs.All);
 
@@ -395,7 +392,7 @@ public class FavoriteJobsTests
     [Fact]
     public async Task WithoutAFontToMeasure_TheStoredFullNamesShow()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync(character: null);
         Add(harness, FakeJobs.RedMage, FakeJobs.Astrologian, FakeJobs.WhiteMage, FakeJobs.Dancer);
 
         Assert.Equal("Red Mage, Astrologian, White Mage, Dancer", Shown(harness.Document, _ => null));
@@ -404,7 +401,7 @@ public class FavoriteJobsTests
     [Fact]
     public async Task TextWrittenInAdvanced_IsShownAsWritten()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync(character: null);
         Add(harness, FakeJobs.RedMage, FakeJobs.Astrologian, FakeJobs.WhiteMage, FakeJobs.Dancer);
 
         EditJobStyle(harness, e => e.Text = "All the healers");
@@ -415,7 +412,7 @@ public class FavoriteJobsTests
     [Fact]
     public async Task TheSymbols_AreKeptAroundTheAbbreviations()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync(character: null);
         Add(harness, FakeJobs.RedMage, FakeJobs.Astrologian, FakeJobs.WhiteMage, FakeJobs.Dancer);
 
         EditJobStyle(harness, e => { e.Prefix = "[ "; e.Suffix = " ]"; });
@@ -426,7 +423,7 @@ public class FavoriteJobsTests
     [Fact]
     public async Task DisplayFitting_NeverChangesThePlate_OrTheJobsAndTheirOrder()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync(character: null);
         Add(harness, FakeJobs.RedMage, FakeJobs.Astrologian, FakeJobs.WhiteMage, FakeJobs.Dancer);
         var before = harness.Json();
 
@@ -614,7 +611,7 @@ public class FavoriteJobsTests
     [Fact]
     public async Task EveryChange_IsOneUndoStep_AndRedoable()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync(character: null);
         var start = harness.Json();
 
         Add(harness, FakeJobs.Paladin, FakeJobs.WhiteMage);
@@ -648,7 +645,7 @@ public class FavoriteJobsTests
     [Fact]
     public async Task FavoriteJobs_AreSaved_AndReverted()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync(character: null);
         var commands = new EditorDocumentCommands(harness.Profiles, harness.Session);
         Add(harness, FakeJobs.Astrologian, FakeJobs.WhiteMage);
 
@@ -670,7 +667,7 @@ public class FavoriteJobsTests
     [Fact]
     public async Task FavoriteJobs_CarryAcrossBothEditors()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync(character: null);
         harness.SimulateBasicFrame();
         Add(harness, FakeJobs.Astrologian, FakeJobs.WhiteMage);
 

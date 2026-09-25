@@ -418,6 +418,42 @@ internal static class JsonAssert
     }
 }
 
+/// <summary>Locations in the repository checkout the tests run from.</summary>
+internal static class RepositoryPaths
+{
+    /// <summary>The checkout's root: the nearest directory above the test binaries holding <c>Version.props</c>.</summary>
+    internal static DirectoryInfo Root()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "Version.props")))
+        {
+            directory = directory.Parent;
+        }
+
+        Xunit.Assert.NotNull(directory);
+        return directory!;
+    }
+
+    /// <summary>
+    /// The built plugin assembly: <c>AETHERFRAME_PLUGIN_ASSEMBLY</c> when set (it must exist), else this
+    /// checkout's build of the same configuration, or null when that hasn't been built.
+    /// </summary>
+    internal static string? PluginAssembly()
+    {
+        var configured = Environment.GetEnvironmentVariable("AETHERFRAME_PLUGIN_ASSEMBLY");
+        if (!string.IsNullOrEmpty(configured))
+        {
+            Xunit.Assert.True(File.Exists(configured), $"AETHERFRAME_PLUGIN_ASSEMBLY points at a missing file: {configured}");
+            return configured;
+        }
+
+        // bin/<Configuration>/<tfm>/ here; the plugin builds to AetherFrame/bin/x64/<Configuration>/.
+        var configuration = new DirectoryInfo(AppContext.BaseDirectory).Parent!.Name;
+        var local = Path.Combine(Root().FullName, "AetherFrame", "bin", "x64", configuration, "AetherFrame.dll");
+        return File.Exists(local) ? local : null;
+    }
+}
+
 /// <summary>Minimal image files: valid headers (all AetherFrame ever inspects), no real pixel data.</summary>
 internal static class TestImages
 {

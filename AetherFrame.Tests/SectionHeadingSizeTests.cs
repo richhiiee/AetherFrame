@@ -24,9 +24,6 @@ public class SectionHeadingSizeTests
         ProfileElementRole.BasicPlaystyleHeading, ProfileElementRole.BasicActiveHoursHeading, ProfileElementRole.BasicMessageHeading,
     ];
 
-    private static Task<BasicHarness> NewClassicAsync() =>
-        BasicHarness.CreatePlateAsync(PlateStartingLayout.AdventurePlateClassic, new PlateStarterContent(FakeCharacter.Hero));
-
     private static float[] HeadingSizes(ProfileDocument document) =>
         HeadingRoles.Select(role => BasicSections.FindText(document, role)!.FontSize).ToArray();
 
@@ -95,7 +92,7 @@ public class SectionHeadingSizeTests
     [Fact]
     public async Task SectionHeadingSize_UpdatesEveryStandardHeading()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
 
         harness.Basic.SetHeadingSize(22f, continuous: false);
 
@@ -107,7 +104,7 @@ public class SectionHeadingSizeTests
     [Fact]
     public async Task SectionHeadingSize_NeverTouchesValuesOrAnythingElse()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         var before = NonHeadings(harness.Document);
         var captions = HeadingRoles.Select(role => BasicSections.FindText(harness.Document, role)!.Text).ToArray();
 
@@ -121,7 +118,7 @@ public class SectionHeadingSizeTests
     [Fact]
     public async Task SectionHeadingSize_StaysWithinWhatTheLayoutShowsAtFullSize()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
 
         Assert.Equal(32f, AdventurePlateClassicLayout.MaxHeadingFontSize(harness.Document));
 
@@ -168,7 +165,7 @@ public class SectionHeadingSizeTests
     [InlineData(32f)]
     public async Task ASizeAboveSixteen_RendersAtThatSize_WithoutTouchingTheValueRow(float size)
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         var values = ValueRects(harness.Document);
 
         harness.Basic.SetHeadingSize(size, continuous: false);
@@ -292,7 +289,7 @@ public class SectionHeadingSizeTests
     [Fact]
     public async Task AHeadingCustomizedInAdvanced_KeepsItsOwnBox()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         harness.DragInAdvanced(ProfileElementRole.BasicWorldHeading, new System.Numerics.Vector2(0f, 10f));
         var moved = BasicDocuments.RectOf(BasicSections.Find(harness.Document, ProfileElementRole.BasicWorldHeading)!);
 
@@ -310,7 +307,7 @@ public class SectionHeadingSizeTests
     [Fact]
     public async Task UndoingALargerSize_RestoresTheSizeAndTheBoxes()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         var before = harness.Json();
 
         harness.Basic.SetHeadingSize(28f, continuous: false);
@@ -367,7 +364,7 @@ public class SectionHeadingSizeTests
     [Fact]
     public async Task ASliderDrag_IsOneUndoStep_AndRedoable()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
 
         harness.Basic.SetHeadingSize(17f, continuous: true);
         harness.Basic.SetHeadingSize(19f, continuous: true);
@@ -388,7 +385,7 @@ public class SectionHeadingSizeTests
     [Fact]
     public async Task HeadingSize_IsSaved()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         harness.Basic.SetHeadingSize(19f, continuous: false);
 
         Assert.True(await harness.Session.SaveProfileAsync());
@@ -401,7 +398,7 @@ public class SectionHeadingSizeTests
     [Fact]
     public async Task HeadingSize_IsReverted()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         var commands = new EditorDocumentCommands(harness.Profiles, harness.Session);
         harness.Basic.SetHeadingSize(19f, continuous: false);
 
@@ -414,7 +411,7 @@ public class SectionHeadingSizeTests
     [Fact]
     public async Task HeadingSize_CarriesAcrossBothEditors()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         harness.SimulateBasicFrame();
         harness.Basic.SetHeadingSize(20f, continuous: false);
 

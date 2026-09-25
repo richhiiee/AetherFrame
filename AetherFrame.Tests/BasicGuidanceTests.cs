@@ -14,18 +14,9 @@ namespace AetherFrame.Tests;
 /// </summary>
 public class BasicGuidanceTests
 {
-    private sealed class FakeStore : IBasicGuidanceStore
+    private static (BasicGuidance Guidance, FakeGuidanceStore Store) NewInstall()
     {
-        public bool BasicGuidanceHandled { get; set; }
-
-        public int Saves { get; private set; }
-
-        public void Save() => Saves++;
-    }
-
-    private static (BasicGuidance Guidance, FakeStore Store) NewInstall()
-    {
-        var store = new FakeStore();
+        var store = new FakeGuidanceStore();
         var guidance = new BasicGuidance(store);
         guidance.Resolve(GuidanceConfigOrigin.Missing);
         return (guidance, store);
@@ -96,7 +87,7 @@ public class BasicGuidanceTests
         // The real in-game failure (2026-09-25 06:30:46): the first load of this version found no
         // configuration (no earlier build saved one) and two saved Plates, and the old rule wrote
         // "handled" before the player did anything. Saved Plates no longer decide it.
-        var store = new FakeStore();
+        var store = new FakeGuidanceStore();
         var guidance = new BasicGuidance(store);
 
         guidance.Resolve(GuidanceConfigOrigin.Missing);
@@ -109,7 +100,7 @@ public class BasicGuidanceTests
     [Fact]
     public void AConfigurationFromBeforeTheFlag_CountsAsHandled()
     {
-        var store = new FakeStore();
+        var store = new FakeGuidanceStore();
         var guidance = new BasicGuidance(store);
 
         guidance.Resolve(GuidanceConfigOrigin.Legacy);
@@ -122,7 +113,7 @@ public class BasicGuidanceTests
     [Fact]
     public void NothingIsSuggested_UntilTheConfigurationIsResolved()
     {
-        var store = new FakeStore();
+        var store = new FakeGuidanceStore();
         var guidance = new BasicGuidance(store);
 
         Assert.False(guidance.ShouldSuggestBasic);
@@ -132,7 +123,7 @@ public class BasicGuidanceTests
     [Fact]
     public void HandlingBeforeTheDecision_IsNeverUndoneByIt()
     {
-        var store = new FakeStore();
+        var store = new FakeGuidanceStore();
         var guidance = new BasicGuidance(store);
         guidance.MarkHandled(); // Basic opened before the Library finished loading
 
@@ -218,10 +209,10 @@ public class BasicGuidanceTests
     [Fact]
     public void AnEstablishedPlayer_OrAnUndecidedInstall_IsNeverAsked()
     {
-        var undecided = new BasicGuidance(new FakeStore());
+        var undecided = new BasicGuidance(new FakeGuidanceStore());
         Assert.Equal(BasicGuidancePrompt.None, undecided.PromptBeforeAdvanced(false, BasicDocuments.Blank()));
 
-        var established = new BasicGuidance(new FakeStore());
+        var established = new BasicGuidance(new FakeGuidanceStore());
         established.Resolve(GuidanceConfigOrigin.Legacy);
         Assert.Equal(BasicGuidancePrompt.None, established.PromptBeforeAdvanced(false, BasicDocuments.Classic(FakeCharacter.Hero)));
     }

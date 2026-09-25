@@ -14,33 +14,14 @@ namespace AetherFrame.Tests;
 /// </summary>
 public class AdvancedEntryGateTests
 {
-    /// <summary>The configuration the plugin loaded, as the guidance store sees it.</summary>
-    private sealed class ConfigStore : IBasicGuidanceStore
-    {
-        public int Version { get; set; } = 2;
-
-        public bool BasicGuidanceHandled { get; set; }
-
-        public int Saves { get; private set; }
-
-        public void Save()
-        {
-            Version = 2;
-            Saves++;
-        }
-    }
-
     /// <summary>What Plugin does at load: classify the configuration, then resolve the guidance.</summary>
-    private static (AdvancedEntryGate Gate, BasicGuidance Guidance, ConfigStore Store) Load(bool configurationFound, int version, bool handled)
+    private static (AdvancedEntryGate Gate, BasicGuidance Guidance, FakeGuidanceStore Store) Load(bool configurationFound, int version, bool handled)
     {
-        var store = new ConfigStore { Version = version, BasicGuidanceHandled = handled };
+        var store = new FakeGuidanceStore { Version = version, BasicGuidanceHandled = handled };
         var guidance = new BasicGuidance(store);
         guidance.Resolve(BasicGuidance.OriginOf(configurationFound, store.Version, currentVersion: 2));
         return (new AdvancedEntryGate(guidance), guidance, store);
     }
-
-    private static Task<BasicHarness> ClassicAsync() =>
-        BasicHarness.CreatePlateAsync(PlateStartingLayout.AdventurePlateClassic, new PlateStarterContent(FakeCharacter.Hero));
 
     private static ProfileDocument Freeform()
     {
@@ -55,7 +36,7 @@ public class AdvancedEntryGateTests
     [Fact]
     public async Task Version2False_WithExistingPlates_AClassicPlateRequestingAdvanced_IsAskedBeforeAdvancedOpens()
     {
-        using var harness = await ClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         await harness.Library.CreatePlateAsync(PlateStartingLayout.Blank, null); // more existing Plates
         Assert.True(harness.Library.GetOrderedPlates().Count >= 2);
         var (gate, _, store) = Load(configurationFound: true, version: 2, handled: false);
@@ -73,7 +54,7 @@ public class AdvancedEntryGateTests
     [Fact]
     public async Task Version2True_NeverAsks()
     {
-        using var harness = await ClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         var (gate, _, _) = Load(configurationFound: true, version: 2, handled: true);
 
         Assert.True(gate.TryEnterAdvanced(false, harness.Document));
@@ -84,7 +65,7 @@ public class AdvancedEntryGateTests
     [Fact]
     public async Task AFreshInstall_Asks_EvenWithPlatesAlreadySaved()
     {
-        using var harness = await ClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         var (gate, _, store) = Load(configurationFound: false, version: 2, handled: false);
 
         Assert.False(gate.TryEnterAdvanced(false, harness.Document));
@@ -95,7 +76,7 @@ public class AdvancedEntryGateTests
     [Fact]
     public async Task ALegacyConfiguration_IsHandledByMigration_AndNeverAsks()
     {
-        using var harness = await ClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         var (gate, _, store) = Load(configurationFound: true, version: 1, handled: false);
 
         Assert.True(gate.TryEnterAdvanced(false, harness.Document));
@@ -106,7 +87,7 @@ public class AdvancedEntryGateTests
     [Fact]
     public async Task OpeningBasicFirst_MeansAdvancedIsNeverHeld()
     {
-        using var harness = await ClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         var (gate, guidance, store) = Load(true, 2, false);
 
         guidance.MarkHandled(); // Plugin.OpenBasicEditor
@@ -118,7 +99,7 @@ public class AdvancedEntryGateTests
     [Fact]
     public async Task WithAdvancedAlreadyShowing_NothingIsHeld()
     {
-        using var harness = await ClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         var (gate, _, _) = Load(true, 2, false);
 
         Assert.True(gate.TryEnterAdvanced(advancedAlreadyOpen: true, harness.Document));
@@ -129,7 +110,7 @@ public class AdvancedEntryGateTests
     [Fact]
     public async Task AClassicPlate_IsOfferedTryBasic()
     {
-        using var harness = await ClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         var (gate, _, _) = Load(true, 2, false);
 
         gate.TryEnterAdvanced(false, harness.Document);
@@ -166,7 +147,7 @@ public class AdvancedEntryGateTests
     [Fact]
     public async Task ContinueToAdvanced_OpensAdvanced_AndPersists()
     {
-        using var harness = await ClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         var (gate, _, store) = Load(true, 2, false);
         gate.TryEnterAdvanced(false, harness.Document);
         gate.MarkShown();
@@ -180,7 +161,7 @@ public class AdvancedEntryGateTests
     [Fact]
     public async Task ClosingThePrompt_OpensAdvanced_AndPersists()
     {
-        using var harness = await ClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         var (gate, _, store) = Load(true, 2, false);
         gate.TryEnterAdvanced(false, harness.Document);
         gate.MarkShown();
@@ -193,7 +174,7 @@ public class AdvancedEntryGateTests
     [Fact]
     public async Task TryBasicEditor_OpensBasic_AndPersists()
     {
-        using var harness = await ClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         var (gate, _, store) = Load(true, 2, false);
         gate.TryEnterAdvanced(false, harness.Document);
         gate.MarkShown();
@@ -219,7 +200,7 @@ public class AdvancedEntryGateTests
     public async Task AfterAnyAnswer_ThePromptNeverRepeats_EvenAfterReloading(int answerCode)
     {
         var answer = (BasicGuidanceAnswer)answerCode;
-        using var harness = await ClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         var (gate, _, store) = Load(true, 2, false);
         gate.TryEnterAdvanced(false, harness.Document);
         gate.MarkShown();
@@ -238,7 +219,7 @@ public class AdvancedEntryGateTests
     [Fact]
     public async Task AFrameBeforeThePromptIsShown_CanNeverCountAsClosed()
     {
-        using var harness = await ClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         var (gate, _, store) = Load(true, 2, false);
         gate.TryEnterAdvanced(false, harness.Document);
 
@@ -251,7 +232,7 @@ public class AdvancedEntryGateTests
     [Fact]
     public async Task ARequestWhileAlreadyAsking_IsStillHeld()
     {
-        using var harness = await ClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         var (gate, _, _) = Load(true, 2, false);
         gate.TryEnterAdvanced(false, harness.Document);
 
@@ -262,7 +243,7 @@ public class AdvancedEntryGateTests
     [Fact]
     public async Task AbandoningTheRequest_OpensNothing_AndAsksAgainNextTime()
     {
-        using var harness = await ClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         var (gate, _, store) = Load(true, 2, false);
         gate.TryEnterAdvanced(false, harness.Document);
         gate.ConsumePromptRequest();

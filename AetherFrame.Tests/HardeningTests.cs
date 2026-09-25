@@ -647,25 +647,6 @@ public class FailureInjectionTests
 
 public class EditorSurfaceCoordinatorTests
 {
-    private sealed class FakeSurface : IEditorSurface
-    {
-        internal List<string> Calls { get; } = new();
-
-        public bool IsOpen { get; set; }
-
-        public void Show()
-        {
-            Calls.Add("show");
-            IsOpen = true;
-        }
-
-        public void CloseForHandoff()
-        {
-            Calls.Add("handoff");
-            IsOpen = false;
-        }
-    }
-
     private static (EditorSurfaceCoordinator Coordinator, FakeSurface Basic, FakeSurface Advanced, List<string> Log) Create()
     {
         var log = new List<string>();

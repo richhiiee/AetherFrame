@@ -12,9 +12,6 @@ public class BasicPlateEditorTests
 {
     private static readonly Vector2 Moved = new(13, 17);
 
-    private static ElementRect LayoutRect(ProfileDocument document, ProfileElementRole role) =>
-        AdventurePlateClassicLayout.GetRect(role, BasicPlateEditor.GetOrientation(document), document)!.Value;
-
     private static void MoveElsewhere(ProfileDocument document, ProfileElementRole role) =>
         BasicSections.Find(document, role)!.Position += Moved;
 
@@ -63,7 +60,7 @@ public class BasicPlateEditorTests
         BasicDocuments.Editor(document).EnsureSection(BasicSection.Job);
 
         var job = BasicSections.Find(document, ProfileElementRole.BasicJob)!;
-        Assert.Equal(LayoutRect(document, ProfileElementRole.BasicJob), BasicDocuments.RectOf(job));
+        Assert.Equal(BasicDocuments.LayoutRect(document, ProfileElementRole.BasicJob), BasicDocuments.RectOf(job));
         Assert.True(BasicPlateEditor.IsManaged(document, job));
         Assert.False(BasicPlateEditor.IsSectionCustomized(document, BasicSection.Job));
     }
@@ -148,7 +145,7 @@ public class BasicPlateEditorTests
 
         BasicDocuments.Editor(document).ApplyLayout(BasicSection.World);
 
-        Assert.Equal(LayoutRect(document, ProfileElementRole.BasicWorld), BasicDocuments.RectOf(BasicSections.Find(document, ProfileElementRole.BasicWorld)!));
+        Assert.Equal(BasicDocuments.LayoutRect(document, ProfileElementRole.BasicWorld), BasicDocuments.RectOf(BasicSections.Find(document, ProfileElementRole.BasicWorld)!));
         Assert.Equal([BasicSection.Job], BasicPlateEditor.CustomizedSections(document));
         Assert.Equal(new Vector2(500, 500), freeform.Position);
     }
@@ -196,7 +193,7 @@ public class BasicPlateEditorTests
 
         editor.ResetSection(BasicSection.World);
 
-        Assert.Equal(LayoutRect(document, ProfileElementRole.BasicWorld), BasicDocuments.RectOf(world));
+        Assert.Equal(BasicDocuments.LayoutRect(document, ProfileElementRole.BasicWorld), BasicDocuments.RectOf(world));
         Assert.Equal(20f, world.FontSize);
         Assert.Equal("Phoenix [Light]", world.Text);
         Assert.False(world.Visible);

@@ -129,13 +129,43 @@ internal sealed class FakeTitles : IGameTitleSource
     public bool FeminineForms => false;
 }
 
+/// <summary>An editor window: open or not, recording each call the coordinator makes ("show", "handoff").</summary>
 internal sealed class FakeSurface : IEditorSurface
 {
+    internal List<string> Calls { get; } = new();
+
     public bool IsOpen { get; set; }
 
-    public void Show() => IsOpen = true;
+    public void Show()
+    {
+        Calls.Add("show");
+        IsOpen = true;
+    }
 
-    public void CloseForHandoff() => IsOpen = false;
+    public void CloseForHandoff()
+    {
+        Calls.Add("handoff");
+        IsOpen = false;
+    }
+}
+
+/// <summary>
+/// The plugin configuration as the Basic guidance sees it. Saving stamps the current configuration
+/// <see cref="Version"/> (2), as the plugin's own store does.
+/// </summary>
+internal sealed class FakeGuidanceStore : IBasicGuidanceStore
+{
+    public int Version { get; set; } = 2;
+
+    public bool BasicGuidanceHandled { get; set; }
+
+    public int Saves { get; private set; }
+
+    public void Save()
+    {
+        Version = 2;
+        Saves++;
+    }
 }
 
 /// <summary>
@@ -201,6 +231,13 @@ internal sealed class BasicHarness : IDisposable
         harness.Open(result.PlateId);
         return harness;
     }
+
+    /// <summary>A new Adventure Plate Classic created with <see cref="FakeCharacter.Hero"/> logged in, opened.</summary>
+    internal static Task<BasicHarness> NewClassicAsync() => NewClassicAsync(FakeCharacter.Hero);
+
+    /// <summary>A new Adventure Plate Classic created with <paramref name="character"/> logged in (null: none), opened.</summary>
+    internal static Task<BasicHarness> NewClassicAsync(BasicCharacterInfo? character) =>
+        CreatePlateAsync(PlateStartingLayout.AdventurePlateClassic, new PlateStarterContent(character));
 
     /// <summary>An existing Plate file (as some earlier or newer build saved it), opened.</summary>
     internal static async Task<BasicHarness> OpenJsonAsync(string json, Guid plateId)
@@ -348,6 +385,10 @@ internal static class BasicDocuments
             element => document.Elements.Remove(element));
 
     internal static ElementRect RectOf(ProfileElement element) => new(element.Position, element.Size);
+
+    /// <summary>Where the Classic layout places <paramref name="role"/>: in the document's own orientation unless one is given.</summary>
+    internal static ElementRect LayoutRect(ProfileDocument document, ProfileElementRole role, AdventurePlateOrientation? orientation = null) =>
+        AdventurePlateClassicLayout.GetRect(role, orientation ?? BasicPlateEditor.GetOrientation(document), document)!.Value;
 
     /// <summary>Every role-tagged element's placement, for "nothing moved" checks.</summary>
     internal static Dictionary<Guid, ElementRect> Placements(ProfileDocument document) =>

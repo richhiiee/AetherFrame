@@ -36,7 +36,7 @@ public class AetherFrameVersionTests
     {
         foreach (var project in new[] { "AetherFrame/AetherFrame.csproj", "AetherFrame.Tests/AetherFrame.Tests.csproj" })
         {
-            var document = XDocument.Load(Path.Combine(RepositoryRoot().FullName, project));
+            var document = XDocument.Load(Path.Combine(RepositoryPaths.Root().FullName, project));
             Assert.Contains(document.Descendants("Import"), i => (string?)i.Attribute("Project") == @"..\Version.props");
         }
 
@@ -59,14 +59,14 @@ public class AetherFrameVersionTests
     public void NoActiveConfiguration_StillCarriesThePreVersioningPlaceholder()
     {
         var active = MsBuildFiles()
-            .Concat(Directory.GetFiles(Path.Combine(RepositoryRoot().FullName, ".github"), "*.yml", SearchOption.AllDirectories));
+            .Concat(Directory.GetFiles(Path.Combine(RepositoryPaths.Root().FullName, ".github"), "*.yml", SearchOption.AllDirectories));
 
         Assert.All(active, file => Assert.DoesNotContain("0.0.0.1", File.ReadAllText(file)));
     }
 
     [Fact]
     public void Readme_StatesTheCurrentProductVersion() =>
-        Assert.Contains($"AetherFrame {ProductVersion()}", File.ReadAllText(Path.Combine(RepositoryRoot().FullName, "README.md")));
+        Assert.Contains($"AetherFrame {ProductVersion()}", File.ReadAllText(Path.Combine(RepositoryPaths.Root().FullName, "README.md")));
 
     [Fact]
     public void AssemblyMetadata_BuiltFromVersionProps_CarriesTheProductVersion()
@@ -89,7 +89,7 @@ public class AetherFrameVersionTests
         // The plugin isn't referenced (it would pull in Dalamud); its metadata is read from the
         // file. CI names the build in AETHERFRAME_PLUGIN_ASSEMBLY; locally the plugin's own build
         // output is checked when there is one.
-        var path = PluginAssemblyPath();
+        var path = RepositoryPaths.PluginAssembly();
         if (path is null)
         {
             return;
@@ -146,7 +146,7 @@ public class AetherFrameVersionTests
 
     private static string ProductVersion()
     {
-        var props = XDocument.Load(Path.Combine(RepositoryRoot().FullName, "Version.props"));
+        var props = XDocument.Load(Path.Combine(RepositoryPaths.Root().FullName, "Version.props"));
         var version = props.Descendants("Version").Single().Value.Trim();
         Assert.False(string.IsNullOrEmpty(version));
         return version;
@@ -155,38 +155,11 @@ public class AetherFrameVersionTests
     /// <summary>Every project, props and targets file in the repository outside build output.</summary>
     private static IEnumerable<string> MsBuildFiles()
     {
-        var root = RepositoryRoot().FullName;
+        var root = RepositoryPaths.Root().FullName;
         return new[] { "*.csproj", "*.props", "*.targets" }
             .SelectMany(pattern => Directory.GetFiles(root, pattern, SearchOption.AllDirectories))
             .Where(file => !Path.GetRelativePath(root, file)
                 .Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
                 .Any(part => part is "bin" or "obj" or ".claude" or ".git" or ".vs"));
-    }
-
-    private static string? PluginAssemblyPath()
-    {
-        var configured = Environment.GetEnvironmentVariable("AETHERFRAME_PLUGIN_ASSEMBLY");
-        if (!string.IsNullOrEmpty(configured))
-        {
-            Assert.True(File.Exists(configured), $"AETHERFRAME_PLUGIN_ASSEMBLY points at a missing file: {configured}");
-            return configured;
-        }
-
-        // bin/<Configuration>/<tfm>/ here; the plugin builds to AetherFrame/bin/x64/<Configuration>/.
-        var configuration = new DirectoryInfo(AppContext.BaseDirectory).Parent!.Name;
-        var local = Path.Combine(RepositoryRoot().FullName, "AetherFrame", "bin", "x64", configuration, "AetherFrame.dll");
-        return File.Exists(local) ? local : null;
-    }
-
-    private static DirectoryInfo RepositoryRoot()
-    {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "Version.props")))
-        {
-            directory = directory.Parent;
-        }
-
-        Assert.NotNull(directory);
-        return directory!;
     }
 }

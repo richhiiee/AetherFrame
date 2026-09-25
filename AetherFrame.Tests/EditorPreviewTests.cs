@@ -1,7 +1,6 @@
 using System.Numerics;
 using System.Threading.Tasks;
 using AetherFrame.Domain.Basic;
-using AetherFrame.Domain.Plates;
 using AetherFrame.Domain.Profiles;
 using AetherFrame.UI.Editor;
 using Xunit;
@@ -16,13 +15,10 @@ namespace AetherFrame.Tests;
 /// </summary>
 public class EditorPreviewTests
 {
-    private static Task<BasicHarness> NewClassicAsync() =>
-        BasicHarness.CreatePlateAsync(PlateStartingLayout.AdventurePlateClassic, new PlateStarterContent(FakeCharacter.Hero));
-
     [Fact]
     public async Task PreviewFromBasic_AndFromAdvanced_IsTheSamePreview()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
 
         // From the Basic editor.
         harness.SimulateBasicFrame();
@@ -42,7 +38,7 @@ public class EditorPreviewTests
     [Fact]
     public async Task Preview_NeverChangesThePlate()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         harness.SimulateBasicFrame();
         var before = harness.Json();
 
@@ -58,7 +54,7 @@ public class EditorPreviewTests
     [Fact]
     public async Task EnteringPreviewFromBasic_ShowsATypingRunInProgress_AsOneUndoStep()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         harness.SimulateBasicFrame();
         harness.Basic.SetText(ProfileElementRole.BasicMessage, "Hel");
         harness.Basic.SetText(ProfileElementRole.BasicMessage, "Hello");
@@ -74,7 +70,7 @@ public class EditorPreviewTests
     [Fact]
     public async Task EnteringPreviewFromAdvanced_FinishesACanvasDragFirst()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         harness.Surfaces.Show(EditorSurfaceKind.Advanced);
         var element = BasicSections.Find(harness.Document, ProfileElementRole.BasicWorld)!;
         var start = element.Position + (element.Size / 2f);
@@ -92,7 +88,7 @@ public class EditorPreviewTests
     public async Task UnsavedChanges_CanStillBeSavedFromPreview()
     {
         // Ctrl+S works in Preview, in both editors, through the action bar's own Save.
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         var commands = new EditorDocumentCommands(harness.Profiles, harness.Session);
         harness.Basic.SetOrientation(AdventurePlateOrientation.Mirrored);
 

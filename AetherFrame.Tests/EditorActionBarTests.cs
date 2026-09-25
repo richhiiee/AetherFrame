@@ -1,6 +1,5 @@
 using System.Threading.Tasks;
 using AetherFrame.Domain.Basic;
-using AetherFrame.Domain.Plates;
 using AetherFrame.Domain.Profiles;
 using AetherFrame.UI.Editor;
 using Xunit;
@@ -14,9 +13,6 @@ namespace AetherFrame.Tests;
 /// </summary>
 public class EditorActionBarTests
 {
-    private static Task<BasicHarness> NewClassicAsync() =>
-        BasicHarness.CreatePlateAsync(PlateStartingLayout.AdventurePlateClassic, new PlateStarterContent(FakeCharacter.Hero));
-
     private static EditorDocumentCommands Commands(BasicHarness harness) => new(harness.Profiles, harness.Session);
 
     // ---------------------------------------------------------------- availability
@@ -24,7 +20,7 @@ public class EditorActionBarTests
     [Fact]
     public async Task ACleanPlate_OffersNothingToSaveRevertUndoOrRedo()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         var commands = Commands(harness);
 
         Assert.True(commands.HasPlate);
@@ -38,7 +34,7 @@ public class EditorActionBarTests
     [Fact]
     public async Task AnEdit_EnablesSaveRevertAndUndo_ButNotRedo()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         var commands = Commands(harness);
 
         harness.Basic.SetOrientation(AdventurePlateOrientation.Mirrored);
@@ -53,7 +49,7 @@ public class EditorActionBarTests
     [Fact]
     public async Task UndoingBackToTheSavedState_DisablesSaveAndRevert_AndEnablesRedo()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         var commands = Commands(harness);
         harness.Basic.SetOrientation(AdventurePlateOrientation.Mirrored);
 
@@ -75,7 +71,7 @@ public class EditorActionBarTests
     [Fact]
     public async Task UndoAndRedo_DoNothingWhenUnavailable()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         var commands = Commands(harness);
         var before = harness.Json();
 
@@ -89,7 +85,7 @@ public class EditorActionBarTests
     [Fact]
     public async Task NoPlate_OffersNoActions()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         harness.Profiles.CloseDocument();
         harness.Session.SyncWithCurrentProfile();
         var commands = Commands(harness);
@@ -107,7 +103,7 @@ public class EditorActionBarTests
     [Fact]
     public async Task Save_IsRefusedForACleanPlate()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         var commands = Commands(harness);
 
         Assert.False(commands.Save());
@@ -118,7 +114,7 @@ public class EditorActionBarTests
     [Fact]
     public async Task Save_WritesTheChanges_AndClearsDirtyState()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         var commands = Commands(harness);
         harness.Basic.SetOrientation(AdventurePlateOrientation.Mirrored);
 
@@ -135,7 +131,7 @@ public class EditorActionBarTests
     public async Task TheSaveShortcut_InBasic_SavesOnlyUnsavedChanges()
     {
         // Ctrl+S in the Basic editor runs the action bar's own Save command.
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         var commands = Commands(harness);
         harness.SimulateBasicFrame();
 
@@ -155,7 +151,7 @@ public class EditorActionBarTests
     [Fact]
     public async Task Revert_RestoresTheLastSavedVersion_AsOneUndoableStep()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         var commands = Commands(harness);
         var saved = harness.Json();
         harness.Basic.SetOrientation(AdventurePlateOrientation.Mirrored);
@@ -176,7 +172,7 @@ public class EditorActionBarTests
     [Fact]
     public async Task Revert_AfterASave_GoesBackToThatSave()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         var commands = Commands(harness);
         harness.Basic.SetOrientation(AdventurePlateOrientation.Mirrored);
         Assert.True(await commands.SaveAsync());
@@ -193,7 +189,7 @@ public class EditorActionBarTests
     [Fact]
     public async Task Revert_IsRefusedForACleanPlate()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         var commands = Commands(harness);
 
         Assert.False(commands.Revert());
@@ -203,7 +199,7 @@ public class EditorActionBarTests
     [Fact]
     public async Task BothEditors_SeeTheSameAvailability()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         var basicBar = Commands(harness);
         var advancedBar = Commands(harness);
 

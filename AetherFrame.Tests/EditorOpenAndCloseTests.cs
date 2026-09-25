@@ -15,9 +15,6 @@ namespace AetherFrame.Tests;
 /// </summary>
 public class EditorOpenAndCloseTests
 {
-    private static Task<BasicHarness> NewClassicAsync() =>
-        BasicHarness.CreatePlateAsync(PlateStartingLayout.AdventurePlateClassic, new PlateStarterContent(FakeCharacter.Hero));
-
     private static (EditorDocumentCommands Commands, EditorCloseGuard Guard) OpenWindow(BasicHarness harness)
     {
         var commands = new EditorDocumentCommands(harness.Profiles, harness.Session);
@@ -132,7 +129,7 @@ public class EditorOpenAndCloseTests
     [Fact]
     public async Task ClosingACleanPlate_JustCloses()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         var (_, guard) = OpenWindow(harness);
 
         Assert.False(guard.PreOpenCheck(isOpen: false));
@@ -144,7 +141,7 @@ public class EditorOpenAndCloseTests
     [Fact]
     public async Task ClosingWithUnsavedChanges_IsRefused_AndAsksOnce()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         var (_, guard) = OpenWindow(harness);
         harness.Basic.SetOrientation(AdventurePlateOrientation.Mirrored);
 
@@ -158,7 +155,7 @@ public class EditorOpenAndCloseTests
     [Fact]
     public async Task Cancel_KeepsTheEditorOpen_WithTheEditsIntact()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         var (commands, guard) = OpenWindow(harness);
         harness.Basic.SetOrientation(AdventurePlateOrientation.Mirrored);
         Assert.True(guard.PreOpenCheck(isOpen: false));
@@ -179,7 +176,7 @@ public class EditorOpenAndCloseTests
     [Fact]
     public async Task Discard_RestoresTheSavedState_AndCloses()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         var saved = harness.Json();
         var (commands, guard) = OpenWindow(harness);
         harness.Basic.SetOrientation(AdventurePlateOrientation.Mirrored);
@@ -198,7 +195,7 @@ public class EditorOpenAndCloseTests
     [Fact]
     public async Task Save_SavesThenCloses()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         var (commands, guard) = OpenWindow(harness);
         harness.Basic.SetOrientation(AdventurePlateOrientation.Mirrored);
         Assert.True(guard.PreOpenCheck(isOpen: false));
@@ -216,7 +213,7 @@ public class EditorOpenAndCloseTests
     [Fact]
     public async Task AnEditStillInProgress_CountsAsUnsaved_AndIsKeptOnCancel()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         var (commands, guard) = OpenWindow(harness);
 
         // Typing in a field that hasn't been committed yet.
@@ -234,7 +231,7 @@ public class EditorOpenAndCloseTests
     [Fact]
     public async Task HandingOffToTheOtherEditor_IsNeverGuarded_AndKeepsTheEdits()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         var (commands, guard) = OpenWindow(harness);
         harness.Basic.SetOrientation(AdventurePlateOrientation.Mirrored);
 
@@ -254,7 +251,7 @@ public class EditorOpenAndCloseTests
     [Fact]
     public async Task ACloseThatSlipsPastTheCheck_ReopensAndAsks()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         var commands = new EditorDocumentCommands(harness.Profiles, harness.Session);
         var guard = new EditorCloseGuard(harness.Session, commands);
         harness.Basic.SetOrientation(AdventurePlateOrientation.Mirrored);
@@ -267,7 +264,7 @@ public class EditorOpenAndCloseTests
     [Fact]
     public async Task WithNoPlateOpen_NothingIsGuarded()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         var (_, guard) = OpenWindow(harness);
         harness.Profiles.CloseDocument();
         harness.Session.SyncWithCurrentProfile();
@@ -279,7 +276,7 @@ public class EditorOpenAndCloseTests
     [Fact]
     public async Task TheBasicAndAdvancedEditors_EachGuardTheirOwnClose()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         var (_, basicGuard) = OpenWindow(harness);
         harness.Basic.SetOrientation(AdventurePlateOrientation.Mirrored);
 

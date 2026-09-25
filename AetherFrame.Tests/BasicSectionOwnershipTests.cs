@@ -4,7 +4,6 @@ using System.Linq;
 using System.Numerics;
 using System.Threading.Tasks;
 using AetherFrame.Domain.Basic;
-using AetherFrame.Domain.Plates;
 using AetherFrame.Domain.Profiles;
 using AetherFrame.UI.Editor;
 using Xunit;
@@ -19,14 +18,8 @@ public class BasicSectionOwnershipTests
 {
     private static readonly Vector2 SmallNudge = new(0, 6);
 
-    private static Task<BasicHarness> NewClassicAsync() =>
-        BasicHarness.CreatePlateAsync(PlateStartingLayout.AdventurePlateClassic, new PlateStarterContent(FakeCharacter.Hero));
-
     private static ElementRect RectOf(ProfileDocument document, ProfileElementRole role) =>
         BasicDocuments.RectOf(BasicSections.Find(document, role)!);
-
-    private static ElementRect LayoutRect(ProfileDocument document, ProfileElementRole role, AdventurePlateOrientation orientation) =>
-        AdventurePlateClassicLayout.GetRect(role, orientation, document)!.Value;
 
     private static bool Overlap(ElementRect a, ElementRect b) =>
         a.Position.X < b.Position.X + b.Size.X && b.Position.X < a.Position.X + a.Size.X
@@ -40,7 +33,7 @@ public class BasicSectionOwnershipTests
     public async Task MovingFavoriteJobsInAdvanced_ThenSwitchingOrientationAndBack_NeverMovesThem(
         AdventurePlateOrientation start, AdventurePlateOrientation other)
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         harness.Basic.SetOrientation(start);
         harness.DragInAdvanced(ProfileElementRole.BasicJob, SmallNudge);
         var job = RectOf(harness.Document, ProfileElementRole.BasicJob);
@@ -63,13 +56,13 @@ public class BasicSectionOwnershipTests
             h => h.Basic.ApplyLayout(),
         })
         {
-            using var harness = await NewClassicAsync();
+            using var harness = await BasicHarness.NewClassicAsync();
             harness.DragInAdvanced(ProfileElementRole.BasicJob, new Vector2(0, 40));
 
             reclaim(harness);
 
             var document = harness.Document;
-            Assert.Equal(LayoutRect(document, ProfileElementRole.BasicJob, AdventurePlateOrientation.Normal), RectOf(document, ProfileElementRole.BasicJob));
+            Assert.Equal(BasicDocuments.LayoutRect(document, ProfileElementRole.BasicJob, AdventurePlateOrientation.Normal), RectOf(document, ProfileElementRole.BasicJob));
             Assert.False(BasicEditorSession.IsSectionCustomized(document, BasicSection.Job));
         }
     }
@@ -118,7 +111,7 @@ public class BasicSectionOwnershipTests
     [Fact]
     public async Task IdentityHeader_StaysWholeWhenOneOfItsElementsIsMoved()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         harness.Identity.SetCustomTitle("Hello");
         harness.Identity.Commit();
         harness.DragInAdvanced(ProfileElementRole.BasicTitle, SmallNudge);
@@ -167,7 +160,7 @@ public class BasicSectionOwnershipTests
     [Fact]
     public async Task RepeatedRoundTrips_WithACustomizedGroup_NeverDriftEither()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         harness.DragInAdvanced(ProfileElementRole.BasicJob, SmallNudge);
         var job = RectOf(harness.Document, ProfileElementRole.BasicJob);
         var world = RectOf(harness.Document, ProfileElementRole.BasicWorld);

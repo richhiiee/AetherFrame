@@ -16,13 +16,10 @@ namespace AetherFrame.Tests;
 /// <summary>Components through the real editing stack: Basic slots, Advanced edits, undo and dirty state.</summary>
 public class ComponentEditorTests
 {
-    private static Task<BasicHarness> NewClassicAsync() =>
-        BasicHarness.CreatePlateAsync(PlateStartingLayout.AdventurePlateClassic, new PlateStarterContent(FakeCharacter.Hero));
-
     [Fact]
     public async Task NewPlate_HasNoComponents_AndEverySlotIsEmpty()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
 
         Assert.Null(harness.Document.Components);
         foreach (var kind in PlateComponentEditor.BasicSlots.Concat(PlateComponentEditor.BasicDecorations))
@@ -37,7 +34,7 @@ public class ComponentEditorTests
     [Fact]
     public async Task ChoosingASlotStyle_AddsOneComponentWithDefaults_AsOneUndoStep()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
 
         harness.Session.SetComponentSlot(PlateComponentKind.PortraitFrame, BuiltInComponentCatalog.PortraitFrameDouble);
 
@@ -64,7 +61,7 @@ public class ComponentEditorTests
     [Fact]
     public async Task ChangingASlotStyle_KeepsTheInstanceAndItsAdvancedRefinements()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         harness.Session.SetComponentSlot(PlateComponentKind.NameBacking, BuiltInComponentCatalog.NameBackingBar);
         var id = harness.Document.Components![0].Id;
         harness.Session.EditComponent(id, c =>
@@ -87,7 +84,7 @@ public class ComponentEditorTests
     [Fact]
     public async Task ChoosingTheSameStyle_OrNoneOnAnEmptySlot_RecordsNothing()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         harness.Session.SetComponentSlot(PlateComponentKind.Divider, null);
         Assert.False(harness.Session.CanUndo);
 
@@ -100,7 +97,7 @@ public class ComponentEditorTests
     [Fact]
     public async Task None_RemovesTheSlotComponent_AsOneUndoStep()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         harness.Session.SetComponentSlot(PlateComponentKind.PlateFrame, BuiltInComponentCatalog.PlateFrameLine);
         harness.Session.SetComponentSlot(PlateComponentKind.CornerOrnament, BuiltInComponentCatalog.CornerOrnamentBracket);
 
@@ -114,7 +111,7 @@ public class ComponentEditorTests
     [Fact]
     public async Task BasicSlots_RejectImageStylesAndStylesOfOtherKinds()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
 
         harness.Session.SetComponentSlot(PlateComponentKind.PortraitOverlay, BuiltInComponentCatalog.PortraitOverlayImage);
         Assert.NotNull(harness.Session.ErrorMessage);
@@ -130,7 +127,7 @@ public class ComponentEditorTests
     [Fact]
     public async Task SlotsBindToTheFirstComponentOfTheirKind()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         var first = harness.Session.AddComponent(BuiltInComponentCatalog.DividerLine)!.Value;
         var second = harness.Session.AddComponent(BuiltInComponentCatalog.DividerDiamond)!.Value;
 
@@ -144,7 +141,7 @@ public class ComponentEditorTests
     [Fact]
     public async Task ContinuousAdvancedEdit_IsOneUndoStep()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         var id = harness.Session.AddComponent(BuiltInComponentCatalog.PlateFrameNotched)!.Value;
 
         for (var i = 1; i <= 20; i++)
@@ -167,7 +164,7 @@ public class ComponentEditorTests
     [Fact]
     public async Task AdvancedState_SurvivesSaveAndReopen()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         var id = harness.Session.AddComponent(BuiltInComponentCatalog.CornerOrnamentDiamond)!.Value;
         harness.Session.EditComponent(id, c =>
         {
@@ -190,7 +187,7 @@ public class ComponentEditorTests
     [Fact]
     public async Task MoveInLayer_ReordersWithinTheLayerOnly_OneUndoStep()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         var line = harness.Session.AddComponent(BuiltInComponentCatalog.DividerLine)!.Value;
         var corner = harness.Session.AddComponent(BuiltInComponentCatalog.CornerOrnamentBracket)!.Value;
         var frame = harness.Session.AddComponent(BuiltInComponentCatalog.PlateFrameLine)!.Value;
@@ -214,7 +211,7 @@ public class ComponentEditorTests
     [Fact]
     public async Task RemoveAndReset_AreEachOneUndoStep()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         var id = harness.Session.AddComponent(BuiltInComponentCatalog.NameBackingFade)!.Value;
         harness.Session.EditComponent(id, c => c.Offset = new Vector2(30, 0), continuous: false);
 
@@ -232,7 +229,7 @@ public class ComponentEditorTests
     [Fact]
     public async Task ComponentImage_IsImportedIntoManagedAssets_AndUndoable()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         var id = harness.Session.AddComponent(BuiltInComponentCatalog.PortraitOverlayImage)!.Value;
 
         harness.Session.SetComponentImage(id, harness.ImportablePng("overlay.png", 64, 64));
@@ -275,7 +272,7 @@ public class ComponentEditorTests
     [Fact]
     public async Task RevertToSaved_RestoresComponents()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         harness.Session.SetComponentSlot(PlateComponentKind.PlateFrame, BuiltInComponentCatalog.PlateFrameLine);
         Assert.True(await harness.Session.SaveProfileAsync());
         harness.Session.SyncWithCurrentProfile();

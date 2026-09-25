@@ -17,9 +17,6 @@ namespace AetherFrame.Tests;
 /// <summary>The Basic editor's category navigation: state, mapping, status, summaries, and preview selection.</summary>
 public class BasicEditorNavigationTests
 {
-    private static Task<BasicHarness> NewClassicAsync() =>
-        BasicHarness.CreatePlateAsync(PlateStartingLayout.AdventurePlateClassic, new PlateStarterContent(FakeCharacter.Hero));
-
     // ---------------------------------------------------------------- navigation state
 
     [Fact]
@@ -48,7 +45,7 @@ public class BasicEditorNavigationTests
     [Fact]
     public async Task TheSelectedCategory_StaysPut_ThroughEditsUndoAndEditorSwitching()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         var navigation = new BasicEditorNavigation();
         navigation.TrackPlate(harness.PlateId);
         navigation.Select(BasicEditorCategory.Details);
@@ -68,7 +65,7 @@ public class BasicEditorNavigationTests
     [Fact]
     public async Task Preview_ReturnsToTheSameCategory_AndZoom()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         var navigation = new BasicEditorNavigation();
         navigation.TrackPlate(harness.PlateId);
         navigation.Select(BasicEditorCategory.Identity);
@@ -86,7 +83,7 @@ public class BasicEditorNavigationTests
     [Fact]
     public async Task ANewlyCreatedPlate_OpensOnDesign_EvenAfterAnotherPlateWasOnMessage()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         var navigation = new BasicEditorNavigation();
         navigation.TrackPlate(harness.PlateId);
         navigation.Select(BasicEditorCategory.Message);
@@ -191,7 +188,7 @@ public class BasicEditorNavigationTests
     [Fact]
     public async Task AdvancedCustomization_MarksOnlyItsCategory_Quietly()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         harness.DragInAdvanced(ProfileElementRole.BasicWorldHeading, new Vector2(0, 3));
 
         var details = BasicEditorView.StatusOf(harness.Document, BasicEditorCategory.Details);
@@ -218,7 +215,7 @@ public class BasicEditorNavigationTests
     [Fact]
     public async Task ACollision_NeedsAttention_InBothInvolvedCategories_Only()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         harness.Basic.SetActiveHours(new BasicActiveHours { Days = BasicWeekdays.Everyday });
         harness.DragInAdvanced(ProfileElementRole.BasicJob, new Vector2(0, 2));
         harness.Basic.SetOrientation(AdventurePlateOrientation.Mirrored);
@@ -256,7 +253,7 @@ public class BasicEditorNavigationTests
     [Fact]
     public async Task Summaries_DescribeWhatEachCategoryHolds()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         harness.Identity.SetCustomTitle("The Heart of the Party");
         harness.Identity.Commit();
         harness.Basic.AddPlaystyle("Casual");
@@ -348,7 +345,7 @@ public class BasicEditorNavigationTests
     [Fact]
     public async Task NavigatingAndInspectingEveryCategory_ChangesNothing()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         harness.Character.CurrentInfo = FakeCharacter.Hero;
         var before = harness.Json();
         var navigation = new BasicEditorNavigation();

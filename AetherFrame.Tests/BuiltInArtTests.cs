@@ -497,7 +497,7 @@ public class BuiltInArtTests
         // doesn't reference; its manifest is read as metadata, so no Dalamud type ever loads.
         // CI builds the plugin first and names it in AETHERFRAME_PLUGIN_ASSEMBLY (then it must
         // exist); locally the plugin's own build output is checked when there is one.
-        var path = PluginAssemblyPath();
+        var path = RepositoryPaths.PluginAssembly();
         if (path is null)
         {
             return;
@@ -633,7 +633,7 @@ public class BuiltInArtTests
     /// the prefix plus its path below Assets with '.' separators, whatever the OS separator.</summary>
     private static List<string> ExpectedArtResourceNames()
     {
-        var assets = Path.Combine(RepositoryRoot().FullName, "AetherFrame", "Assets");
+        var assets = Path.Combine(RepositoryPaths.Root().FullName, "AetherFrame", "Assets");
         return Directory.GetFiles(assets, "*.png", SearchOption.AllDirectories)
             .Select(file => BuiltInArtCatalog.ResourcePrefix + string.Join('.', Path.GetRelativePath(assets, file)
                 .Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)))
@@ -643,33 +643,6 @@ public class BuiltInArtTests
 
     private static List<string> EmbeddedPngNames(IEnumerable<string> names) =>
         names.Where(n => n.EndsWith(".png", StringComparison.OrdinalIgnoreCase)).Order(StringComparer.Ordinal).ToList();
-
-    private static string? PluginAssemblyPath()
-    {
-        var configured = Environment.GetEnvironmentVariable("AETHERFRAME_PLUGIN_ASSEMBLY");
-        if (!string.IsNullOrEmpty(configured))
-        {
-            Assert.True(File.Exists(configured), $"AETHERFRAME_PLUGIN_ASSEMBLY points at a missing file: {configured}");
-            return configured;
-        }
-
-        // bin/<Configuration>/<tfm>/ here; the plugin builds to AetherFrame/bin/x64/<Configuration>/.
-        var configuration = new DirectoryInfo(AppContext.BaseDirectory).Parent!.Name;
-        var local = Path.Combine(RepositoryRoot().FullName, "AetherFrame", "bin", "x64", configuration, "AetherFrame.dll");
-        return File.Exists(local) ? local : null;
-    }
-
-    private static DirectoryInfo RepositoryRoot()
-    {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory is not null && !Directory.Exists(Path.Combine(directory.FullName, "AetherFrame", "Assets")))
-        {
-            directory = directory.Parent;
-        }
-
-        Assert.NotNull(directory);
-        return directory!;
-    }
 
     private static byte[] ReadResource(string name)
     {

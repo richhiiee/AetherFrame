@@ -24,9 +24,6 @@ public class BasicNameColorTests
     private static readonly Vector4 Custom = new(0.9f, 0.2f, 0.6f, 1f);
     private static readonly Vector4 PlayerOutline = new(0.1f, 0.6f, 0.2f, 1f);
 
-    private static Task<BasicHarness> NewClassicAsync() =>
-        BasicHarness.CreatePlateAsync(PlateStartingLayout.AdventurePlateClassic, new PlateStarterContent(FakeCharacter.Hero));
-
     private static TextProfileElement Name(ProfileDocument document) =>
         (TextProfileElement)BasicSections.Find(document, ProfileElementRole.BasicName)!;
 
@@ -111,7 +108,7 @@ public class BasicNameColorTests
     [Fact]
     public async Task AutomaticName_FollowsThemeChanges_ColorAndOutline()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
 
         foreach (var theme in new[] { Dark, Ivory, Warm, Neon })
         {
@@ -129,7 +126,7 @@ public class BasicNameColorTests
     [Fact]
     public async Task CustomName_SurvivesThemeChanges_Exactly_WithItsOutline()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         harness.Basic.ApplyTheme(Dark);
         var name = Name(harness.Document);
         name.Color = Custom;
@@ -153,7 +150,7 @@ public class BasicNameColorTests
     [Fact]
     public async Task AutomaticName_WithThePlayersOwnOutline_KeepsThatOutline()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         harness.Basic.ApplyTheme(Dark);
         var name = Name(harness.Document);
         name.OutlineColor = PlayerOutline;
@@ -169,7 +166,7 @@ public class BasicNameColorTests
     [Fact]
     public async Task TheNamesShadow_SitsBehindTheDarkOutline_AndAPlayersShadowStaysTheirs()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         var name = Name(harness.Document);
         Assert.True(name.ShadowEnabled);
 
@@ -194,7 +191,7 @@ public class BasicNameColorTests
     [Fact]
     public async Task ThemeChange_KeepsTheNamesOpacity()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         harness.Basic.ApplyTheme(Dark);
         Name(harness.Document).Color = BasicNameColor.Automatic(Dark) with { W = 0.6f };
 
@@ -206,7 +203,7 @@ public class BasicNameColorTests
     [Fact]
     public async Task Reset_RestoresTheWholeThemeTreatment_AndThenFollowsTheTheme()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         harness.Basic.ApplyTheme(Dark);
         var name = Name(harness.Document);
         name.Color = Custom with { W = 0.8f };
@@ -226,7 +223,7 @@ public class BasicNameColorTests
     [Fact]
     public async Task IdentityStyleReset_AlsoRestoresTheThemeTreatment()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         harness.Basic.ApplyTheme(Warm);
         var name = Name(harness.Document);
         name.Color = Custom;
@@ -242,7 +239,7 @@ public class BasicNameColorTests
     [Fact]
     public async Task SaveAndReload_PreserveAutomaticAndCustom()
     {
-        using var harness = await NewClassicAsync();
+        using var harness = await BasicHarness.NewClassicAsync();
         harness.Basic.ApplyTheme(Neon);
         Assert.True(await harness.Session.SaveProfileAsync());
         var automatic = harness.Library.OpenDocumentForEditing(harness.PlateId);
