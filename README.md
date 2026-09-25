@@ -83,7 +83,7 @@ Reusable decorative pieces you add to a Plate and restyle without redrawing anyt
 
 ### Local assets and data safety
 
-- Imported images are stored and tracked locally, and unused ones are cleaned up.
+- Imported images are stored and tracked locally. Unused images are not removed automatically in this version.
 - **Forward compatibility.** Plate data is versioned and migrated. Content from a newer version of AetherFrame that this version doesn't understand is preserved rather than discarded.
 
 ---

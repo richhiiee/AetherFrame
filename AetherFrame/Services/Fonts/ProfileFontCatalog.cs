@@ -8,7 +8,7 @@ namespace AetherFrame.Services.Fonts;
 /// One selectable entry in the Inspector's Font Family control: a display name plus whether the
 /// family has a REAL Bold and/or Italic face (not a synthesized one). The Inspector uses these
 /// flags to decide which style checkboxes to even show — see
-/// <c>ProfileEditorWindow.DrawTextElementInspector</c> — rather than exposing a control that
+/// <c>ProfileEditorWindow.DrawTypographySection</c> — rather than exposing a control that
 /// would silently do nothing, or worse, fake the style geometrically.
 /// </summary>
 internal sealed record ProfileFontFamilyDescriptor(string Id, string DisplayName, bool SupportsBold, bool SupportsItalic);

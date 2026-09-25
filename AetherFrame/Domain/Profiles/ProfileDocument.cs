@@ -29,7 +29,7 @@ public sealed class ProfileDocument
     /// <see cref="ProfileBackground"/> model — both of which older files still get through the
     /// field-driven, in-memory legacy repairs below rather than by rewriting files. A file with a
     /// HIGHER version was written by a newer AetherFrame and is never loaded for editing or
-    /// rewritten (see <c>ProfileDocumentSchema</c>).
+    /// rewritten (see <c>PersistenceSchemas.ProfileDocument</c>).
     /// </summary>
     public const int CurrentSchemaVersion = 2;
 

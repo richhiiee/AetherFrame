@@ -21,7 +21,7 @@ public sealed class CharacterBinding
     /// <summary>
     /// 1: the single-profile era (one Active profile, auto-created at login).
     /// 2: Plate Library — any number of associated Plates, explicit Active Plate, descriptive
-    /// character metadata. See <c>CharacterBindingSchema</c> for the migration.
+    /// character metadata. See <c>PersistenceSchemas.CharacterBinding</c> for the migration.
     /// </summary>
     public const int CurrentVersion = 2;
 
