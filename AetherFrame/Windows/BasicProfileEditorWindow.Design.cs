@@ -1,3 +1,4 @@
+using System;
 using System.Linq;
 using System.Numerics;
 using AetherFrame.Domain.Basic;
@@ -65,13 +66,16 @@ internal sealed partial class BasicProfileEditorWindow
         Subheading("Text");
 
         var headings = BasicPlateEditor.Headings(profile);
-        var size = BasicPlateEditor.HeadingSize(profile) ?? AdventurePlateClassicLayout.DefaultHeadingFontSize;
+
+        // Up to the largest size the layout shows at full size, so every value on the slider is visible.
+        var max = AdventurePlateClassicLayout.MaxHeadingFontSize(profile);
+        var size = Math.Min(BasicPlateEditor.HeadingSize(profile) ?? AdventurePlateClassicLayout.DefaultHeadingFontSize * AdventurePlateClassicLayout.FontScale(profile), max);
 
         ImGui.TextUnformatted("Section heading size");
         using (ImRaii.Disabled(headings.Count == 0))
         {
             ImGui.SetNextItemWidth(-1);
-            if (ImGui.SliderFloat("##SectionHeadingSize", ref size, TextProfileElement.MinFontSize, TextProfileElement.MaxFontSize, "%.0f px"))
+            if (ImGui.SliderFloat("##SectionHeadingSize", ref size, TextProfileElement.MinFontSize, max, "%.0f px", ImGuiSliderFlags.AlwaysClamp))
             {
                 basicEditorSession.SetHeadingSize(size, continuous: true);
             }
@@ -95,11 +99,12 @@ internal sealed partial class BasicProfileEditorWindow
             Hint("Your headings have different sizes (set in the Advanced Editor). Changing this gives them all one size.");
         }
 
-        // A heading larger than its row is drawn fitted to it (auto fit), as everywhere else.
+        // A heading placed or sized in the Advanced Editor keeps its own box, so a size larger than
+        // that box is drawn fitted to it (auto fit), as everywhere else.
         var shown = headings.Select(h => UI.Rendering.ProfileTextRenderer.GetCachedEffectiveFontSize(h)).OfType<float>().DefaultIfEmpty(size).Min();
         if (shown < size - 0.5f)
         {
-            Hint($"Shown at {shown:0} px: headings shrink to fit their row.");
+            Hint($"Some headings are shown at {shown:0} px: they were placed in the Advanced Editor and keep their own box. Apply Layout (below) fits them again.");
         }
     }
 

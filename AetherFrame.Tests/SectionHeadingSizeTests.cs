@@ -119,15 +119,221 @@ public class SectionHeadingSizeTests
     }
 
     [Fact]
-    public async Task SectionHeadingSize_StaysWithinTheTextSizeRange()
+    public async Task SectionHeadingSize_StaysWithinWhatTheLayoutShowsAtFullSize()
     {
         using var harness = await NewClassicAsync();
 
+        Assert.Equal(32f, AdventurePlateClassicLayout.MaxHeadingFontSize(harness.Document));
+
         harness.Basic.SetHeadingSize(500f, continuous: false);
-        Assert.All(HeadingSizes(harness.Document), size => Assert.Equal(TextProfileElement.MaxFontSize, size));
+        Assert.All(HeadingSizes(harness.Document), size => Assert.Equal(32f, size));
 
         harness.Basic.SetHeadingSize(1f, continuous: false);
         Assert.All(HeadingSizes(harness.Document), size => Assert.Equal(TextProfileElement.MinFontSize, size));
+    }
+
+    // ---------------------------------------------------------------- sizes above the default
+
+    /// <summary>The Adventure Plate Classic heading above each value role.</summary>
+    private static readonly (ProfileElementRole Heading, ProfileElementRole Value)[] HeadingValuePairs =
+    [
+        (ProfileElementRole.BasicWorldHeading, ProfileElementRole.BasicWorld),
+        (ProfileElementRole.BasicJobHeading, ProfileElementRole.BasicLevel),
+        (ProfileElementRole.BasicFreeCompanyHeading, ProfileElementRole.BasicFreeCompany),
+        (ProfileElementRole.BasicPlaystyleHeading, ProfileElementRole.BasicPlaystyle),
+        (ProfileElementRole.BasicActiveHoursHeading, ProfileElementRole.BasicActiveHours),
+        (ProfileElementRole.BasicMessageHeading, ProfileElementRole.BasicMessage),
+    ];
+
+    private static List<ElementRect> ValueRects(ProfileDocument document) =>
+        document.Elements.Where(e => !BasicSections.IsHeading(e.Role)).Select(BasicDocuments.RectOf).ToList();
+
+    /// <summary>
+    /// What makes a heading render at its full size: one line of text at its font size fits its
+    /// box's height less the padding (so auto fit leaves it alone), and a generous estimate of its
+    /// caption's width (bold capitals at 0.75 em, plus letter spacing) fits the box's width.
+    /// </summary>
+    private static void AssertShownAtFullSize(TextProfileElement heading)
+    {
+        var padding = 2f * TextProfileElement.LayoutPadding;
+        Assert.True(heading.Size.Y - padding >= heading.FontSize - 0.01f, $"{heading.Role}: {heading.FontSize} px text in a {heading.Size.Y} px box is shrunk");
+        var widthEstimate = (heading.Text.Length * heading.FontSize * 0.75f) + (heading.LetterSpacing * (heading.Text.Length - 1));
+        Assert.True(heading.Size.X - padding >= widthEstimate, $"{heading.Role}: \"{heading.Text}\" is too wide for its box");
+    }
+
+    [Theory]
+    [InlineData(20f)]
+    [InlineData(24f)]
+    [InlineData(28f)]
+    [InlineData(32f)]
+    public async Task ASizeAboveSixteen_RendersAtThatSize_WithoutTouchingTheValueRow(float size)
+    {
+        using var harness = await NewClassicAsync();
+        var values = ValueRects(harness.Document);
+
+        harness.Basic.SetHeadingSize(size, continuous: false);
+
+        foreach (var (headingRole, valueRole) in HeadingValuePairs)
+        {
+            var heading = BasicSections.FindText(harness.Document, headingRole)!;
+            var value = BasicSections.Find(harness.Document, valueRole)!;
+            Assert.Equal(size, heading.FontSize);
+            AssertShownAtFullSize(heading);
+
+            // It grew upward: its bottom edge still meets the value's top, never overlapping it.
+            Assert.Equal(value.Position.Y, heading.Position.Y + heading.Size.Y, 3);
+        }
+
+        // Nothing else moved or resized, no section overlaps another, and all still follow the layout.
+        Assert.Equal(values, ValueRects(harness.Document));
+        Assert.Empty(BasicPlateEditor.FindOverlaps(harness.Document));
+        Assert.Empty(BasicPlateEditor.CustomizedSections(harness.Document));
+    }
+
+    [Theory]
+    [InlineData(AdventurePlateOrientation.Normal)]
+    [InlineData(AdventurePlateOrientation.Mirrored)]
+    public void AtTheLargestSize_NoLayoutGroupIntersectsAnother(AdventurePlateOrientation orientation)
+    {
+        var document = BasicDocuments.Classic(FakeCharacter.Hero);
+        var editor = BasicDocuments.Editor(document);
+        editor.SetOrientation(orientation);
+        editor.SetHeadingSize(AdventurePlateClassicLayout.MaxHeadingFontSize(document));
+
+        var groups = BasicSections.LayoutGroups.Select(g => g[0]).ToArray();
+        for (var i = 0; i < groups.Length; i++)
+        {
+            for (var j = i + 1; j < groups.Length; j++)
+            {
+                var a = AdventurePlateClassicLayout.GetGroupBounds(groups[i], orientation, document);
+                var b = AdventurePlateClassicLayout.GetGroupBounds(groups[j], orientation, document);
+                Assert.False(a.Intersects(b), $"{groups[i]} intersects {groups[j]}");
+            }
+        }
+
+        Assert.Empty(BasicPlateEditor.FindOverlaps(document));
+    }
+
+    [Fact]
+    public void TheDefaultSize_KeepsTheOriginalRowGeometry()
+    {
+        var document = BasicDocuments.Classic(FakeCharacter.Hero);
+
+        foreach (var heading in BasicPlateEditor.Headings(document))
+        {
+            Assert.Equal(0f, AdventurePlateClassicLayout.HeadingGrowth(heading.Role, document));
+            Assert.Equal(24f, heading.Size.Y, 3);
+        }
+    }
+
+    [Fact]
+    public void OnALargerCanvas_TheRangeScalesWithIt()
+    {
+        var document = BasicDocuments.Blank(1920f, 1080f);
+        var editor = BasicDocuments.Editor(document);
+        foreach (var section in new[] { BasicSection.World, BasicSection.Job, BasicSection.Level, BasicSection.FreeCompany, BasicSection.Playstyle, BasicSection.ActiveHours, BasicSection.Message })
+        {
+            editor.EnsureSection(section);
+        }
+
+        Assert.Equal(52f, AdventurePlateClassicLayout.MaxHeadingFontSize(document));
+        editor.SetHeadingSize(40f);
+
+        Assert.All(BasicPlateEditor.Headings(document), heading =>
+        {
+            Assert.Equal(40f, heading.FontSize);
+            AssertShownAtFullSize(heading);
+        });
+        Assert.Empty(BasicPlateEditor.FindOverlaps(document));
+    }
+
+    [Fact]
+    public void ALargerSize_ThenSmallerAgain_ShrinksTheBoxBack()
+    {
+        var document = BasicDocuments.Classic(FakeCharacter.Hero);
+        var editor = BasicDocuments.Editor(document);
+
+        editor.SetHeadingSize(30f);
+        editor.SetHeadingSize(16f);
+
+        Assert.All(BasicPlateEditor.Headings(document), heading => Assert.Equal(24f, heading.Size.Y, 3));
+    }
+
+    [Fact]
+    public void AHeadingCreatedLaterAtALargeSharedSize_GetsABoxThatFitsIt()
+    {
+        var document = BasicDocuments.Blank();
+        var editor = BasicDocuments.Editor(document);
+        editor.SetText(ProfileElementRole.BasicWorld, "Phoenix");
+        editor.SetHeadingSize(28f);
+
+        editor.SetText(ProfileElementRole.BasicMessage, "Hello");
+
+        var message = BasicSections.FindText(document, ProfileElementRole.BasicMessageHeading)!;
+        Assert.Equal(28f, message.FontSize);
+        AssertShownAtFullSize(message);
+        Assert.False(BasicPlateEditor.IsSectionCustomized(document, BasicSection.Message));
+    }
+
+    [Fact]
+    public void ResetSection_PutsTheHeadingBackInTheDefaultRow()
+    {
+        var document = BasicDocuments.Classic(FakeCharacter.Hero);
+        var editor = BasicDocuments.Editor(document);
+        editor.SetHeadingSize(30f);
+
+        editor.ResetSection(BasicSection.World);
+
+        var world = BasicSections.FindText(document, ProfileElementRole.BasicWorldHeading)!;
+        Assert.Equal(16f, world.FontSize);
+        Assert.Equal(24f, world.Size.Y, 3);
+    }
+
+    [Fact]
+    public async Task AHeadingCustomizedInAdvanced_KeepsItsOwnBox()
+    {
+        using var harness = await NewClassicAsync();
+        harness.DragInAdvanced(ProfileElementRole.BasicWorldHeading, new System.Numerics.Vector2(0f, 10f));
+        var moved = BasicDocuments.RectOf(BasicSections.Find(harness.Document, ProfileElementRole.BasicWorldHeading)!);
+
+        harness.Basic.SetHeadingSize(24f, continuous: false);
+
+        var world = BasicSections.FindText(harness.Document, ProfileElementRole.BasicWorldHeading)!;
+        Assert.Equal(24f, world.FontSize);
+        Assert.Equal(moved, BasicDocuments.RectOf(world));
+        Assert.True(BasicPlateEditor.IsSectionCustomized(harness.Document, BasicSection.World));
+
+        // Every heading Basic still places did grow to fit.
+        AssertShownAtFullSize(BasicSections.FindText(harness.Document, ProfileElementRole.BasicMessageHeading)!);
+    }
+
+    [Fact]
+    public async Task UndoingALargerSize_RestoresTheSizeAndTheBoxes()
+    {
+        using var harness = await NewClassicAsync();
+        var before = harness.Json();
+
+        harness.Basic.SetHeadingSize(28f, continuous: false);
+        harness.Session.Undo();
+
+        Assert.Equal(before, harness.Json());
+        Assert.False(harness.Session.IsDirty);
+    }
+
+    [Fact]
+    public async Task AnExistingPlateWithALargeAdvancedHeading_IsNotRePlacedWhenOpened()
+    {
+        // A heading made large in the Advanced Editor before this version, still in its old row box.
+        var document = BasicDocuments.Classic(FakeCharacter.Hero);
+        BasicSections.FindText(document, ProfileElementRole.BasicMessageHeading)!.FontSize = 30f;
+        using var harness = await BasicHarness.OpenDocumentAsync(document);
+        var before = harness.Json();
+
+        harness.SimulateBasicFrame();
+
+        Assert.Equal(before, harness.Json());
+        Assert.False(harness.Session.IsDirty);
+        Assert.Empty(BasicPlateEditor.CustomizedSections(harness.Document));
     }
 
     [Fact]

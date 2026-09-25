@@ -58,6 +58,14 @@ public static class AdventurePlateClassicLayout
     private const float PanelBottom = Margin + PortraitHeight;
 
     private const float HeadingHeight = 24f;
+
+    /// <summary>
+    /// How far (reference pixels) a section heading's box may grow upward into the gutter above its
+    /// row when its text is larger than the row holds. The smallest such gutter — between one
+    /// row's value and the next row's heading — is 22 reference pixels, so the grown box still
+    /// keeps clear of everything above it; its bottom edge, and so the value below, never moves.
+    /// </summary>
+    public const float MaxHeadingGrowth = 16f;
     private const float ValueHeight = 34f;
     private const float PlaystyleHeight = 58f;
 
@@ -87,8 +95,9 @@ public static class AdventurePlateClassicLayout
     /// <summary>
     /// The section headings' default size ("HOME WORLD", "MESSAGE"...), in reference pixels: large
     /// enough to read at a glance next to the 20 px values, and exactly what the heading row holds
-    /// (its height less the text padding) — so a larger size is shown fitted to the row. Applied
-    /// when a heading is created and by Reset Section; existing Plates keep their own sizes.
+    /// (its height less the text padding). A larger heading's box grows upward to hold it (see
+    /// <see cref="MaxHeadingGrowth"/>). Applied when a heading is created and by Reset Section;
+    /// existing Plates keep their own sizes.
     /// </summary>
     public const float DefaultHeadingFontSize = 16f;
     private const float HeadingLetterSpacing = 1.5f;
@@ -143,6 +152,11 @@ public static class AdventurePlateClassicLayout
         {
             position = new Vector2(PanelLeft(orientation) + rect.X, rect.Y);
             size = new Vector2(rect.W, rect.H);
+
+            // A heading larger than its row holds grows upward (bottom edge fixed, above its value).
+            var growth = HeadingGrowth(role, profile);
+            position.Y -= growth;
+            size.Y += growth;
         }
         else if (role is ProfileElementRole.BasicLevel or ProfileElementRole.BasicJob)
         {
@@ -158,6 +172,34 @@ public static class AdventurePlateClassicLayout
 
         var scale = CanvasScale(profile);
         return new ElementRect(position * scale, size * scale);
+    }
+
+    /// <summary>
+    /// How much taller than the row (reference pixels, up to <see cref="MaxHeadingGrowth"/>) a
+    /// heading's box must be for its own text size to fit without auto fit shrinking it: 0 for a
+    /// heading at or below the default size, for a heading that doesn't exist yet, and for every
+    /// other role.
+    /// </summary>
+    public static float HeadingGrowth(ProfileElementRole role, ProfileDocument profile)
+    {
+        var scaleY = FontScale(profile);
+        if (!BasicSections.IsHeading(role) || BasicSections.FindText(profile, role) is not { } heading || !(scaleY > 0f) || !float.IsFinite(scaleY))
+        {
+            return 0f;
+        }
+
+        var needed = (heading.FontSize + (2f * TextProfileElement.LayoutPadding)) / scaleY;
+        return Math.Clamp(MathF.Ceiling(needed - HeadingHeight), 0f, MaxHeadingGrowth);
+    }
+
+    /// <summary>
+    /// The largest section heading size (canvas units) the layout can show at full size on this
+    /// Plate: the tallest heading box less its text padding (32 px on the reference canvas).
+    /// </summary>
+    public static float MaxHeadingFontSize(ProfileDocument profile)
+    {
+        var tallest = (HeadingHeight + MaxHeadingGrowth) * FontScale(profile);
+        return Math.Clamp(MathF.Floor(tallest - (2f * TextProfileElement.LayoutPadding)), TextProfileElement.MinFontSize, TextProfileElement.MaxFontSize);
     }
 
     /// <summary>

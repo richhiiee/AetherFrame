@@ -223,16 +223,30 @@ internal sealed class BasicPlateEditor
     }
 
     /// <summary>
-    /// Section heading size: every standard section heading at one size (clamped to the text size
-    /// range), together. Only their size changes — never their text, style, or placement, and never
-    /// any value text. Headings created later start at the same size.
+    /// Section heading size: every standard section heading at one size, together, clamped to what
+    /// the layout shows at full size (<see cref="AdventurePlateClassicLayout.MaxHeadingFontSize"/>).
+    /// Never their text or style, and never any value. A heading Basic still places has its box
+    /// re-placed to fit the size (it grows or shrinks upward, see
+    /// <see cref="AdventurePlateClassicLayout.MaxHeadingGrowth"/>; the value below never moves); a
+    /// heading in a group customized in the Advanced Editor keeps its box. Headings created later
+    /// start at the same size.
     /// </summary>
     internal void SetHeadingSize(float size)
     {
-        var value = Math.Clamp(size, TextProfileElement.MinFontSize, TextProfileElement.MaxFontSize);
-        foreach (var heading in Headings(Profile))
+        var value = Math.Clamp(size, TextProfileElement.MinFontSize, AdventurePlateClassicLayout.MaxHeadingFontSize(Profile));
+
+        // Judged before anything changes: which headings Basic still places.
+        var headings = Headings(Profile);
+        var placed = headings.FindAll(heading => BasicSections.SectionOf(heading.Role) is { } section && !IsSectionCustomized(Profile, section));
+
+        foreach (var heading in headings)
         {
             heading.FontSize = value;
+        }
+
+        foreach (var heading in placed)
+        {
+            PlaceCore(heading);
         }
     }
 
@@ -601,6 +615,12 @@ internal sealed class BasicPlateEditor
         }
 
         addElement(element);
+        if (headingSize is not null)
+        {
+            // Now that it exists at the shared size, its box is the one that size needs.
+            PlaceCore(element);
+        }
+
         Settings.SetPlacement(role, new ElementRect(element.Position, element.Size));
         return element;
     }
