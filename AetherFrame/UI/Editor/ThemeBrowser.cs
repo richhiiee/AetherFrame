@@ -38,6 +38,37 @@ internal static class ThemeBrowser
         return matches;
     }
 
+    /// <summary>
+    /// <see cref="Filter"/>'s results grouped by family: the families in the catalog's family order
+    /// (<see cref="ProfileThemePresets.FamilyOrder"/>, then any family it doesn't list), each with its
+    /// matching themes in catalog order. A family with no match is left out, so a search keeps its
+    /// results under their families instead of mixing them together.
+    /// </summary>
+    internal static List<(ThemeFamily Family, List<ProfileThemePreset> Themes)> Group(IEnumerable<ProfileThemePreset> themes, string? search, ThemeFamily? family)
+    {
+        var matches = Filter(themes, search, family);
+        var order = new List<ThemeFamily>(ProfileThemePresets.FamilyOrder);
+        foreach (var theme in matches)
+        {
+            if (!order.Contains(theme.Family))
+            {
+                order.Add(theme.Family);
+            }
+        }
+
+        var groups = new List<(ThemeFamily, List<ProfileThemePreset>)>();
+        foreach (var candidate in order)
+        {
+            var members = matches.FindAll(theme => theme.Family == candidate);
+            if (members.Count > 0)
+            {
+                groups.Add((candidate, members));
+            }
+        }
+
+        return groups;
+    }
+
     /// <summary>The families that have at least one theme, in the catalog's family order: the only filters worth offering.</summary>
     internal static List<(ThemeFamily Family, int Count)> Families(IReadOnlyCollection<ProfileThemePreset> themes)
     {

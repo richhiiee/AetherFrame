@@ -172,7 +172,8 @@ internal sealed class BackgroundStylePanel
     /// family, so it keeps working however large the catalog grows. From the top: the Plate's
     /// current theme (always named, whatever is filtered or scrolled away), a search field, family
     /// filters (All by default; one per family the catalog actually has), then one responsive grid
-    /// of truthful preview cards that scrolls on its own once it's taller than a few rows. The
+    /// of truthful preview cards that scrolls on its own once it's taller than a few rows — under All,
+    /// grouped by family (a small heading above each family's own grid, in catalog order). The
     /// current theme's card is marked and scrolled into view when a Plate opens. Clicking a card
     /// applies that theme exactly as before (<paramref name="applyTheme"/>, by its stable id).
     /// Filtering is <see cref="ThemeBrowser"/>'s; the search and filter are view state only.
@@ -227,8 +228,8 @@ internal sealed class BackgroundStylePanel
 
         DrawThemeFilters();
 
-        var themes = ThemeBrowser.Filter(ProfileThemePresets.All, themeBrowser.Search, themeBrowser.Family);
-        if (themes.Count == 0)
+        var groups = ThemeBrowser.Group(ProfileThemePresets.All, themeBrowser.Search, themeBrowser.Family);
+        if (groups.Count == 0)
         {
             EditorWidgets.Hint("No themes match.");
             if (ImGui.SmallButton("Show all themes"))
@@ -239,18 +240,35 @@ internal sealed class BackgroundStylePanel
             return;
         }
 
-        // One grid, sized to its rows up to a few, then scrolling on its own.
+        // All: each family under a small heading, with its own grid (a search keeps its matches
+        // under their families). One family filter: just its grid, no heading repeating the filter.
+        // Sized to the content up to a few rows, then scrolling on its own.
+        var headings = themeBrowser.Family is null;
         var style = ImGui.GetStyle();
         var cardHeight = ThemeCardHeight(profile);
         var columns = ThemeBrowser.Columns(ImGui.GetContentRegionAvail().X - style.ScrollbarSize, ThemeCardWidth, style.ItemSpacing.X);
-        var rows = (themes.Count + columns - 1) / columns;
-        var contentHeight = (rows * cardHeight) + ((rows - 1) * style.ItemSpacing.Y);
+        var contentHeight = 0f;
+        foreach (var (_, themes) in groups)
+        {
+            var rows = (themes.Count + columns - 1) / columns;
+            contentHeight += (rows * cardHeight) + ((rows - 1) * style.ItemSpacing.Y) + (headings ? ImGui.GetTextLineHeightWithSpacing() + style.ItemSpacing.Y : 0f);
+        }
+
         var maxHeight = (ThemeBrowserVisibleRows * cardHeight) + ((ThemeBrowserVisibleRows - 0.5f) * style.ItemSpacing.Y);
         using (var grid = ImRaii.Child("##ThemeGrid", new Vector2(-1f, MathF.Min(contentHeight, maxHeight)), false))
         {
             if (grid.Success)
             {
-                DrawThemeCardGrid(profile, themes, current, applyTheme);
+                foreach (var (family, themes) in groups)
+                {
+                    using var id = ImRaii.PushId($"ThemeGroup{family}");
+                    if (headings)
+                    {
+                        ImGui.TextDisabled(family.ToString());
+                    }
+
+                    DrawThemeCardGrid(profile, themes, current, applyTheme);
+                }
             }
         }
     }

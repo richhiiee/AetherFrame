@@ -110,6 +110,82 @@ public class ThemeBrowserTests
         Assert.Equal(columns, ThemeBrowser.Columns(width, card, spacing));
     }
 
+    // ---------------------------------------------------------------- grouped by family (All)
+
+    [Fact]
+    public void All_GroupsEveryThemeByFamily_InFamilyOrder()
+    {
+        var groups = ThemeBrowser.Group(All, null, null);
+
+        Assert.Equal(ProfileThemePresets.FamilyOrder.Where(f => All.Any(t => t.Family == f)), groups.Select(g => g.Family));
+        Assert.All(groups, g => Assert.All(g.Themes, theme => Assert.Equal(g.Family, theme.Family)));
+        Assert.Equal(All.Length, groups.Sum(g => g.Themes.Count));
+    }
+
+    [Fact]
+    public void All_KeepsCatalogOrderInsideEachFamily()
+    {
+        foreach (var (family, themes) in ThemeBrowser.Group(All, null, null))
+        {
+            Assert.Equal(Ids(All.Where(t => t.Family == family)), Ids(themes));
+        }
+    }
+
+    [Fact]
+    public void Grouping_IsStableAcrossCalls()
+    {
+        var first = ThemeBrowser.Group(All, null, null);
+        var second = ThemeBrowser.Group(All, null, null);
+
+        Assert.Equal(first.Select(g => g.Family), second.Select(g => g.Family));
+        Assert.Equal(first.SelectMany(g => Ids(g.Themes)), second.SelectMany(g => Ids(g.Themes)));
+    }
+
+    [Fact]
+    public void ASearch_KeepsItsMatchesUnderTheirFamilies_AndOmitsEmptyFamilies()
+    {
+        // A word matching themes in more than one family, but not in all of them.
+        var word = new[] { "blue", "gold", "dark", "soft", "warm", "night" }
+            .First(w => ThemeBrowser.Group(All, w, null).Count is > 1 and var n && n < ThemeBrowser.Families(All).Count);
+
+        var groups = ThemeBrowser.Group(All, word, null);
+        var flat = ThemeBrowser.Filter(All, word, null);
+
+        Assert.Equal(flat.Count, groups.Sum(g => g.Themes.Count));
+        Assert.All(groups, g =>
+        {
+            Assert.NotEmpty(g.Themes);
+            Assert.All(g.Themes, theme => Assert.Equal(g.Family, theme.Family));
+            Assert.Equal(Ids(flat.Where(t => t.Family == g.Family)), Ids(g.Themes));
+        });
+        Assert.True(groups.Count < ThemeBrowser.Families(All).Count);
+
+        // Still in family order.
+        var order = ProfileThemePresets.FamilyOrder.ToList();
+        Assert.Equal(groups.Select(g => g.Family).OrderBy(order.IndexOf), groups.Select(g => g.Family));
+    }
+
+    [Fact]
+    public void ASearchWithNoMatch_HasNoGroups()
+    {
+        Assert.Empty(ThemeBrowser.Group(All, "no theme is called this", null));
+    }
+
+    [Fact]
+    public void AFamilyFilter_GivesOnlyThatFamily()
+    {
+        foreach (var (family, count) in ThemeBrowser.Families(All))
+        {
+            var groups = ThemeBrowser.Group(All, null, family);
+
+            var only = Assert.Single(groups);
+            Assert.Equal(family, only.Family);
+            Assert.Equal(count, only.Themes.Count);
+        }
+
+        Assert.Empty(ThemeBrowser.Group(All, "royal", ThemeFamily.Pastel));
+    }
+
     // ---------------------------------------------------------------- selection and data safety
 
     [Fact]
