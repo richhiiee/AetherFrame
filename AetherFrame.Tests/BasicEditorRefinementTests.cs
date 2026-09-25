@@ -264,12 +264,13 @@ public class BasicEditorViewTests
 }
 
 /// <summary>Favorite Job and Level read as one unit on the Plate.</summary>
+// Plates from before multiple Favorite Jobs, which still show a level before the job.
 public class JobAndLevelLayoutTests
 {
     [Fact]
     public void TheLevel_SitsJustBeforeTheJob_OnTheSameLine()
     {
-        var document = BasicDocuments.Classic(FakeCharacter.Hero);
+        var document = BasicDocuments.LegacyClassic(FakeCharacter.Hero);
         var level = BasicSections.FindText(document, ProfileElementRole.BasicLevel)!;
         var job = BasicSections.FindText(document, ProfileElementRole.BasicJob)!;
 
@@ -289,7 +290,7 @@ public class JobAndLevelLayoutTests
         // way — the same column left edge every other Details value (Home World, Free Company...)
         // already starts at. Regression coverage for the level being right-aligned in its box, which
         // left a visible gap before short levels instead of a fixed, always-present indent.
-        var document = BasicDocuments.Classic(FakeCharacter.Hero with { Level = levelValue });
+        var document = BasicDocuments.LegacyClassic(FakeCharacter.Hero with { Level = levelValue });
         var world = BasicSections.FindText(document, ProfileElementRole.BasicWorld)!;
         var level = BasicSections.FindText(document, ProfileElementRole.BasicLevel)!;
 
@@ -300,7 +301,7 @@ public class JobAndLevelLayoutTests
     [Fact]
     public void TheLevel_AlignsFlushWithTheOtherDetailValues_Mirrored()
     {
-        var document = BasicDocuments.Classic(FakeCharacter.Hero with { Level = 1 });
+        var document = BasicDocuments.LegacyClassic(FakeCharacter.Hero with { Level = 1 });
         BasicDocuments.Editor(document).SetOrientation(AdventurePlateOrientation.Mirrored);
         var world = BasicSections.FindText(document, ProfileElementRole.BasicWorld)!;
         var level = BasicSections.FindText(document, ProfileElementRole.BasicLevel)!;
@@ -312,7 +313,7 @@ public class JobAndLevelLayoutTests
     [Fact]
     public async Task ApplyingAndResetting_JobAndLevelTogether_IsOneUndoStep()
     {
-        using var harness = await BasicHarness.CreatePlateAsync(PlateStartingLayout.AdventurePlateClassic, new PlateStarterContent(FakeCharacter.Hero));
+        using var harness = await BasicHarness.OpenDocumentAsync(BasicDocuments.LegacyClassic(FakeCharacter.Hero));
         harness.DragInAdvanced(ProfileElementRole.BasicJob, new Vector2(20, 20));
         harness.DragInAdvanced(ProfileElementRole.BasicLevel, new Vector2(20, 20));
         var dragged = harness.Json();

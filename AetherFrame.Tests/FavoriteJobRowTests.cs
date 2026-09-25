@@ -28,7 +28,7 @@ public class FavoriteJobRowTests
     public void JobStarts_TheCompactGapAfterTheRenderedLevelText(int orientationValue, int levelValue)
     {
         var orientation = (AdventurePlateOrientation)orientationValue;
-        var document = BasicDocuments.Classic(FakeCharacter.Hero with { JobName = "Astrologian", Level = levelValue });
+        var document = BasicDocuments.LegacyClassic(FakeCharacter.Hero with { JobName = "Astrologian", Level = levelValue });
         BasicDocuments.Editor(document).SetOrientation(orientation);
         var (level, job, world) = Row(document);
         var padding = TextProfileElement.LayoutPadding;
@@ -54,7 +54,7 @@ public class FavoriteJobRowTests
         var jobX = new List<float>();
         foreach (var levelValue in new[] { 1, 9, 50, 99, 100 })
         {
-            var (_, job, world) = Row(BasicDocuments.Classic(FakeCharacter.Hero with { JobName = "Paladin", Level = levelValue }));
+            var (_, job, world) = Row(BasicDocuments.LegacyClassic(FakeCharacter.Hero with { JobName = "Paladin", Level = levelValue }));
             jobX.Add(job.Position.X - world.Position.X);
         }
 
@@ -66,24 +66,9 @@ public class FavoriteJobRowTests
     }
 
     [Fact]
-    public void ChangingTheLevel_ReflowsTheRow()
-    {
-        var document = BasicDocuments.Classic(FakeCharacter.Hero with { JobName = "Paladin", Level = 100 });
-        var editor = BasicDocuments.Editor(document);
-        var before = Row(document).Job.Position.X;
-
-        editor.SetLevel(5);
-
-        var (level, job, _) = Row(document);
-        Assert.True(job.Position.X < before);
-        Assert.Equal(level.Position.X + level.Size.X, job.Position.X, 3);
-        Assert.False(BasicPlateEditor.IsSectionCustomized(document, BasicSection.Job)); // still Basic-managed
-    }
-
-    [Fact]
     public void HiddenLevel_PutsTheJobFlushAtTheColumn_AndShowingItBringsTheGapBack()
     {
-        var document = BasicDocuments.Classic(FakeCharacter.Hero with { JobName = "Paladin", Level = 90 });
+        var document = BasicDocuments.LegacyClassic(FakeCharacter.Hero with { JobName = "Paladin", Level = 90 });
         var editor = BasicDocuments.Editor(document);
 
         editor.SetSectionVisible(BasicSection.Level, false);
@@ -100,13 +85,12 @@ public class FavoriteJobRowTests
     [Fact]
     public void CustomizedRow_IsNeverMoved_ByLevelChanges()
     {
-        var document = BasicDocuments.Classic(FakeCharacter.Hero with { JobName = "Paladin", Level = 90 });
+        var document = BasicDocuments.LegacyClassic(FakeCharacter.Hero with { JobName = "Paladin", Level = 90 });
         var editor = BasicDocuments.Editor(document);
         BasicSections.Find(document, ProfileElementRole.BasicJob)!.Position += new Vector2(25, 0); // moved in the Advanced editor
         var job = BasicDocuments.RectOf(BasicSections.Find(document, ProfileElementRole.BasicJob)!);
         var level = BasicDocuments.RectOf(BasicSections.Find(document, ProfileElementRole.BasicLevel)!);
 
-        editor.SetLevel(1);
         editor.SetSectionVisible(BasicSection.Level, false);
         editor.SetSectionVisible(BasicSection.Level, true);
 
@@ -117,7 +101,7 @@ public class FavoriteJobRowTests
     [Fact]
     public void ApplyLayout_PlacesTheRowCompactly_InEitherOrientation()
     {
-        var document = BasicDocuments.Classic(FakeCharacter.Hero with { JobName = "Astrologian", Level = 100 });
+        var document = BasicDocuments.LegacyClassic(FakeCharacter.Hero with { JobName = "Astrologian", Level = 100 });
         var editor = BasicDocuments.Editor(document);
         BasicSections.Find(document, ProfileElementRole.BasicJob)!.Position += new Vector2(40, 3);
 
@@ -133,7 +117,7 @@ public class FavoriteJobRowTests
     [Fact]
     public void OlderPlate_WithTheFixedLevelColumn_IsMadeCompactOnLoad_AndStaysManaged()
     {
-        var document = BasicDocuments.Classic(FakeCharacter.Hero with { JobName = "Astrologian", Level = 100 });
+        var document = BasicDocuments.LegacyClassic(FakeCharacter.Hero with { JobName = "Astrologian", Level = 100 });
         PlaceWithTheOldFixedColumn(document);
         Assert.False(BasicPlateEditor.IsSectionCustomized(document, BasicSection.Job));
 
@@ -148,7 +132,7 @@ public class FavoriteJobRowTests
     [Fact]
     public void OlderPlate_WithACustomizedRow_LoadsExactlyAsSaved()
     {
-        var document = BasicDocuments.Classic(FakeCharacter.Hero with { JobName = "Astrologian", Level = 100 });
+        var document = BasicDocuments.LegacyClassic(FakeCharacter.Hero with { JobName = "Astrologian", Level = 100 });
         PlaceWithTheOldFixedColumn(document);
         BasicSections.Find(document, ProfileElementRole.BasicJob)!.Position += new Vector2(30, 0);
         var json = Persistence.PlateDocuments.ToJson(document);

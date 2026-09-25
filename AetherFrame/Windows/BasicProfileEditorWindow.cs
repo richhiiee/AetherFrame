@@ -693,7 +693,7 @@ internal sealed partial class BasicProfileEditorWindow : Window, IDisposable, IE
 
     /// <summary>A layout group's name as the editor shows it (Favorite Job and Level are one group).</summary>
     private static string GroupTitle(BasicSection section) =>
-        section is BasicSection.Job or BasicSection.Level ? "Favorite Job & Level" : BasicSections.Get(section).Title;
+        section is BasicSection.Job or BasicSection.Level ? "Favorite Jobs" : BasicSections.Get(section).Title;
 
     // ---------------------------------------------------------------- preview
 

@@ -193,7 +193,8 @@ internal static class BasicEditorView
 
         var sections = SectionsOf(category);
         var customized = sections.Any(s => BasicPlateEditor.IsSectionCustomized(profile, s));
-        var hidden = sections.Any(s => BasicSections.Exists(profile, s) && !BasicSections.IsVisible(profile, s))
+        // A legacy Level hidden in Basic is simply retired, not a hidden section to point out.
+        var hidden = sections.Any(s => s != BasicSection.Level && BasicSections.Exists(profile, s) && !BasicSections.IsVisible(profile, s))
             || (category == BasicEditorCategory.Identity && BasicSections.Find(profile, ProfileElementRole.BasicName) is { Visible: false });
         var collision = BasicPlateEditor.FindOverlaps(profile).Any(o => Involves(o.First) || Involves(o.Second));
         return new BasicCategoryStatus(customized, hidden, collision, false);
@@ -267,13 +268,13 @@ internal static class BasicEditorView
 
             case BasicEditorCategory.Details:
             {
-                var job = string.Join(" ", new[] { Text(ProfileElementRole.BasicLevel), Text(ProfileElementRole.BasicJob) }.Where(t => t.Length > 0));
+                var job = Text(ProfileElementRole.BasicJob);
                 var count = profile.BasicPlate?.Playstyles.Count ?? 0;
                 var hours = Text(ProfileElementRole.BasicActiveHours);
                 return
                 [
                     Text(ProfileElementRole.BasicWorld) is { Length: > 0 } world ? world : "No Home World",
-                    job.Length > 0 ? job : "No Favorite Job",
+                    job.Length > 0 ? job : "No Favorite Jobs",
                     Text(ProfileElementRole.BasicFreeCompany) is { Length: > 0 } fc ? $"Free Company: {fc}" : "No Free Company",
                     $"{count switch { 0 => "No playstyles yet", 1 => "1 playstyle", _ => $"{count} playstyles" }}  ·  {(hours.Length > 0 ? hours : "No active hours")}",
                 ];

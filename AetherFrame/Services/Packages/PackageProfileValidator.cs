@@ -524,6 +524,11 @@ internal static class PackageProfileValidator
                 Fail("level out of range");
             }
 
+            if (plate.FavoriteJobIds.Count > BasicFavoriteJobs.MaxJobs)
+            {
+                Fail("too many favorite jobs");
+            }
+
             Text(plate.ThemeId, PackagePolicy.MaxIdentifierLength, "Theme");
             if (!string.IsNullOrEmpty(plate.ThemeId) && ProfileThemePresets.Find(plate.ThemeId) is null)
             {

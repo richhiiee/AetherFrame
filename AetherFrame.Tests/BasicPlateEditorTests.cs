@@ -125,24 +125,13 @@ public class BasicPlateEditorTests
         editor.SetSectionVisible(BasicSection.World, false);
         editor.SetSectionVisible(BasicSection.World, true);
         editor.ApplyTheme(ProfileThemePresets.All[2]);
-        editor.SetLevel(80);
+        editor.SetFavoriteJobs([FakeJobs.WhiteMage, FakeJobs.RedMage]);
         editor.SetPlaystyles(["Casual"]);
 
-        // Nothing moves — except the Favorite Job row, which Basic still manages and which reflows
-        // so the job keeps its compact gap after the new level text.
-        var row = new[] { ProfileElementRole.BasicLevel, ProfileElementRole.BasicJob };
+        // Nothing moves.
         foreach (var (id, rect) in before)
         {
-            var element = document.Elements.Single(e => e.Id == id);
-            if (!row.Contains(element.Role))
-            {
-                Assert.Equal(rect, BasicDocuments.RectOf(element));
-            }
-        }
-
-        foreach (var role in row)
-        {
-            Assert.Equal(LayoutRect(document, role), BasicDocuments.RectOf(BasicSections.Find(document, role)!));
+            Assert.Equal(rect, BasicDocuments.RectOf(document.Elements.Single(e => e.Id == id)));
         }
 
         Assert.True(BasicPlateEditor.IsSectionCustomized(document, BasicSection.World));
@@ -295,21 +284,18 @@ public class BasicPlateEditorTests
     }
 
     [Fact]
-    public void LevelAndJob_StoreStructuredValues_AndTheirText()
+    public void FavoriteJobs_StoreStructuredValues_AndTheirText_AndNeverALevel()
     {
         var document = BasicDocuments.Blank();
         var editor = BasicDocuments.Editor(document);
 
-        editor.SetFavoriteJob(24, "White Mage");
-        editor.SetLevel(500);
+        editor.SetFavoriteJobs([FakeJobs.WhiteMage]);
 
         Assert.Equal(24u, document.BasicPlate!.FavoriteJobId);
-        Assert.Equal(100, document.BasicPlate.Level);
+        Assert.Equal([24u], document.BasicPlate.FavoriteJobIds);
         Assert.Equal("White Mage", BasicSections.FindText(document, ProfileElementRole.BasicJob)!.Text);
-        Assert.Equal("Lv. 100", BasicSections.FindText(document, ProfileElementRole.BasicLevel)!.Text);
-
-        editor.SetLevel(0);
-        Assert.Equal(string.Empty, BasicSections.FindText(document, ProfileElementRole.BasicLevel)!.Text);
+        Assert.Null(BasicSections.Find(document, ProfileElementRole.BasicLevel));
+        Assert.Equal(0, document.BasicPlate.Level);
     }
 
     // ---------------------------------------------------------------- portrait
@@ -393,10 +379,12 @@ public class AdventurePlateStarterTests
         Assert.Equal("Hero Example", BasicSections.FindText(document, ProfileElementRole.BasicName)!.Text);
         Assert.Equal("Phoenix [Light]", BasicSections.FindText(document, ProfileElementRole.BasicWorld)!.Text);
         Assert.Equal("Paladin", BasicSections.FindText(document, ProfileElementRole.BasicJob)!.Text);
-        Assert.Equal("Lv. 100", BasicSections.FindText(document, ProfileElementRole.BasicLevel)!.Text);
+        Assert.Equal(BasicFavoriteJobs.SingularHeading, BasicSections.FindText(document, ProfileElementRole.BasicJobHeading)!.Text);
+        Assert.Null(BasicSections.Find(document, ProfileElementRole.BasicLevel)); // no level on a new Plate
         Assert.Equal("«ABC»", BasicSections.FindText(document, ProfileElementRole.BasicFreeCompany)!.Text);
         Assert.Equal(19u, document.BasicPlate!.FavoriteJobId);
-        Assert.Equal(100, document.BasicPlate.Level);
+        Assert.Equal([19u], document.BasicPlate.FavoriteJobIds);
+        Assert.Equal(0, document.BasicPlate.Level);
         Assert.Equal(ProfileThemePresets.All[0].Id, document.BasicPlate.ThemeId);
 
         foreach (var section in new[] { BasicSection.Playstyle, BasicSection.ActiveHours, BasicSection.Message })

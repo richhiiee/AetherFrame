@@ -26,6 +26,8 @@ internal sealed class BasicEditorSession
     private readonly ProfileService profileService;
     private readonly EditorSession editorSession;
     private readonly AssetStorageService assetStorage;
+    private readonly IFavoriteJobSource jobs;
+    private readonly IIdentityTextMeasurer measurer;
 
     // Set only by operations this class performs itself (currently just portrait asset import,
     // which happens before any EditorSession call exists to own the failure). Anything routed
@@ -37,11 +39,15 @@ internal sealed class BasicEditorSession
         EditorSession editorSession,
         AssetStorageService assetStorage,
         BasicIdentitySession identity,
-        ICharacterInfoSource characterInfo)
+        ICharacterInfoSource characterInfo,
+        IFavoriteJobSource jobs,
+        IIdentityTextMeasurer measurer)
     {
         this.profileService = profileService;
         this.editorSession = editorSession;
         this.assetStorage = assetStorage;
+        this.jobs = jobs;
+        this.measurer = measurer;
         Identity = identity;
         CharacterInfo = characterInfo;
     }
@@ -77,13 +83,80 @@ internal sealed class BasicEditorSession
     /// <summary>Shows or hides a whole section (never deleting its content).</summary>
     internal void SetSectionVisible(BasicSection section, bool visible) => Edit(editor => editor.SetSectionVisible(section, visible));
 
-    internal void SetFavoriteJob(uint jobId, string jobName) => Edit(editor => editor.SetFavoriteJob(jobId, jobName));
+    // ---------------------------------------------------------------- favorite jobs
 
-    /// <summary>Live level typing / stepping; commit with <see cref="CommitTextEdit"/>.</summary>
-    internal void SetLevel(int level) => EditContinuous(editor => editor.SetLevel(level));
+    /// <summary>The Plate's Favorite Jobs' row ids, in order (the first is the primary favorite).</summary>
+    internal static List<uint> FavoriteJobIds(ProfileDocument profile) => BasicFavoriteJobs.IdsOf(profile);
 
-    /// <summary>The level the Favorite Job has on the logged-in character, explicitly applied.</summary>
-    internal void UseLevel(int level) => Edit(editor => editor.SetLevel(level));
+    /// <summary>A Favorite Job's name and abbreviation, from game data (an id it doesn't know keeps a placeholder name).</summary>
+    internal FavoriteJob DescribeJob(uint jobId) => jobs.Find(jobId) ?? new FavoriteJob(jobId, $"Job {jobId}", string.Empty);
+
+    /// <summary>Whether a job can be added: not already chosen, and the list isn't full.</summary>
+    internal static bool CanAddFavoriteJob(ProfileDocument profile, uint jobId)
+    {
+        var ids = FavoriteJobIds(profile);
+        return jobId > 0 && ids.Count < BasicFavoriteJobs.MaxJobs && !ids.Contains(jobId);
+    }
+
+    /// <summary>Adds a job at the end of the Favorite Jobs (one undo step). A job already chosen, or a full list, changes nothing.</summary>
+    internal void AddFavoriteJob(uint jobId) => AddFavoriteJob(jobId, fallbackName: null);
+
+    internal void RemoveFavoriteJobAt(int index)
+    {
+        var ids = CurrentFavoriteJobIds();
+        if (index < 0 || index >= ids.Count)
+        {
+            return;
+        }
+
+        ids.RemoveAt(index);
+        SetFavoriteJobs(ids);
+    }
+
+    /// <summary>Moves a Favorite Job one place earlier (<paramref name="offset"/> -1) or later (+1); the first is the primary favorite.</summary>
+    internal void MoveFavoriteJob(int index, int offset)
+    {
+        var ids = CurrentFavoriteJobIds();
+        var target = index + offset;
+        if (index < 0 || index >= ids.Count || target < 0 || target >= ids.Count)
+        {
+            return;
+        }
+
+        (ids[index], ids[target]) = (ids[target], ids[index]);
+        SetFavoriteJobs(ids);
+    }
+
+    private void AddFavoriteJob(uint jobId, string? fallbackName)
+    {
+        if (profileService.CurrentProfile is not { } profile || !CanAddFavoriteJob(profile, jobId))
+        {
+            return;
+        }
+
+        var ids = FavoriteJobIds(profile);
+        ids.Add(jobId);
+        SetFavoriteJobs(ids, jobId, fallbackName);
+    }
+
+    private List<uint> CurrentFavoriteJobIds() =>
+        profileService.CurrentProfile is { } profile ? FavoriteJobIds(profile) : new List<uint>();
+
+    /// <summary>One undo step: the new list, its text measured with the Plate's real fonts.</summary>
+    private void SetFavoriteJobs(List<uint> ids, uint namedId = 0, string? name = null)
+    {
+        var described = ids.ConvertAll(id => id == namedId && name is { Length: > 0 } && jobs.Find(id) is null
+            ? new FavoriteJob(id, name, string.Empty)
+            : DescribeJob(id));
+        Edit(editor => editor.SetFavoriteJobs(described, MeasureText));
+    }
+
+    private float? MeasureText(TextProfileElement element, string text)
+    {
+        var probe = (TextProfileElement)element.Clone();
+        probe.Text = text;
+        return measurer.TryMeasureNaturalWidth(probe, out var width) ? width : null;
+    }
 
     internal void AddPlaystyle(string entry) => Edit(editor => editor.AddPlaystyle(entry));
 
@@ -150,19 +223,15 @@ internal sealed class BasicEditorSession
         }
     }
 
-    /// <summary>Fills the Favorite Job (and its level) from the logged-in character's current job.</summary>
+    /// <summary>
+    /// Adds the logged-in character's current job to the Favorite Jobs, unless it's already there
+    /// (one undo step). Never a level.
+    /// </summary>
     internal void UseCurrentJob()
     {
-        if (CharacterInfo.CurrentInfo is { JobName.Length: > 0 } info)
+        if (CharacterInfo.CurrentInfo is { JobId: > 0 } info)
         {
-            Edit(editor =>
-            {
-                editor.SetFavoriteJob(info.JobId, info.JobName);
-                if (info.Level > 0)
-                {
-                    editor.SetLevel(info.Level);
-                }
-            });
+            AddFavoriteJob(info.JobId, info.JobName?.Trim());
         }
     }
 

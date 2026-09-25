@@ -180,7 +180,8 @@ public class ClassicGridTests
     [InlineData("Blue Mage", 100)]
     public void LongJobNames_AndAnyLevel_FitTheirCells(string job, int level)
     {
-        var document = BasicDocuments.Classic(FakeCharacter.Hero with { JobName = job, Level = level });
+        // A Plate from before multiple Favorite Jobs, still showing its level before the job.
+        var document = BasicDocuments.LegacyClassic(FakeCharacter.Hero with { JobName = job, Level = level });
         AssertFits(document, ProfileElementRole.BasicJob);
         AssertFits(document, ProfileElementRole.BasicLevel);
     }
@@ -267,7 +268,7 @@ public class ClassicGridTests
     // ---------------------------------------------------------------- the in-game collision
 
     [Theory]
-    [InlineData((int)ProfileElementRole.BasicLevel, (int)BasicSection.Job, (int)BasicSection.ActiveHours)]
+    [InlineData((int)ProfileElementRole.BasicJob, (int)BasicSection.Job, (int)BasicSection.ActiveHours)]
     [InlineData((int)ProfileElementRole.BasicActiveHoursHeading, (int)BasicSection.ActiveHours, (int)BasicSection.Portrait)]
     public async Task ACustomizedGroupLeftInPlace_IsReportedAsAnOverlap_AndReclaimingItClearsIt(
         int movedRole, int customizedValue, int otherValue)

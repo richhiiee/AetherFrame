@@ -48,6 +48,26 @@ internal sealed class FakeMeasurer : IIdentityTextMeasurer
     }
 }
 
+/// <summary>The fake font, or — to model fonts that aren't built yet — no font at all.</summary>
+internal sealed class SwitchableMeasurer : IIdentityTextMeasurer
+{
+    private readonly FakeMeasurer font = new();
+
+    internal bool FontReady { get; set; } = true;
+
+    public bool TryMeasureNaturalWidth(TextProfileElement element, out float width)
+    {
+        width = 0f;
+        return FontReady && font.TryMeasureNaturalWidth(element, out width);
+    }
+
+    public bool TryCountLines(TextProfileElement element, float fontSize, float maxWidth, out int lines)
+    {
+        lines = 0;
+        return FontReady && font.TryCountLines(element, fontSize, maxWidth, out lines);
+    }
+}
+
 /// <summary>Greedy word wrap for a fixed-advance "font" (every character <c>advance</c> wide), like the renderer's.</summary>
 internal static class FakeTextWrap
 {
@@ -84,6 +104,22 @@ internal static class FakeTextWrap
     }
 }
 
+/// <summary>A few real FFXIV jobs with their game data row ids and abbreviations.</summary>
+internal sealed class FakeJobs : IFavoriteJobSource
+{
+    internal static readonly FavoriteJob Paladin = new(19, "Paladin", "PLD");
+    internal static readonly FavoriteJob WhiteMage = new(24, "White Mage", "WHM");
+    internal static readonly FavoriteJob Astrologian = new(33, "Astrologian", "AST");
+    internal static readonly FavoriteJob RedMage = new(35, "Red Mage", "RDM");
+    internal static readonly FavoriteJob Dancer = new(38, "Dancer", "DNC");
+    internal static readonly FavoriteJob Gunbreaker = new(37, "Gunbreaker", "GNB");
+    internal static readonly FavoriteJob Gladiator = new(1, "Gladiator", "GLA");
+
+    internal static readonly FavoriteJob[] All = [Paladin, WhiteMage, Astrologian, RedMage, Dancer, Gunbreaker, Gladiator];
+
+    public FavoriteJob? Find(uint jobId) => System.Array.Find(All, job => job.Id == jobId);
+}
+
 internal sealed class FakeTitles : IGameTitleSource
 {
     internal static readonly GameTitle Prefix = new(7, "the Brave", "the Brave", true, 1);
@@ -118,8 +154,8 @@ internal sealed class BasicHarness : IDisposable
         Profiles = new ProfileService(library);
         Assets = new AssetStorageService(Fixture.Paths.AssetsDirectory, Fixture.Paths.AssetStagingDirectory, new AssetMetadataStore(Fixture.Paths.AssetMetadataDirectory));
         Session = new EditorSession(Profiles, Assets, new FakeImages(), Fixture.Log, () => ++frame);
-        Identity = new BasicIdentitySession(Profiles, Session, Character, new FakeMeasurer(), new FakeTitles());
-        Basic = new BasicEditorSession(Profiles, Session, Assets, Identity, Character);
+        Identity = new BasicIdentitySession(Profiles, Session, Character, Measurer, new FakeTitles());
+        Basic = new BasicEditorSession(Profiles, Session, Assets, Identity, Character, new FakeJobs(), Measurer);
         Surfaces = new EditorSurfaceCoordinator(() =>
         {
             Session.CommitPendingEdits();
@@ -143,6 +179,9 @@ internal sealed class BasicHarness : IDisposable
     internal BasicEditorSession Basic { get; }
 
     internal FakeCharacter Character { get; } = new();
+
+    /// <summary>The text measurer both Basic sessions use (a deterministic fake font by default).</summary>
+    internal SwitchableMeasurer Measurer { get; } = new();
 
     internal EditorSurfaceCoordinator Surfaces { get; }
 
@@ -247,6 +286,37 @@ internal static class BasicDocuments
 
     internal static ProfileDocument Classic(BasicCharacterInfo? character = null) =>
         PlateFactory.Create(PlateStartingLayout.AdventurePlateClassic, Guid.NewGuid(), "Test", new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc), new PlateStarterContent(character));
+
+    /// <summary>
+    /// A Classic Plate as an earlier version made it: with the character's level ("Lv. 90") shown
+    /// before the Favorite Job, in the compact row Basic managed. Basic no longer creates levels, but
+    /// Plates like this exist and must keep working.
+    /// </summary>
+    internal static ProfileDocument LegacyClassic(BasicCharacterInfo character)
+    {
+        var document = Classic(character);
+        if (character.Level > 0)
+        {
+            AddLegacyLevel(document, character.Level);
+        }
+
+        return document;
+    }
+
+    /// <summary>Adds a Basic-managed level element exactly as earlier versions did (text, stored level, placement).</summary>
+    internal static void AddLegacyLevel(ProfileDocument document, int level)
+    {
+        var settings = document.BasicPlate ??= new BasicPlateSettings();
+        settings.Level = level;
+        var element = (TextProfileElement)AdventurePlateClassicLayout.CreateElement(ProfileElementRole.BasicLevel, document);
+        element.Text = BasicPlateText.Level(level);
+        element.ZIndex = document.Elements.Count == 0 ? 0 : document.Elements.Max(e => e.ZIndex) + 1;
+        document.Elements.Add(element);
+        settings.SetPlacement(ProfileElementRole.BasicLevel, new ElementRect(element.Position, element.Size));
+
+        // The compact row: the level box sized to its text, the job right after it.
+        BasicPlateEditor.UpgradeFavoriteJobRow(document);
+    }
 
     internal static BasicPlateEditor Editor(ProfileDocument document) =>
         new(document,

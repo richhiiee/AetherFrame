@@ -138,7 +138,7 @@ public class SectionHeadingSizeTests
     private static readonly (ProfileElementRole Heading, ProfileElementRole Value)[] HeadingValuePairs =
     [
         (ProfileElementRole.BasicWorldHeading, ProfileElementRole.BasicWorld),
-        (ProfileElementRole.BasicJobHeading, ProfileElementRole.BasicLevel),
+        (ProfileElementRole.BasicJobHeading, ProfileElementRole.BasicJob),
         (ProfileElementRole.BasicFreeCompanyHeading, ProfileElementRole.BasicFreeCompany),
         (ProfileElementRole.BasicPlaystyleHeading, ProfileElementRole.BasicPlaystyle),
         (ProfileElementRole.BasicActiveHoursHeading, ProfileElementRole.BasicActiveHours),

@@ -319,7 +319,7 @@ public static class AdventurePlateClassicLayout
         }
         else
         {
-            var text = new TextProfileElement { Role = role, Text = BasicSections.DefaultHeadingText(role) ?? string.Empty };
+            var text = new TextProfileElement { Role = role, Text = HeadingCaption(role, profile) ?? string.Empty };
             ApplyDefaultStyle(text, profile);
             element = text;
         }
@@ -397,11 +397,20 @@ public static class AdventurePlateClassicLayout
         text.ShadowOffsetY = defaults.ShadowOffsetY;
         text.LayoutVersion = TextProfileElement.CurrentLayoutVersion;
 
-        if (heading && BasicSections.DefaultHeadingText(role) is { } caption)
+        if (heading && HeadingCaption(role, profile) is { } caption)
         {
             text.Text = caption;
         }
     }
+
+    /// <summary>
+    /// A heading's default caption on this Plate (null for any other role): the section's own, except
+    /// Favorite Jobs', which follows how many jobs are chosen (FAVORITE JOB / FAVORITE JOBS).
+    /// </summary>
+    public static string? HeadingCaption(ProfileElementRole role, ProfileDocument profile) =>
+        role == ProfileElementRole.BasicJobHeading
+            ? BasicFavoriteJobs.Heading(BasicFavoriteJobs.IdsOf(profile).Count)
+            : BasicSections.DefaultHeadingText(role);
 
     internal static float ClampFont(float size) =>
         Math.Clamp(MathF.Round(size), TextProfileElement.MinFontSize, TextProfileElement.MaxFontSize);

@@ -36,6 +36,13 @@ internal interface IIdentityTextMeasurer
     bool TryCountLines(TextProfileElement element, float fontSize, float maxWidth, out int lines);
 }
 
+/// <summary>FFXIV jobs, for the Favorite Jobs: names and the game's own abbreviations (the plugin's JobCatalog).</summary>
+internal interface IFavoriteJobSource
+{
+    /// <summary>The job with this <c>ClassJob</c> row id, or null when game data doesn't know it.</summary>
+    FavoriteJob? Find(uint jobId);
+}
+
 /// <summary>FFXIV titles, for the Identity Header's title source.</summary>
 internal interface IGameTitleSource
 {

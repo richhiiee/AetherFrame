@@ -42,10 +42,30 @@ public sealed class BasicPlateSettings
     /// <summary>Structured Active Hours, or null when never set.</summary>
     public BasicActiveHours? ActiveHours { get; set; }
 
-    /// <summary>Row id of the Favorite Job (game data), or 0 when none was chosen from the list.</summary>
+    private List<uint> favoriteJobIds = new();
+
+    /// <summary>
+    /// The primary Favorite Job's row id (game data), or 0 for none. Before multiple Favorite Jobs
+    /// this was the only one; it's still written (always the first of <see cref="FavoriteJobIds"/>)
+    /// so an older build opening the Plate sees the same primary job.
+    /// </summary>
     public uint FavoriteJobId { get; set; }
 
-    /// <summary>The shown level, or 0 for none.</summary>
+    /// <summary>
+    /// The Favorite Jobs' row ids (game data), in the player's order — the first is the primary
+    /// favorite. Empty on a Plate saved before multiple Favorite Jobs: its single
+    /// <see cref="FavoriteJobId"/> is read as a one-job list (see <c>BasicFavoriteJobs.IdsOf</c>).
+    /// </summary>
+    public List<uint> FavoriteJobIds
+    {
+        get => favoriteJobIds;
+        set => favoriteJobIds = value ?? new List<uint>();
+    }
+
+    /// <summary>
+    /// The level an earlier version showed beside the Favorite Job, or 0 for none. No longer part
+    /// of Basic (which doesn't show or edit a level); kept exactly as saved, never stripped.
+    /// </summary>
     public int Level { get; set; }
 
     /// <summary>
@@ -101,6 +121,7 @@ public sealed class BasicPlateSettings
             Playstyles = new List<string>(Playstyles),
             ActiveHours = ActiveHours?.Clone(),
             FavoriteJobId = FavoriteJobId,
+            FavoriteJobIds = new List<uint>(FavoriteJobIds),
             Level = Level,
             ThemeId = ThemeId,
             ExtensionData = ProfileElement.CopyExtensionData(ExtensionData),
@@ -124,9 +145,18 @@ public sealed class BasicPlateSettings
             || ThemeId != other.ThemeId
             || (ActiveHours is null ? other.ActiveHours is not null : !ActiveHours.ContentEquals(other.ActiveHours))
             || Placements.Count != other.Placements.Count
-            || Playstyles.Count != other.Playstyles.Count)
+            || Playstyles.Count != other.Playstyles.Count
+            || FavoriteJobIds.Count != other.FavoriteJobIds.Count)
         {
             return false;
+        }
+
+        for (var i = 0; i < FavoriteJobIds.Count; i++)
+        {
+            if (FavoriteJobIds[i] != other.FavoriteJobIds[i])
+            {
+                return false;
+            }
         }
 
         for (var i = 0; i < Playstyles.Count; i++)

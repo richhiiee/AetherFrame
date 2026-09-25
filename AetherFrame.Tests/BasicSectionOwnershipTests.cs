@@ -19,8 +19,10 @@ public class BasicSectionOwnershipTests
 {
     private static readonly Vector2 SmallNudge = new(0, 6);
 
+    // Plates from before multiple Favorite Jobs, which still show a level: the Favorite Job and the
+    // Level remain one layout group there.
     private static Task<BasicHarness> NewClassicAsync() =>
-        BasicHarness.CreatePlateAsync(PlateStartingLayout.AdventurePlateClassic, new PlateStarterContent(FakeCharacter.Hero));
+        BasicHarness.OpenDocumentAsync(BasicDocuments.LegacyClassic(FakeCharacter.Hero));
 
     private static ElementRect RectOf(ProfileDocument document, ProfileElementRole role) =>
         BasicDocuments.RectOf(BasicSections.Find(document, role)!);
@@ -125,7 +127,7 @@ public class BasicSectionOwnershipTests
     public void MovingOnlyAHeading_KeepsItsValueWithIt_ThroughOrientationChanges(int sectionValue)
     {
         var section = (BasicSection)sectionValue;
-        var document = BasicDocuments.Classic(FakeCharacter.Hero);
+        var document = BasicDocuments.LegacyClassic(FakeCharacter.Hero);
         var editor = BasicDocuments.Editor(document);
         var definition = BasicSections.Get(section);
         BasicSections.Find(document, definition.Heading!.Value)!.Position += SmallNudge;
@@ -146,7 +148,7 @@ public class BasicSectionOwnershipTests
     [Fact]
     public void MovingOnlyAValue_KeepsItsHeadingWithIt()
     {
-        var document = BasicDocuments.Classic(FakeCharacter.Hero);
+        var document = BasicDocuments.LegacyClassic(FakeCharacter.Hero);
         var heading = RectOf(document, ProfileElementRole.BasicMessageHeading);
         BasicSections.Find(document, ProfileElementRole.BasicMessage)!.Size += new Vector2(0, -20);
 
@@ -186,7 +188,7 @@ public class BasicSectionOwnershipTests
     [Fact]
     public void RepeatedOrientationRoundTrips_NeverDrift()
     {
-        var document = BasicDocuments.Classic(FakeCharacter.Hero);
+        var document = BasicDocuments.LegacyClassic(FakeCharacter.Hero);
         var editor = BasicDocuments.Editor(document);
         editor.CreatePortrait(Guid.NewGuid());
         var normal = BasicDocuments.Placements(document);
@@ -250,7 +252,7 @@ public class JobAndLevelSpacingTests
     [MemberData(nameof(Cases))]
     public void LevelAndJob_NeverOverlap_AndSitCloseTogether(int orientationValue, string jobName, int levelValue)
     {
-        var document = BasicDocuments.Classic(FakeCharacter.Hero with { JobName = jobName, Level = levelValue });
+        var document = BasicDocuments.LegacyClassic(FakeCharacter.Hero with { JobName = jobName, Level = levelValue });
         BasicDocuments.Editor(document).SetOrientation((AdventurePlateOrientation)orientationValue);
         var world = BasicSections.FindText(document, ProfileElementRole.BasicWorld)!;
         var level = BasicSections.FindText(document, ProfileElementRole.BasicLevel)!;

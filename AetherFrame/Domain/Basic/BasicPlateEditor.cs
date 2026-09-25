@@ -254,11 +254,13 @@ internal sealed class BasicPlateEditor
 
     /// <summary>
     /// Creates whichever of the section's elements are missing, each at the layout's placement for
-    /// the current orientation. Never the portrait (it needs an image) or the Identity Header.
+    /// the current orientation. Never the portrait (it needs an image), the Identity Header, or the
+    /// Level (no longer part of Basic: a Plate that already shows one keeps it, but Basic never
+    /// creates one).
     /// </summary>
     internal void EnsureSection(BasicSection section)
     {
-        if (section is BasicSection.Portrait or BasicSection.Identity)
+        if (section is BasicSection.Portrait or BasicSection.Identity or BasicSection.Level)
         {
             return;
         }
@@ -323,19 +325,33 @@ internal sealed class BasicPlateEditor
         }
     }
 
-    internal void SetFavoriteJob(uint jobId, string? jobName)
+    /// <summary>
+    /// Sets the Favorite Jobs, in order (the first is the primary favorite; duplicates dropped, at
+    /// most <see cref="BasicFavoriteJobs.MaxJobs"/>): the stored ids (and the primary one older
+    /// builds read), the value's text — full names when they fit its box, else the standard
+    /// abbreviations (see <see cref="BasicFavoriteJobs.Choose"/>) — and the heading, FAVORITE JOB or
+    /// FAVORITE JOBS (unless it was given its own caption). <paramref name="measure"/> gives a
+    /// text's rendered width in the value's style, or null while no font can measure it (then a
+    /// conservative estimate decides). Creates the section on the first job; never moves anything.
+    /// </summary>
+    internal void SetFavoriteJobs(IEnumerable<FavoriteJob> jobs, Func<TextProfileElement, string, float?>? measure = null)
     {
-        Settings.FavoriteJobId = jobId;
-        SetText(ProfileElementRole.BasicJob, jobName?.Trim());
-    }
+        var list = BasicFavoriteJobs.Normalize(jobs);
+        Settings.FavoriteJobIds = list.ConvertAll(job => job.Id);
+        Settings.FavoriteJobId = list.Count > 0 ? list[0].Id : 0;
 
-    /// <summary>Sets the level (0 clears it; otherwise clamped to the game's range).</summary>
-    internal void SetLevel(int level)
-    {
-        var value = level <= 0 ? 0 : Math.Clamp(level, BasicPlateText.MinLevel, BasicPlateText.MaxLevel);
-        Settings.Level = value;
-        SetText(ProfileElementRole.BasicLevel, BasicPlateText.Level(value));
-        ReflowFavoriteJobRow();
+        if (list.Count > 0 || BasicSections.FindText(Profile, ProfileElementRole.BasicJob) is not null)
+        {
+            var value = EnsureText(ProfileElementRole.BasicJob);
+            var available = Math.Max(0f, value.Size.X - (2f * TextProfileElement.LayoutPadding));
+            var text = BasicFavoriteJobs.Choose(list, candidate => measure?.Invoke(value, candidate) ?? BasicFavoriteJobs.EstimateWidth(value, candidate), available);
+            value.Text = Limit(text, TextProfileElement.MaxTextLength);
+        }
+
+        if (BasicSections.FindText(Profile, ProfileElementRole.BasicJobHeading) is { } heading && BasicFavoriteJobs.IsDefaultHeading(heading.Text))
+        {
+            heading.Text = BasicFavoriteJobs.Heading(list.Count);
+        }
     }
 
     /// <summary>
@@ -726,10 +742,10 @@ internal sealed class BasicPlateEditor
 /// </summary>
 internal static class AdventurePlateStarter
 {
-    /// <summary>The sections a new Plate starts with, in creation (and so paint) order.</summary>
+    /// <summary>The sections a new Plate starts with, in creation (and so paint) order. No Level: Basic doesn't show one.</summary>
     private static readonly BasicSection[] StarterSections =
     [
-        BasicSection.World, BasicSection.FreeCompany, BasicSection.Job, BasicSection.Level,
+        BasicSection.World, BasicSection.FreeCompany, BasicSection.Job,
         BasicSection.ActiveHours, BasicSection.Playstyle, BasicSection.Message,
     ];
 
@@ -761,14 +777,10 @@ internal static class AdventurePlateStarter
         }
 
         editor.SetText(ProfileElementRole.BasicWorld, BasicPlateText.World(character.HomeWorld, character.DataCenter));
-        if (!string.IsNullOrWhiteSpace(character.JobName))
+        if (character.JobId > 0 && !string.IsNullOrWhiteSpace(character.JobName))
         {
-            editor.SetFavoriteJob(character.JobId, character.JobName);
-        }
-
-        if (character.Level > 0)
-        {
-            editor.SetLevel(character.Level);
+            // The character's current job as the one Favorite Job (its full name; one name fits).
+            editor.SetFavoriteJobs([new FavoriteJob(character.JobId, character.JobName.Trim(), string.Empty)]);
         }
 
         editor.SetText(ProfileElementRole.BasicFreeCompany, BasicPlateText.FreeCompanyTag(character.FreeCompanyTag));

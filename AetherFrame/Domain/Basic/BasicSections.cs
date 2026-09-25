@@ -41,7 +41,9 @@ public static class BasicSections
         new(BasicSection.Identity, "Identity", null, string.Empty,
             [ProfileElementRole.BasicName, ProfileElementRole.BasicTitle]),
         new(BasicSection.World, "Home World", ProfileElementRole.BasicWorldHeading, "HOME WORLD", [ProfileElementRole.BasicWorld]),
-        new(BasicSection.Job, "Favorite Job", ProfileElementRole.BasicJobHeading, "FAVORITE JOB", [ProfileElementRole.BasicJob]),
+        new(BasicSection.Job, "Favorite Jobs", ProfileElementRole.BasicJobHeading, "FAVORITE JOB", [ProfileElementRole.BasicJob]),
+        // No longer part of Basic (never created or edited there); kept so a Plate that already shows a
+        // level still has it recognized, placed with its Favorite Job, and hideable.
         new(BasicSection.Level, "Level", null, string.Empty, [ProfileElementRole.BasicLevel]),
         new(BasicSection.FreeCompany, "Free Company", ProfileElementRole.BasicFreeCompanyHeading, "FREE COMPANY", [ProfileElementRole.BasicFreeCompany]),
         new(BasicSection.Playstyle, "Playstyle", ProfileElementRole.BasicPlaystyleHeading, "PLAYSTYLE", [ProfileElementRole.BasicPlaystyle]),

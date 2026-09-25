@@ -31,6 +31,7 @@ internal sealed partial class BasicProfileEditorWindow
     private const int StepsPerDay = BasicActiveHours.MinutesPerDay / MinutesPerStep;
 
     private string customPlaystyle = string.Empty;
+    private string jobSearch = string.Empty;
 
     /// <summary>A single-line text input bound to a section value; typing is one undo step per run.</summary>
     private void DrawValueInput(ProfileDocument profile, ProfileElementRole role, string hint, int maxLength)
@@ -122,7 +123,7 @@ internal sealed partial class BasicProfileEditorWindow
 
     /// <summary>
     /// Everything about the character besides name and title, as one area: the logged-in character
-    /// once at the top, then Home World, Favorite Job and Level, and Free Company (each with its
+    /// once at the top, then Home World, Favorite Jobs, and Free Company (each with its
     /// Show toggle and its "use current" shortcut — nothing is filled in without a click), then
     /// Playstyle and Active Hours; one Appearance and Advanced Styling group for all of them; one
     /// Layout block.
@@ -145,7 +146,7 @@ internal sealed partial class BasicProfileEditorWindow
             basicEditorSession.UseCurrentWorld();
         }
 
-        DrawJobAndLevel(profile, info);
+        DrawFavoriteJobs(profile, info);
 
         // Free Company
         FieldHeader(profile, "Free Company", BasicSection.FreeCompany);
@@ -173,8 +174,7 @@ internal sealed partial class BasicProfileEditorWindow
         var targets = new[]
         {
             SectionStyle(profile, "Home World", ProfileElementRole.BasicWorld),
-            SectionStyle(profile, "Favorite Job", ProfileElementRole.BasicJob),
-            SectionStyle(profile, "Level", ProfileElementRole.BasicLevel),
+            SectionStyle(profile, "Favorite Jobs", ProfileElementRole.BasicJob),
             SectionStyle(profile, "Free Company", ProfileElementRole.BasicFreeCompany),
             SectionStyle(profile, "Playstyle", ProfileElementRole.BasicPlaystyle),
             SectionStyle(profile, "Active Hours", ProfileElementRole.BasicActiveHours),
@@ -185,44 +185,102 @@ internal sealed partial class BasicProfileEditorWindow
         DrawLayoutBlock(
             profile,
             new LayoutRow("Home World", [BasicSection.World], "Reset Home World"),
-            new LayoutRow("Favorite Job & Level", [BasicSection.Job, BasicSection.Level], "Reset Job & Level"),
+            new LayoutRow("Favorite Jobs", [BasicSection.Job, BasicSection.Level], "Reset Favorite Jobs"),
             new LayoutRow("Free Company", [BasicSection.FreeCompany], "Reset Free Company"),
             new LayoutRow("Playstyle", [BasicSection.Playstyle], "Reset Playstyle"),
             new LayoutRow("Active Hours", [BasicSection.ActiveHours], "Reset Active Hours"));
     }
 
-    /// <summary>Favorite Job and Level as one compact unit: the job picker and the level side by side.</summary>
-    private void DrawJobAndLevel(ProfileDocument profile, BasicCharacterInfo? info)
+    /// <summary>
+    /// Favorite Jobs: the chosen jobs in order (the first is the primary favorite) with Up, Down and
+    /// Remove on each, then a searchable list to add more and "Use current". No level anywhere; a
+    /// Plate from an earlier version that still shows one gets a quiet way to hide it (kept, not deleted).
+    /// </summary>
+    private void DrawFavoriteJobs(ProfileDocument profile, BasicCharacterInfo? info)
     {
-        Subheading("Favorite Job & Level");
-        var toggles = ShowToggleWidth("Job") + ImGui.GetStyle().ItemSpacing.X + ShowToggleWidth("Level");
-        ImGui.SameLine(Math.Max(ImGui.GetCursorPosX(), ImGui.GetContentRegionMax().X - toggles));
-        DrawShowToggle(profile, BasicSection.Job, "Job");
-        ImGui.SameLine();
-        DrawShowToggle(profile, BasicSection.Level, "Level");
+        FieldHeader(profile, "Favorite Jobs", BasicSection.Job);
 
-        var jobText = BasicSections.FindText(profile, ProfileElementRole.BasicJob)?.Text ?? string.Empty;
-        var level = LevelOf(profile);
-
-        var spacing = ImGui.GetStyle().ItemSpacing.X;
-        var levelWidth = 110f * ImGuiHelpers.GlobalScale;
-        var jobWidth = Math.Max(80f * ImGuiHelpers.GlobalScale, ImGui.GetContentRegionAvail().X - levelWidth - spacing);
-
-        ImGui.SetNextItemWidth(jobWidth);
-        using (var combo = ImRaii.Combo("##JobChoice", jobText.Length == 0 ? "None" : jobText))
+        var ids = BasicEditorSession.FavoriteJobIds(profile);
+        ImGui.TextDisabled($"{ids.Count} of {BasicFavoriteJobs.MaxJobs}");
+        if (ids.Count == 0)
         {
+            Hint("None yet. Add your favorites; the first one leads.");
+        }
+
+        var buttonSize = ImGui.GetFrameHeight();
+        for (var i = 0; i < ids.Count; i++)
+        {
+            using var id = ImRaii.PushId($"FavoriteJob{i}");
+            var job = basicEditorSession.DescribeJob(ids[i]);
+            ImGui.AlignTextToFramePadding();
+            ImGui.TextUnformatted(job.Name);
+            if (i == 0 && ids.Count > 1)
+            {
+                ImGui.SameLine();
+                ImGui.TextDisabled("(primary)");
+            }
+
+            ImGui.SameLine(Math.Max(ImGui.GetCursorPosX(), ImGui.GetContentRegionMax().X - ((buttonSize + 2f) * 3f)));
+            using (ImRaii.Disabled(i == 0))
+            {
+                if (EditorWidgets.IconButton("Up", FontAwesomeIcon.ArrowUp, "Move up", buttonSize))
+                {
+                    basicEditorSession.MoveFavoriteJob(i, -1);
+                }
+            }
+
+            ImGui.SameLine(0f, 2f);
+            using (ImRaii.Disabled(i == ids.Count - 1))
+            {
+                if (EditorWidgets.IconButton("Down", FontAwesomeIcon.ArrowDown, "Move down", buttonSize))
+                {
+                    basicEditorSession.MoveFavoriteJob(i, 1);
+                }
+            }
+
+            ImGui.SameLine(0f, 2f);
+            if (EditorWidgets.IconButton("Remove", FontAwesomeIcon.Times, "Remove", buttonSize))
+            {
+                basicEditorSession.RemoveFavoriteJobAt(i);
+            }
+        }
+
+        // Add: a searchable list of the jobs not chosen yet.
+        using (ImRaii.Disabled(ids.Count >= BasicFavoriteJobs.MaxJobs))
+        {
+            ImGui.SetNextItemWidth(-1);
+            using var combo = ImRaii.Combo("##AddFavoriteJob", ids.Count >= BasicFavoriteJobs.MaxJobs ? "The list is full" : "Add a job...");
             if (combo.Success)
             {
-                if (ImGui.Selectable("None", jobText.Length == 0) && jobText.Length > 0)
+                if (ImGui.IsWindowAppearing())
                 {
-                    basicEditorSession.SetFavoriteJob(0, string.Empty);
+                    jobSearch = string.Empty;
+                    ImGui.SetKeyboardFocusHere();
                 }
 
+                ImGui.SetNextItemWidth(-1);
+                ImGui.InputTextWithHint("##JobSearch", "Search jobs...", ref jobSearch, 32);
+                var shown = 0;
                 foreach (var job in jobCatalog.Jobs)
                 {
-                    if (ImGui.Selectable($"{job.Name}##Job{job.Id}", job.Name == jobText) && job.Name != jobText)
+                    if (ids.Contains(job.Id)
+                        || (jobSearch.Trim().Length > 0
+                            && !job.Name.Contains(jobSearch.Trim(), StringComparison.OrdinalIgnoreCase)
+                            && !job.Abbreviation.Contains(jobSearch.Trim(), StringComparison.OrdinalIgnoreCase)))
                     {
-                        basicEditorSession.SetFavoriteJob(job.Id, job.Name);
+                        continue;
+                    }
+
+                    shown++;
+                    if (ImGui.Selectable($"{job.Name}##Job{job.Id}"))
+                    {
+                        basicEditorSession.AddFavoriteJob(job.Id);
+                    }
+
+                    if (job.Abbreviation.Length > 0)
+                    {
+                        ImGui.SameLine();
+                        ImGui.TextDisabled(job.Abbreviation);
                     }
                 }
 
@@ -230,68 +288,33 @@ internal sealed partial class BasicProfileEditorWindow
                 {
                     ImGui.TextDisabled("No job data available.");
                 }
+                else if (shown == 0)
+                {
+                    ImGui.TextDisabled("No other jobs match.");
+                }
             }
         }
-
-        ToolTip("Favorite Job");
-        ImGui.SameLine(0f, spacing);
-        ImGui.SetNextItemWidth(levelWidth);
-        if (ImGui.InputInt("##Level", ref level, 1, 10))
-        {
-            basicEditorSession.SetLevel(Math.Clamp(level, 0, BasicPlateText.MaxLevel));
-        }
-
-        if (ImGui.IsItemDeactivatedAfterEdit())
-        {
-            basicEditorSession.CommitTextEdit();
-        }
-
-        ToolTip("Level (0 shows none)");
 
         // From the logged-in character, only on request.
-        var shownCurrent = false;
-        if (info?.JobName is { Length: > 0 } currentJob && (currentJob != jobText || level != info.Level))
+        if (info is { JobId: > 0, JobName.Length: > 0 } current && BasicEditorSession.CanAddFavoriteJob(profile, current.JobId)
+            && ImGui.SmallButton($"Add current: {current.JobName}"))
         {
-            shownCurrent = true;
-            if (ImGui.SmallButton(info.Level > 0 ? $"Use current: Lv. {info.Level} {currentJob}" : $"Use current: {currentJob}"))
-            {
-                basicEditorSession.UseCurrentJob();
-            }
+            basicEditorSession.UseCurrentJob();
         }
 
-        // The chosen job's own level on this character, when the game knows it.
-        if (profile.BasicPlate is { FavoriteJobId: > 0 } settings
-            && jobCatalog.GetCharacterLevel(settings.FavoriteJobId) is { } jobLevel
-            && jobLevel != level)
+        Hint("Shown as full names when they fit, otherwise as job abbreviations (AST, WHM...).");
+
+        // A level shown by an earlier version: Basic no longer shows or edits one.
+        if (BasicSections.Find(profile, ProfileElementRole.BasicLevel) is { Visible: true })
         {
-            if (shownCurrent)
+            ImGui.TextDisabled("This Plate still shows a level from an earlier version.");
+            if (ImGui.SmallButton("Hide Level"))
             {
-                ImGui.SameLine();
+                basicEditorSession.SetSectionVisible(BasicSection.Level, false);
             }
 
-            if (ImGui.SmallButton($"Use Lv. {jobLevel} ({jobText})"))
-            {
-                basicEditorSession.UseLevel(jobLevel);
-            }
+            ToolTip("Hides it (undoable); it's kept and can still be shown again in the Advanced Editor.");
         }
-    }
-
-    /// <summary>The shown level: the stored one, else parsed from the level text ("Lv. 90"), else 0.</summary>
-    private static int LevelOf(ProfileDocument profile)
-    {
-        if (profile.BasicPlate is { Level: > 0 } settings)
-        {
-            return settings.Level;
-        }
-
-        var text = BasicSections.FindText(profile, ProfileElementRole.BasicLevel)?.Text ?? string.Empty;
-        var digits = text.AsSpan().Trim();
-        while (digits.Length > 0 && !char.IsDigit(digits[0]))
-        {
-            digits = digits[1..];
-        }
-
-        return int.TryParse(digits, out var parsed) ? parsed : 0;
     }
 
     // ---------------------------------------------------------------- playstyle and active hours (in Details)

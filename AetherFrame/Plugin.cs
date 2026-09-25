@@ -121,9 +121,11 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
             editorSession.EndInteraction();
         });
         var gameTitleCatalog = new GameTitleCatalog();
+        var textMeasurer = new ProfileTextMeasurer(fontService);
         var basicIdentitySession = new BasicIdentitySession(
-            profileService, editorSession, characterIdentityService, new ProfileTextMeasurer(fontService), gameTitleCatalog);
-        var basicEditorSession = new BasicEditorSession(profileService, editorSession, assetStorageService, basicIdentitySession, characterIdentityService);
+            profileService, editorSession, characterIdentityService, textMeasurer, gameTitleCatalog);
+        var basicEditorSession = new BasicEditorSession(
+            profileService, editorSession, assetStorageService, basicIdentitySession, characterIdentityService, jobCatalog, textMeasurer);
         keyboardShortcutService = new KeyboardShortcutService();
 
         // Undo, Redo, Save and Revert as both editors' shared action bar offers them.

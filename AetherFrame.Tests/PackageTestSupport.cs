@@ -86,7 +86,7 @@ internal sealed class PackageFixture : IDisposable
         var document = service.OpenDocumentForEditing(created.PlateId);
         var editor = BasicDocuments.Editor(document);
         editor.ApplyTheme(ProfileThemePresets.All[3]);
-        editor.SetLevel(90);
+        editor.SetFavoriteJobs([FakeJobs.Paladin, FakeJobs.WhiteMage, FakeJobs.Astrologian]);
         editor.SetPlaystyles(["Casual", "Roleplay"]);
 
         document.Background!.Mode = ProfileBackgroundMode.TexturedFill;

@@ -395,10 +395,12 @@ public class BasicEditorSessionTests
         harness.Basic.UseCurrentFreeCompany();
 
         Assert.Equal("Odin [Light]", BasicSections.FindText(harness.Document, ProfileElementRole.BasicWorld)!.Text);
-        Assert.Equal("Dancer", BasicSections.FindText(harness.Document, ProfileElementRole.BasicJob)!.Text);
-        Assert.Equal("Lv. 92", BasicSections.FindText(harness.Document, ProfileElementRole.BasicLevel)!.Text);
+        // Use current adds the current job after the Favorite Jobs already chosen (never a level).
+        Assert.Equal("Paladin, Dancer", BasicSections.FindText(harness.Document, ProfileElementRole.BasicJob)!.Text);
+        Assert.Null(BasicSections.Find(harness.Document, ProfileElementRole.BasicLevel));
         Assert.Equal("«XYZ»", BasicSections.FindText(harness.Document, ProfileElementRole.BasicFreeCompany)!.Text);
-        Assert.Equal(38u, harness.Document.BasicPlate!.FavoriteJobId);
+        Assert.Equal([19u, 38u], harness.Document.BasicPlate!.FavoriteJobIds);
+        Assert.Equal(19u, harness.Document.BasicPlate.FavoriteJobId);
     }
 
     [Fact]

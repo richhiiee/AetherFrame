@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using AetherFrame.Domain.Basic;
+using AetherFrame.UI.Editor;
 using Lumina.Excel.Sheets;
 
 namespace AetherFrame.Services;
@@ -16,8 +18,11 @@ internal sealed record GameJob(uint Id, string Name, string Abbreviation);
 /// than a hardcoded list: every levelable class/job, except base classes that have a job (a
 /// Gladiator is listed as its Paladin). Levels come from Dalamud's <c>IPlayerState</c> (managed, no
 /// unsafe code). Loaded lazily; must be used from the main (framework/draw) thread.
+///
+/// Also the Favorite Jobs' name and abbreviation source (<see cref="IFavoriteJobSource"/>): the
+/// game's own <c>ClassJob</c> Name and Abbreviation, never a table of AetherFrame's own.
 /// </summary>
-internal sealed class JobCatalog
+internal sealed class JobCatalog : IFavoriteJobSource
 {
     private IReadOnlyList<GameJob>? jobs;
     private Dictionary<uint, GameJob>? jobsById;
@@ -35,6 +40,33 @@ internal sealed class JobCatalog
     {
         EnsureLoaded();
         return jobsById!.TryGetValue(jobId, out var job) ? job : null;
+    }
+
+    /// <summary>
+    /// A Favorite Job's name and abbreviation: a listed job, or any other <c>ClassJob</c> row (a base
+    /// class the character is currently on, say), straight from game data; null when unknown.
+    /// </summary>
+    FavoriteJob? IFavoriteJobSource.Find(uint jobId)
+    {
+        if (Find(jobId) is { } listed)
+        {
+            return new FavoriteJob(listed.Id, listed.Name, listed.Abbreviation);
+        }
+
+        try
+        {
+            if (jobId > 0 && DalamudServices.DataManager.GetExcelSheet<ClassJob>().TryGetRow(jobId, out var row)
+                && row.Name.ExtractText() is { Length: > 0 } name)
+            {
+                return new FavoriteJob(jobId, FormatName(name), row.Abbreviation.ExtractText());
+            }
+        }
+        catch (Exception)
+        {
+            // Game data unavailable: the caller shows a placeholder.
+        }
+
+        return null;
     }
 
     /// <summary>The logged-in character's level in that job, or null when unknown (none logged in, or not unlocked).</summary>
