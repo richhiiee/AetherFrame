@@ -609,28 +609,25 @@ public class PlateViewerLayoutTests
     // ---- Title bar order --------------------------------------------------------------------
 
     [Fact]
-    public void TitleBar_IsMenuMinimizeClose_WithTheNativeCloseFarRight()
+    public void TitleBar_IsSettingsMinimizeClose_AllDalamudsOwnButtons()
     {
-        var order = TitleBarOrder.LeftToRight(new[]
-        {
-            ("Minimize", TitleBarOrder.Minimize),
-            ("Menu", TitleBarOrder.DalamudMenu),
-        }, nativeClose: "Close", showsNativeClose: true);
+        // The Advanced Editor adds no title bar buttons of its own: Settings is Dalamud's Window
+        // Options menu, Minimize and Close are the native collapse and close in their far-right slots.
+        var order = TitleBarOrder.LeftToRight(
+            new[] { ("Settings", TitleBarOrder.DalamudMenu) },
+            nativeClose: "Close", showsNativeClose: true, nativeMinimize: "Minimize", showsNativeMinimize: true);
 
-        Assert.Equal(["Menu", "Minimize", "Close"], order);
+        Assert.Equal(["Settings", "Minimize", "Close"], order);
     }
 
     [Fact]
-    public void TitleBar_FutureMaximize_GoesBetweenMinimizeAndClose()
+    public void TitleBar_CustomButtons_SitBetweenSettingsAndTheNativeMinimize()
     {
-        var order = TitleBarOrder.LeftToRight(new[]
-        {
-            ("Maximize", TitleBarOrder.MaximizeRestore),
-            ("Minimize", TitleBarOrder.Minimize),
-            ("Menu", TitleBarOrder.DalamudMenu),
-        }, nativeClose: "Close", showsNativeClose: true);
+        var order = TitleBarOrder.LeftToRight(
+            new[] { ("Pin", -5), ("Settings", TitleBarOrder.DalamudMenu), ("Maximize", -2) },
+            nativeClose: "Close", showsNativeClose: true, nativeMinimize: "Minimize", showsNativeMinimize: true);
 
-        Assert.Equal(["Menu", "Minimize", "Maximize", "Close"], order);
+        Assert.Equal(["Settings", "Pin", "Maximize", "Minimize", "Close"], order);
     }
 
     // ---- Advanced editor close guard ----------------------------------------------------------
@@ -654,7 +651,7 @@ public class PlateViewerLayoutTests
     [Fact]
     public void TitleBar_Priorities_NeverOverflowDalamudsSubtractingComparison()
     {
-        int[] priorities = [TitleBarOrder.DalamudMenu, TitleBarOrder.Minimize, TitleBarOrder.MaximizeRestore];
+        int[] priorities = [TitleBarOrder.DalamudMenu, -5, -2]; // the small negatives any custom button must use
         foreach (var a in priorities)
         {
             foreach (var b in priorities)

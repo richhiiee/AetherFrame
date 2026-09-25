@@ -41,7 +41,7 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable, IEditor
 
     private static readonly float[] ZoomPresets = [0.25f, 0.5f, 0.75f, 1f, 1.5f, 2f, 3f, 4f];
 
-    private const ImGuiWindowFlags EditorFlags = ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse | ImGuiWindowFlags.NoCollapse;
+    private const ImGuiWindowFlags EditorFlags = ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse;
 
     /// <summary>Clean Preview's presentation: no background, border (see PreDraw), title bar or
     /// chrome; placed and sized by <see cref="CleanPreviewLayout"/>, so not movable or resizable.</summary>
@@ -135,26 +135,11 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable, IEditor
         this.surfaces = surfaces;
         backgroundPanel = new BackgroundStylePanel(editorSession, renderResources, OpenImageFileDialog);
 
-        // Title bar, left to right: Dalamud's Window Options menu | Minimize | Close (Close always
-        // far right; a future Maximize/Restore goes between Minimize and Close). Priorities come
-        // from TitleBarOrder — small negatives, because Dalamud sorts by subtracting priorities and
-        // anything larger overflows against its menu's int.MinValue and scrambles the order.
-        // Native collapse is disabled (see PreDraw's NoCollapse) and replaced by the Minimize
-        // button so it can sit between the menu and Close; clicking it toggles the exact same
-        // collapsed/expanded state a native collapse button would.
-        TitleBarButtons.Add(new TitleBarButton
-        {
-            Icon = FontAwesomeIcon.WindowMinimize,
-            IconOffset = new Vector2(1.5f, 1f),
-            Click = _ =>
-            {
-                Collapsed = !ImGui.IsWindowCollapsed();
-                CollapsedCondition = ImGuiCond.Always;
-            },
-            ShowTooltip = () => ImGui.SetTooltip("Minimize"),
-            Priority = TitleBarOrder.Minimize,
-        });
-
+        // Title bar, left to right: Dalamud's Window Options (Settings) | Minimize | Close — all three
+        // Dalamud's own, the same as every other AetherFrame window (see TitleBarOrder). Minimize is
+        // the native collapse button (EditorFlags allows it), so collapsing and restoring — by the
+        // button or a title bar double-click — is ImGui's own state, never forced by this window.
+        //
         // Close is the standard title bar close every AetherFrame window has (Dalamud's native one,
         // always far right, the same in the collapsed title bar). It can close with unsaved work, so
         // the close is vetoed in PreOpenCheck — before Dalamud acts on it — and the unsaved-changes
@@ -300,9 +285,7 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable, IEditor
         }
 
         // The layout is sized to fit exactly; the panels scroll themselves. Escape belongs to
-        // Clean Preview while it's up, so the window-close hotkey stands down then. NoCollapse
-        // hides the native collapse button — replaced by the custom Minimize title bar button
-        // (see the constructor) so it can be positioned between Window Options and Close.
+        // Clean Preview while it's up, so the window-close hotkey stands down then.
         Flags = EditorFlags;
         RespectCloseHotkey = !editorSession.PreviewActive;
     }
@@ -319,12 +302,6 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable, IEditor
 
     public override void Draw()
     {
-        // Releases the one-frame collapsed-state request the Minimize button made (if any) back
-        // to ImGui's own tracking, so it only forces that one toggle and never fights later
-        // collapse/expand state. Safe to clear unconditionally: by the time this runs, this
-        // frame's PreDraw/ApplyConditionals has already consumed whatever was set last frame.
-        Collapsed = null;
-
         if (!presentingPreview)
         {
             editorWindowPos = ImGui.GetWindowPos();
