@@ -61,7 +61,7 @@ Freeform control over text, images, Components, layering, placement, scaling, ro
 
 A structured editor modelled on FFXIV's Adventure Plates. You fill in sections, and AetherFrame handles the layout.
 
-- **Identity**: name, title, world, job and level, drawn from your character where available.
+- **Identity and details**: name, title, Home World, Free Company, and up to eight Favorite Jobs in your chosen order, shown as full names when they fit and as job abbreviations when they don't. Your current character's details can be filled in with a click; nothing changes on its own.
 - **Portrait**: import your own image, with Fill / Fit / Stretch framing and a mirrored layout option.
 - **Playstyle, active hours and a free-form message.**
 - **Themes, backgrounds and patterns**: built-in colour themes plus procedural background patterns.
@@ -80,7 +80,7 @@ A freeform canvas for when the Basic layout isn't enough.
 Reusable decorative pieces you add to a Plate and restyle without redrawing anything.
 
 - **Procedural Components**: Plate frames, portrait frames and overlays, name backings, dividers, section headers and corner ornaments, all drawn in code and tintable.
-- **Bundled graphical Components**: hand-made artwork shipped inside the plugin (for example the Celestial Dream *Astrolabe Pivot* corner ornament).
+- **Bundled graphical Components**: original artwork created with AI assistance, shipped inside the plugin. This currently means the Celestial Dream *Astrolabe Pivot* corner ornament and the full-color **Celestial Sakura** set: a background, Plate frame, portrait frame, name backing, two dividers and a corner ornament.
 - **Corner-specific placement**: choose which corners a corner ornament appears on.
 - **Overflow**: Components can deliberately extend past the Plate's edges, and previews account for it.
 
@@ -219,7 +219,7 @@ AetherFrame.Tests/      pure-logic tests that build without Dalamud
 - **Templates.** Starting points for new Plates: built-in ones compiled into the plugin, plus user Templates saved locally.
 - **Components.** Decorations described by a stable definition id and per-instance settings. Procedural ones are drawn in code, graphical ones use embedded artwork. Plates store only ids, never the art itself.
 - **Rendering.** One renderer draws a Plate for the editors, the Plate Viewer, Clean Preview and My Plates previews, so all of them match.
-- **Assets.** User images are copied into a local asset store, checked on import and tracked by reference so unused files can be removed.
+- **Assets.** User images are copied into a local asset store, checked on import and tracked by reference. Unused images are not cleaned up automatically in this version.
 - **Packages.** `.aetherframe` files are ZIP-based packages containing a manifest, the Plate document and its images. They are validated in a staging area before anything is imported.
 
 Full-size source artwork for bundled Components lives in the separate [AetherFrameAssets](https://github.com/richhiiee/AetherFrameAssets) repository. The plugin only needs the optimized copies in `AetherFrame/Assets/`.

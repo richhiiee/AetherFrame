@@ -59,10 +59,11 @@ approved source ever changes; never edit the source.
 
 ## Celestial Sakura / 7 full-color pieces
 
-Seven original pieces: champagne gold filigree, blush cherry blossoms, pearls and a crescent moon.
-Each PNG is the approved file, byte for byte. Nothing was resampled, cropped, padded, recolored or
-re-encoded. Only the two dividers were renamed from the staging names (`Divider_01` and
-`Divider_02`). `CelestialSakuraTests` checks every SHA-256 below against the embedded resource.
+Seven original pieces created with AI assistance: champagne gold filigree, blush cherry blossoms,
+pearls and a crescent moon. Each PNG is the approved file, byte for byte. Nothing was resampled,
+cropped, padded, recolored or re-encoded. Only the two dividers were renamed from their original
+names (`Divider_01` and `Divider_02`). `CelestialSakuraTests` checks every SHA-256 below against the
+embedded resource.
 
 | Runtime file | Pixels | Ratio | Alpha | Kind | SHA-256 |
 |---|---|---|---|---|---|
@@ -74,8 +75,9 @@ re-encoded. Only the two dividers were renamed from the staging names (`Divider_
 | `CelestialSakura_Divider_Slim.png` (was `Divider_02`) | 2172 x 724 | 3.0000 | 96.0% clear | Divider | `a1798774…f98f4` |
 | `CelestialSakura_CornerOrnament.png` | 1254 x 1254 | 1.0000 | 75.9% clear | Corner Ornament | `e58f67f3…8899e` |
 
-The staging copies and their generation notes are in the main checkout's
-`Assets/Components/CelestialSakura` folder, which isn't committed.
+Because the files are unmodified, each one still carries its embedded C2PA Content Credentials
+(provenance metadata recording how the image was generated). Re-encoding or stripping a file would
+remove them and change its SHA-256.
 
 **Plate-sized pieces against the canvas.** The Adventure Plate canvas is 1280 x 720 (16:9, 1.7778;
 `ProfileDocument.DefaultCanvasWidth/Height` and `AdventurePlateClassicLayout.ReferenceWidth/Height`).
