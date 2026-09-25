@@ -19,8 +19,8 @@ namespace AetherFrame.Windows;
 /// <summary>
 /// The Basic editor: choose what to edit, edit it, always see the result. The shared
 /// <see cref="EditorActionBar"/> (the same one the Advanced editor has) sits on top; its Preview is
-/// the same Clean Preview as the Advanced editor's (<see cref="CleanPreviewPresenter"/>). A category navigator
-/// (Design, Portrait, Identity, Character Details, Activity, Message) picks what the inspector shows — one
+/// the same Clean Preview as the Advanced editor's (<see cref="CleanPreviewPresenter"/>). A navigation
+/// rail (Style, Portrait, Identity, Details, Message) picks what the inspector shows — one
 /// category at a time, its title and summary pinned above its controls — beside an always-visible
 /// live preview (which a click on a section also navigates from). On narrower windows the
 /// navigator becomes a wrapping category strip and the preview moves above the inspector.
@@ -34,8 +34,19 @@ namespace AetherFrame.Windows;
 /// </summary>
 internal sealed partial class BasicProfileEditorWindow : Window, IDisposable, IEditorSurface
 {
-    // Wide enough for the longest category name ("CHARACTER DETAILS") beside its status marker.
+    // The navigation rail (unscaled pixels): wide enough for every category name with room to spare
+    // beside its status marker; rows of one height, a small gap between them, text inset from the
+    // selection indicator.
     private const float NavigatorWidth = 176f;
+    private const float RailPadding = 8f;
+    private const float RailRowGap = 3f;
+    private const float RailTextInset = 14f;
+    private const float RailIndicatorWidth = 3f;
+
+    private static readonly Vector4 RailBackground = new(1f, 1f, 1f, 0.035f);
+    private static readonly Vector4 RailHoverBackground = new(1f, 1f, 1f, 0.05f);
+    private static readonly Vector4 RailSelectedBackground = new(0.30f, 0.62f, 1.00f, 0.14f);
+    private static readonly Vector4 RailInactiveText = new(1f, 1f, 1f, 0.68f);
     private const float InspectorMinWidth = 340f;
     private const float InspectorMaxWidth = 500f;
 
@@ -336,27 +347,67 @@ internal sealed partial class BasicProfileEditorWindow : Window, IDisposable, IE
 
     // ---------------------------------------------------------------- navigation
 
-    /// <summary>The wide layout's vertical category list; the selected one is highlighted.</summary>
+    /// <summary>
+    /// The wide layout's navigation rail: its own subtle background, a small "Basic Editor" header,
+    /// then one row per category — Title Case, one height, evenly spaced, text inset. The selected
+    /// row has a soft accent tint, a narrow accent bar at its left edge and full-strength text;
+    /// the others muted text, with a faint background on hover. Rows are ordinary ImGui items, so
+    /// mouse, keyboard and gamepad navigation work as before; a status marker still sits at the
+    /// right of any row that needs one.
+    /// </summary>
     private void DrawNavigator(ProfileDocument profile, Vector2 size)
     {
-        using var child = ImRaii.Child("##BasicNavigator", size, true);
+        var scale = ImGuiHelpers.GlobalScale;
+        using var rounding = ImRaii.PushStyle(ImGuiStyleVar.ChildRounding, 6f * scale);
+        using var background = ImRaii.PushColor(ImGuiCol.ChildBg, RailBackground);
+        using var child = ImRaii.Child("##BasicNavigator", size, false);
         if (!child.Success)
         {
             return;
         }
 
-        var rowHeight = ImGui.GetFrameHeight() * 1.3f;
+        var padding = RailPadding * scale;
+        var rowHeight = MathF.Round(ImGui.GetFrameHeight() * 1.45f);
+        var rowWidth = Math.Max(1f, ImGui.GetContentRegionAvail().X - (padding * 2f));
+        var drawList = ImGui.GetWindowDrawList();
+
+        ImGui.SetCursorPos(new Vector2(padding + (RailTextInset * scale) - (RailIndicatorWidth * scale), padding));
+        ImGui.TextDisabled("Basic Editor");
+        ImGui.Dummy(new Vector2(0f, 2f * scale));
+
+        using var spacing = ImRaii.PushStyle(ImGuiStyleVar.ItemSpacing, new Vector2(ImGui.GetStyle().ItemSpacing.X, RailRowGap * scale));
         foreach (var category in BasicEditorView.Categories)
         {
             var status = BasicEditorView.StatusOf(profile, category);
             var selected = navigation.Selected == category;
-            using (ImRaii.PushColor(ImGuiCol.Text, EditorWidgets.AccentColor, selected))
+            var title = BasicEditorView.Title(category);
+
+            ImGui.SetCursorPosX(padding);
+            if (ImGui.InvisibleButton($"##Nav{category}", new Vector2(rowWidth, rowHeight)))
             {
-                if (ImGui.Selectable($"{BasicEditorView.Title(category).ToUpperInvariant()}##Nav{category}", selected, ImGuiSelectableFlags.None, new Vector2(0f, rowHeight)))
-                {
-                    navigation.Select(category);
-                }
+                navigation.Select(category);
             }
+
+            var min = ImGui.GetItemRectMin();
+            var max = ImGui.GetItemRectMax();
+            var hovered = ImGui.IsItemHovered();
+            var corner = 4f * scale;
+            if (selected)
+            {
+                drawList.AddRectFilled(min, max, ImGui.GetColorU32(RailSelectedBackground), corner);
+                var inset = 6f * scale;
+                drawList.AddRectFilled(
+                    new Vector2(min.X, min.Y + inset), new Vector2(min.X + (RailIndicatorWidth * scale), max.Y - inset),
+                    ImGui.GetColorU32(EditorWidgets.AccentColor), RailIndicatorWidth * scale / 2f);
+            }
+            else if (hovered)
+            {
+                drawList.AddRectFilled(min, max, ImGui.GetColorU32(RailHoverBackground), corner);
+            }
+
+            var textSize = ImGui.CalcTextSize(title);
+            var textColor = selected ? ImGui.GetColorU32(ImGuiCol.Text) : ImGui.GetColorU32(RailInactiveText);
+            drawList.AddText(new Vector2(min.X + (RailTextInset * scale), min.Y + ((max.Y - min.Y - textSize.Y) / 2f)), textColor, title);
 
             StatusTooltip(status);
             DrawStatusMarker(status);
@@ -494,7 +545,7 @@ internal sealed partial class BasicProfileEditorWindow : Window, IDisposable, IE
         using var id = ImRaii.PushId((int)category);
         switch (category)
         {
-            case BasicEditorCategory.Design:
+            case BasicEditorCategory.Style:
                 DrawDesignCategory(profile);
                 break;
             case BasicEditorCategory.Portrait:
@@ -505,9 +556,6 @@ internal sealed partial class BasicProfileEditorWindow : Window, IDisposable, IE
                 break;
             case BasicEditorCategory.Details:
                 DrawDetailsCategory(profile);
-                break;
-            case BasicEditorCategory.Playstyle:
-                DrawPlaystyleCategory(profile);
                 break;
             case BasicEditorCategory.Message:
                 DrawMessageCategory(profile);

@@ -13,7 +13,7 @@ namespace AetherFrame.Windows;
 /// </summary>
 internal sealed partial class BasicProfileEditorWindow
 {
-    /// <summary>Plate Frame and the decorations, for the Design category.</summary>
+    /// <summary>Plate Frame and the decorations, for the Style category.</summary>
     private void DrawFrameAndDecorations(ProfileDocument profile)
     {
         ImGui.Spacing();

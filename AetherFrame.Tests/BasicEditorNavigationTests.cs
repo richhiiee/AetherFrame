@@ -28,7 +28,7 @@ public class BasicEditorNavigationTests
         var navigation = new BasicEditorNavigation();
         navigation.TrackPlate(Guid.NewGuid());
 
-        Assert.Equal(BasicEditorCategory.Design, navigation.Selected);
+        Assert.Equal(BasicEditorCategory.Style, navigation.Selected);
         Assert.Equal(PreviewZoom.Fit, navigation.Zoom);
     }
 
@@ -38,7 +38,7 @@ public class BasicEditorNavigationTests
         var navigation = new BasicEditorNavigation();
         navigation.TrackPlate(Guid.NewGuid());
 
-        foreach (var category in new[] { BasicEditorCategory.Message, BasicEditorCategory.Portrait, BasicEditorCategory.Details, BasicEditorCategory.Design })
+        foreach (var category in new[] { BasicEditorCategory.Message, BasicEditorCategory.Portrait, BasicEditorCategory.Details, BasicEditorCategory.Style })
         {
             navigation.Select(category);
             Assert.Equal(category, navigation.Selected);
@@ -96,7 +96,7 @@ public class BasicEditorNavigationTests
         harness.Profiles.OpenPlate(created.PlateId);
         navigation.TrackPlate(harness.Profiles.OpenPlateId);
 
-        Assert.Equal(BasicEditorCategory.Design, navigation.Selected);
+        Assert.Equal(BasicEditorCategory.Style, navigation.Selected);
         Assert.Equal(PreviewZoom.Fit, navigation.Zoom);
     }
 
@@ -127,9 +127,10 @@ public class BasicEditorNavigationTests
             Assert.Equal(owners[0], BasicEditorView.CategoryOf(section));
         }
 
-        Assert.Empty(BasicEditorView.SectionsOf(BasicEditorCategory.Design));
-        Assert.Equal([BasicSection.World, BasicSection.Job, BasicSection.Level, BasicSection.FreeCompany], BasicEditorView.SectionsOf(BasicEditorCategory.Details));
-        Assert.Equal([BasicSection.Playstyle, BasicSection.ActiveHours], BasicEditorView.SectionsOf(BasicEditorCategory.Playstyle));
+        Assert.Empty(BasicEditorView.SectionsOf(BasicEditorCategory.Style));
+        Assert.Equal(
+            [BasicSection.World, BasicSection.Job, BasicSection.Level, BasicSection.FreeCompany, BasicSection.Playstyle, BasicSection.ActiveHours],
+            BasicEditorView.SectionsOf(BasicEditorCategory.Details));
         Assert.Equal(BasicEditorCategory.Identity, BasicEditorView.CategoryOf(BasicSection.Identity));
         Assert.Equal(BasicEditorCategory.Portrait, BasicEditorView.CategoryOf(BasicSection.Portrait));
         Assert.Equal(BasicEditorCategory.Message, BasicEditorView.CategoryOf(BasicSection.Message));
@@ -139,11 +140,42 @@ public class BasicEditorNavigationTests
     public void Categories_AreInFlowOrder_AndCoverEveryPanelOnce()
     {
         Assert.Equal(
-            [BasicEditorCategory.Design, BasicEditorCategory.Portrait, BasicEditorCategory.Identity, BasicEditorCategory.Details, BasicEditorCategory.Playstyle, BasicEditorCategory.Message],
+            [BasicEditorCategory.Style, BasicEditorCategory.Portrait, BasicEditorCategory.Identity, BasicEditorCategory.Details, BasicEditorCategory.Message],
             BasicEditorView.Categories);
         Assert.Equal(BasicEditorView.PanelOrder, BasicEditorView.Categories.SelectMany(BasicEditorView.PanelsOf));
-        Assert.Equal([BasicEditorPanel.BackgroundTheme, BasicEditorPanel.PlateLayout], BasicEditorView.PanelsOf(BasicEditorCategory.Design));
-        Assert.Equal(["Design", "Portrait", "Identity", "Character Details", "Activity", "Message"], BasicEditorView.Categories.Select(BasicEditorView.Title));
+        Assert.Equal([BasicEditorPanel.BackgroundTheme, BasicEditorPanel.PlateLayout], BasicEditorView.PanelsOf(BasicEditorCategory.Style));
+        Assert.Equal(["Style", "Portrait", "Identity", "Details", "Message"], BasicEditorView.Categories.Select(BasicEditorView.Title));
+        Assert.Equal(
+            [BasicEditorPanel.HomeWorld, BasicEditorPanel.JobAndLevel, BasicEditorPanel.FreeCompany, BasicEditorPanel.Playstyle, BasicEditorPanel.ActiveHours],
+            BasicEditorView.PanelsOf(BasicEditorCategory.Details));
+    }
+
+    [Fact]
+    public void Activity_IsNoLongerATopLevelSection_ItsContentIsInDetails()
+    {
+        Assert.DoesNotContain("Activity", BasicEditorView.Categories.Select(BasicEditorView.Title));
+        Assert.DoesNotContain("Character Details", BasicEditorView.Categories.Select(BasicEditorView.Title));
+        Assert.DoesNotContain("Design", BasicEditorView.Categories.Select(BasicEditorView.Title));
+        Assert.Equal(5, BasicEditorView.Categories.Length);
+
+        Assert.Equal(BasicEditorCategory.Details, BasicEditorView.CategoryOf(BasicSection.Playstyle));
+        Assert.Equal(BasicEditorCategory.Details, BasicEditorView.CategoryOf(BasicSection.ActiveHours));
+        Assert.Contains(BasicEditorPanel.Playstyle, BasicEditorView.PanelsOf(BasicEditorCategory.Details));
+        Assert.Contains(BasicEditorPanel.ActiveHours, BasicEditorView.PanelsOf(BasicEditorCategory.Details));
+    }
+
+    [Fact]
+    public void EveryExistingPanel_IsStillReachable_FromExactlyOneCategory()
+    {
+        foreach (var panel in Enum.GetValues<BasicEditorPanel>())
+        {
+            Assert.Single(BasicEditorView.Categories, c => BasicEditorView.PanelsOf(c).Contains(panel));
+        }
+
+        foreach (var definition in BasicSections.All)
+        {
+            Assert.Contains(BasicEditorView.CategoryOf(definition.Section), BasicEditorView.Categories);
+        }
     }
 
     // ---------------------------------------------------------------- status
@@ -177,10 +209,10 @@ public class BasicEditorNavigationTests
         editor.SetSectionVisible(BasicSection.ActiveHours, false);
         BasicSections.Find(document, ProfileElementRole.BasicName)!.Visible = false;
 
-        Assert.True(BasicEditorView.StatusOf(document, BasicEditorCategory.Playstyle).Hidden);
+        Assert.True(BasicEditorView.StatusOf(document, BasicEditorCategory.Details).Hidden); // Active Hours lives in Details
         Assert.True(BasicEditorView.StatusOf(document, BasicEditorCategory.Identity).Hidden);
-        Assert.False(BasicEditorView.StatusOf(document, BasicEditorCategory.Playstyle).NeedsAttention);
-        Assert.False(BasicEditorView.StatusOf(document, BasicEditorCategory.Details).Hidden);
+        Assert.False(BasicEditorView.StatusOf(document, BasicEditorCategory.Details).NeedsAttention);
+        Assert.False(BasicEditorView.StatusOf(document, BasicEditorCategory.Message).Hidden);
     }
 
     [Fact]
@@ -191,11 +223,11 @@ public class BasicEditorNavigationTests
         harness.DragInAdvanced(ProfileElementRole.BasicLevel, new Vector2(0, 2));
         harness.Basic.SetOrientation(AdventurePlateOrientation.Mirrored);
 
+        // The Level and Active Hours now collide — both in Details.
         var details = BasicEditorView.StatusOf(harness.Document, BasicEditorCategory.Details);
-        var playstyle = BasicEditorView.StatusOf(harness.Document, BasicEditorCategory.Playstyle);
         Assert.True(details.Collision);
         Assert.True(details.NeedsAttention);
-        Assert.True(playstyle.Collision);
+        Assert.False(BasicEditorView.StatusOf(harness.Document, BasicEditorCategory.Portrait).Collision);
         Assert.False(BasicEditorView.StatusOf(harness.Document, BasicEditorCategory.Message).Collision);
         Assert.False(BasicEditorView.StatusOf(harness.Document, BasicEditorCategory.Identity).Collision);
 
@@ -213,7 +245,7 @@ public class BasicEditorNavigationTests
         node["Elements"]!.AsArray().Add(FutureData.UnknownElement());
         using var harness = await BasicHarness.OpenJsonAsync(node.ToJsonString(JsonOptions.Default), plateId);
 
-        var design = BasicEditorView.StatusOf(harness.Document, BasicEditorCategory.Design);
+        var design = BasicEditorView.StatusOf(harness.Document, BasicEditorCategory.Style);
         Assert.True(design.Unsupported);
         Assert.True(design.NeedsAttention);
         Assert.False(BasicEditorView.StatusOf(harness.Document, BasicEditorCategory.Identity).NeedsAttention);
@@ -234,11 +266,12 @@ public class BasicEditorNavigationTests
         harness.Basic.CommitTextEdit();
         var document = harness.Document;
 
-        Assert.Equal(["Normal layout  ·  Royal theme"], BasicEditorView.SummaryOf(document, BasicEditorCategory.Design));
+        Assert.Equal(["Normal layout  ·  Royal theme"], BasicEditorView.SummaryOf(document, BasicEditorCategory.Style));
         Assert.Equal(["No portrait yet"], BasicEditorView.SummaryOf(document, BasicEditorCategory.Portrait));
         Assert.Equal(["Hero Example", "The Heart of the Party"], BasicEditorView.SummaryOf(document, BasicEditorCategory.Identity));
-        Assert.Equal(["Phoenix [Light]", "Lv. 100 Paladin", "Free Company: «ABC»"], BasicEditorView.SummaryOf(document, BasicEditorCategory.Details));
-        Assert.Equal(["2 playstyles", "Weekends  ·  8 PM - 11 PM"], BasicEditorView.SummaryOf(document, BasicEditorCategory.Playstyle));
+        Assert.Equal(
+            ["Phoenix [Light]", "Lv. 100 Paladin", "Free Company: «ABC»", "2 playstyles  ·  Weekends  ·  8 PM - 11 PM"],
+            BasicEditorView.SummaryOf(document, BasicEditorCategory.Details));
         var message = Assert.Single(BasicEditorView.SummaryOf(document, BasicEditorCategory.Message));
         Assert.EndsWith("...", message);
         Assert.True(message.Length <= 60);
@@ -251,8 +284,9 @@ public class BasicEditorNavigationTests
         var before = JsonSerializer.Serialize(document, JsonOptions.Default);
 
         Assert.Equal(["No name shown"], BasicEditorView.SummaryOf(document, BasicEditorCategory.Identity));
-        Assert.Equal(["No Home World", "No Favorite Job", "No Free Company"], BasicEditorView.SummaryOf(document, BasicEditorCategory.Details));
-        Assert.Equal(["No playstyles yet", "No active hours"], BasicEditorView.SummaryOf(document, BasicEditorCategory.Playstyle));
+        Assert.Equal(
+            ["No Home World", "No Favorite Job", "No Free Company", "No playstyles yet  ·  No active hours"],
+            BasicEditorView.SummaryOf(document, BasicEditorCategory.Details));
         Assert.Equal(["No message yet"], BasicEditorView.SummaryOf(document, BasicEditorCategory.Message));
         Assert.Equal(before, JsonSerializer.Serialize(document, JsonOptions.Default));
     }
@@ -279,8 +313,8 @@ public class BasicEditorNavigationTests
         Assert.Equal(BasicEditorCategory.Identity, BasicEditorView.CategoryAt(document, CenterOf(document, ProfileElementRole.BasicName), buffer));
         Assert.Equal(BasicEditorCategory.Details, BasicEditorView.CategoryAt(document, CenterOf(document, ProfileElementRole.BasicJob), buffer));
         Assert.Equal(BasicEditorCategory.Details, BasicEditorView.CategoryAt(document, CenterOf(document, ProfileElementRole.BasicLevel), buffer));
-        Assert.Equal(BasicEditorCategory.Playstyle, BasicEditorView.CategoryAt(document, CenterOf(document, ProfileElementRole.BasicPlaystyleHeading), buffer));
-        Assert.Equal(BasicEditorCategory.Playstyle, BasicEditorView.CategoryAt(document, CenterOf(document, ProfileElementRole.BasicActiveHours), buffer));
+        Assert.Equal(BasicEditorCategory.Details, BasicEditorView.CategoryAt(document, CenterOf(document, ProfileElementRole.BasicPlaystyleHeading), buffer));
+        Assert.Equal(BasicEditorCategory.Details, BasicEditorView.CategoryAt(document, CenterOf(document, ProfileElementRole.BasicActiveHours), buffer));
         Assert.Equal(BasicEditorCategory.Message, BasicEditorView.CategoryAt(document, CenterOf(document, ProfileElementRole.BasicMessage), buffer));
         Assert.Empty(buffer);
     }

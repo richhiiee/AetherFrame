@@ -10,17 +10,16 @@ namespace AetherFrame.UI.Editor;
 
 /// <summary>
 /// The Basic editor's top-level categories, in navigator order — each answers "what part of my
-/// Plate am I editing?": the whole Plate's look (Design), the portrait, the identity (name and
-/// title), the character details (Home World, Favorite Job and Level, Free Company), activity
-/// (playstyle and active hours), the message. Not a wizard — any category can be opened at any time.
+/// Plate am I editing?": the whole Plate's look (Style), the portrait, the identity (name and
+/// title), the details (Home World, Favorite Job and Level, Free Company, Playstyle, Active Hours),
+/// the message. Not a wizard — any category can be opened at any time.
 /// </summary>
 internal enum BasicEditorCategory
 {
-    Design,
+    Style,
     Portrait,
     Identity,
     Details,
-    Playstyle,
     Message,
 }
 
@@ -90,7 +89,7 @@ internal sealed class BasicEditorNavigation
 {
     private Guid? plateId;
 
-    internal BasicEditorCategory Selected { get; private set; } = BasicEditorCategory.Design;
+    internal BasicEditorCategory Selected { get; private set; } = BasicEditorCategory.Style;
 
     internal PreviewZoom Zoom { get; set; } = PreviewZoom.Fit;
 
@@ -108,7 +107,7 @@ internal sealed class BasicEditorNavigation
         }
 
         plateId = openPlateId;
-        Selected = BasicEditorCategory.Design;
+        Selected = BasicEditorCategory.Style;
         Zoom = PreviewZoom.Fit;
     }
 }
@@ -125,18 +124,21 @@ internal static class BasicEditorView
     /// <summary>Each category's panels, in order.</summary>
     private static readonly Dictionary<BasicEditorCategory, BasicEditorPanel[]> Panels = new()
     {
-        [BasicEditorCategory.Design] = [BasicEditorPanel.BackgroundTheme, BasicEditorPanel.PlateLayout],
+        [BasicEditorCategory.Style] = [BasicEditorPanel.BackgroundTheme, BasicEditorPanel.PlateLayout],
         [BasicEditorCategory.Portrait] = [BasicEditorPanel.Portrait],
         [BasicEditorCategory.Identity] = [BasicEditorPanel.Identity],
-        [BasicEditorCategory.Details] = [BasicEditorPanel.HomeWorld, BasicEditorPanel.JobAndLevel, BasicEditorPanel.FreeCompany],
-        [BasicEditorCategory.Playstyle] = [BasicEditorPanel.Playstyle, BasicEditorPanel.ActiveHours],
+        [BasicEditorCategory.Details] =
+        [
+            BasicEditorPanel.HomeWorld, BasicEditorPanel.JobAndLevel, BasicEditorPanel.FreeCompany,
+            BasicEditorPanel.Playstyle, BasicEditorPanel.ActiveHours,
+        ],
         [BasicEditorCategory.Message] = [BasicEditorPanel.Message],
     };
 
     /// <summary>
     /// Every panel in the editing flow, top to bottom: the visual theme, the layout, the portrait,
-    /// identity, character details, activity (playstyle and active hours), the message (the
-    /// categories' panels in navigator order).
+    /// identity, the details (Home World through Active Hours), the message (the categories'
+    /// panels in navigator order).
     /// </summary>
     internal static readonly BasicEditorPanel[] PanelOrder = Categories.SelectMany(c => Panels[c]).ToArray();
 
@@ -144,21 +146,23 @@ internal static class BasicEditorView
 
     internal static string Title(BasicEditorCategory category) => category switch
     {
-        BasicEditorCategory.Design => "Design",
+        BasicEditorCategory.Style => "Style",
         BasicEditorCategory.Portrait => "Portrait",
         BasicEditorCategory.Identity => "Identity",
-        BasicEditorCategory.Details => "Character Details",
-        BasicEditorCategory.Playstyle => "Activity",
+        BasicEditorCategory.Details => "Details",
         _ => "Message",
     };
 
-    /// <summary>The Plate sections a category edits (Design edits the whole Plate, not a section).</summary>
+    /// <summary>The Plate sections a category edits (Style edits the whole Plate, not a section).</summary>
     internal static BasicSection[] SectionsOf(BasicEditorCategory category) => category switch
     {
         BasicEditorCategory.Portrait => [BasicSection.Portrait],
         BasicEditorCategory.Identity => [BasicSection.Identity],
-        BasicEditorCategory.Details => [BasicSection.World, BasicSection.Job, BasicSection.Level, BasicSection.FreeCompany],
-        BasicEditorCategory.Playstyle => [BasicSection.Playstyle, BasicSection.ActiveHours],
+        BasicEditorCategory.Details =>
+        [
+            BasicSection.World, BasicSection.Job, BasicSection.Level, BasicSection.FreeCompany,
+            BasicSection.Playstyle, BasicSection.ActiveHours,
+        ],
         BasicEditorCategory.Message => [BasicSection.Message],
         _ => [],
     };
@@ -174,7 +178,7 @@ internal static class BasicEditorView
             }
         }
 
-        return BasicEditorCategory.Design;
+        return BasicEditorCategory.Style;
     }
 
     // ---------------------------------------------------------------- status and summaries
@@ -182,7 +186,7 @@ internal static class BasicEditorView
     /// <summary>A category's status, derived from the Plate as it is now.</summary>
     internal static BasicCategoryStatus StatusOf(ProfileDocument profile, BasicEditorCategory category)
     {
-        if (category == BasicEditorCategory.Design)
+        if (category == BasicEditorCategory.Style)
         {
             return new BasicCategoryStatus(false, false, false, profile.HasUnsupportedElements);
         }
@@ -235,7 +239,7 @@ internal static class BasicEditorView
 
         switch (category)
         {
-            case BasicEditorCategory.Design:
+            case BasicEditorCategory.Style:
             {
                 var orientation = BasicPlateEditor.GetOrientation(profile) == AdventurePlateOrientation.Mirrored ? "Mirrored" : "Normal";
                 var theme = ProfileThemePresets.Find(profile.BasicPlate?.ThemeId) is { } preset ? $"{preset.Name} theme" : "No theme chosen";
@@ -264,22 +268,14 @@ internal static class BasicEditorView
             case BasicEditorCategory.Details:
             {
                 var job = string.Join(" ", new[] { Text(ProfileElementRole.BasicLevel), Text(ProfileElementRole.BasicJob) }.Where(t => t.Length > 0));
+                var count = profile.BasicPlate?.Playstyles.Count ?? 0;
+                var hours = Text(ProfileElementRole.BasicActiveHours);
                 return
                 [
                     Text(ProfileElementRole.BasicWorld) is { Length: > 0 } world ? world : "No Home World",
                     job.Length > 0 ? job : "No Favorite Job",
                     Text(ProfileElementRole.BasicFreeCompany) is { Length: > 0 } fc ? $"Free Company: {fc}" : "No Free Company",
-                ];
-            }
-
-            case BasicEditorCategory.Playstyle:
-            {
-                var count = profile.BasicPlate?.Playstyles.Count ?? 0;
-                var hours = Text(ProfileElementRole.BasicActiveHours);
-                return
-                [
-                    count switch { 0 => "No playstyles yet", 1 => "1 playstyle", _ => $"{count} playstyles" },
-                    hours.Length > 0 ? hours : "No active hours",
+                    $"{count switch { 0 => "No playstyles yet", 1 => "1 playstyle", _ => $"{count} playstyles" }}  ·  {(hours.Length > 0 ? hours : "No active hours")}",
                 ];
             }
 

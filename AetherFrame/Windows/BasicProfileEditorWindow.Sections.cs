@@ -11,7 +11,7 @@ using Dalamud.Interface.Utility.Raii;
 namespace AetherFrame.Windows;
 
 /// <summary>
-/// The Portrait, Character Details, Activity, and Message categories. Each is structured input over its
+/// The Portrait, Details, and Message categories. Each is structured input over its
 /// role-tagged elements through <see cref="BasicEditorSession"/> — no coordinates, no freeform
 /// placement — with content first, then Appearance and Advanced Styling (collapsed), then the
 /// Layout block (follows the layout / customized, Apply Layout, Reset).
@@ -121,9 +121,11 @@ internal sealed partial class BasicProfileEditorWindow
     // ---------------------------------------------------------------- details
 
     /// <summary>
-    /// Home World, Favorite Job and Level, and Free Company as one character information area:
-    /// the logged-in character once at the top, then each field with its Show toggle and its
-    /// "use current" shortcut. Nothing is filled in without a click.
+    /// Everything about the character besides name and title, as one area: the logged-in character
+    /// once at the top, then Home World, Favorite Job and Level, and Free Company (each with its
+    /// Show toggle and its "use current" shortcut — nothing is filled in without a click), then
+    /// Playstyle and Active Hours; one Appearance and Advanced Styling group for all of them; one
+    /// Layout block.
     /// </summary>
     private void DrawDetailsCategory(ProfileDocument profile)
     {
@@ -164,6 +166,9 @@ internal sealed partial class BasicProfileEditorWindow
             Hint("The game provides the Free Company's tag; type its full name if you prefer.");
         }
 
+        DrawPlaystyleEntries(profile);
+        DrawActiveHours(profile);
+
         ImGui.Spacing();
         var targets = new[]
         {
@@ -171,6 +176,8 @@ internal sealed partial class BasicProfileEditorWindow
             SectionStyle(profile, "Favorite Job", ProfileElementRole.BasicJob),
             SectionStyle(profile, "Level", ProfileElementRole.BasicLevel),
             SectionStyle(profile, "Free Company", ProfileElementRole.BasicFreeCompany),
+            SectionStyle(profile, "Playstyle", ProfileElementRole.BasicPlaystyle),
+            SectionStyle(profile, "Active Hours", ProfileElementRole.BasicActiveHours),
         };
         DrawAppearance(targets);
         DrawAdvancedStyling(targets);
@@ -179,7 +186,9 @@ internal sealed partial class BasicProfileEditorWindow
             profile,
             new LayoutRow("Home World", [BasicSection.World], "Reset Home World"),
             new LayoutRow("Favorite Job & Level", [BasicSection.Job, BasicSection.Level], "Reset Job & Level"),
-            new LayoutRow("Free Company", [BasicSection.FreeCompany], "Reset Free Company"));
+            new LayoutRow("Free Company", [BasicSection.FreeCompany], "Reset Free Company"),
+            new LayoutRow("Playstyle", [BasicSection.Playstyle], "Reset Playstyle"),
+            new LayoutRow("Active Hours", [BasicSection.ActiveHours], "Reset Active Hours"));
     }
 
     /// <summary>Favorite Job and Level as one compact unit: the job picker and the level side by side.</summary>
@@ -285,27 +294,7 @@ internal sealed partial class BasicProfileEditorWindow
         return int.TryParse(digits, out var parsed) ? parsed : 0;
     }
 
-    // ---------------------------------------------------------------- playstyle and active hours
-
-    private void DrawPlaystyleCategory(ProfileDocument profile)
-    {
-        DrawPlaystyleEntries(profile);
-        DrawActiveHours(profile);
-
-        ImGui.Spacing();
-        var targets = new[]
-        {
-            SectionStyle(profile, "Playstyle", ProfileElementRole.BasicPlaystyle),
-            SectionStyle(profile, "Active Hours", ProfileElementRole.BasicActiveHours),
-        };
-        DrawAppearance(targets);
-        DrawAdvancedStyling(targets);
-
-        DrawLayoutBlock(
-            profile,
-            new LayoutRow("Playstyle", [BasicSection.Playstyle], "Reset Playstyle"),
-            new LayoutRow("Active Hours", [BasicSection.ActiveHours], "Reset Active Hours"));
-    }
+    // ---------------------------------------------------------------- playstyle and active hours (in Details)
 
     private void DrawPlaystyleEntries(ProfileDocument profile)
     {

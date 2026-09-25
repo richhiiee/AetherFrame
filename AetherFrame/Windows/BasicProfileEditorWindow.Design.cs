@@ -10,7 +10,7 @@ using Dalamud.Interface.Utility.Raii;
 namespace AetherFrame.Windows;
 
 /// <summary>
-/// The Design category: choices about the Plate as a whole, in order — Theme and Pattern (both
+/// The Style category: choices about the Plate as a whole, in order — Theme and Pattern (both
 /// first-class visual browsers), Customize Background (detailed color/mode tuning, collapsed by
 /// default), Text (the shared section heading size), the Plate Frame and decoration Components,
 /// then Layout: the orientation together with the layout actions that apply to every Basic section.

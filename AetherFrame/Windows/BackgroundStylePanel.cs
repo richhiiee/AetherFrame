@@ -624,7 +624,7 @@ internal sealed class BackgroundStylePanel
     /// independent of the background's own Mode (see <see cref="ProfileBackgroundRenderer"/>, which
     /// composes it the same way). The base fill's own color lives under that Mode's own controls
     /// (e.g. Solid Color's "Color", Linear Gradient's "From"/"To") — never duplicated here. The
-    /// pattern picker itself lives in the Design category's own first-class Pattern section, not here.
+    /// pattern picker itself lives in the Style category's own first-class Pattern section, not here.
     /// </summary>
     private void DrawPatternTuningControls(ProfileBackground background)
     {
