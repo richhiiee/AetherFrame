@@ -1,16 +1,23 @@
-name: PR Builder for AetherFrame
+name: Build and test
 
 on:
+  push:
+    branches: [ master ]
   pull_request:
     branches: [ master ]
+
+permissions:
+  contents: read
 
 jobs:
 
   build:
-    runs-on: windows-2022
-
-    env:
-      Solution_Name: AetherFrame
+    strategy:
+      fail-fast: false
+      matrix:
+        # Windows is where players build; Linux is where the official Dalamud plugin build runs.
+        os: [ windows-2022, ubuntu-24.04 ]
+    runs-on: ${{ matrix.os }}
 
     steps:
     - name: Checkout
@@ -21,19 +28,30 @@ jobs:
       with:
         dotnet-version: 10.0.x
 
+    # Dalamud.NET.Sdk takes the Dalamud reference assemblies from DALAMUD_HOME on every OS.
     - name: Download Dalamud
+      shell: pwsh
       run: |
+        $dalamud = Join-Path $env:RUNNER_TEMP dalamud
         Invoke-WebRequest -Uri https://goatcorp.github.io/dalamud-distrib/latest.zip -OutFile latest.zip
-        Expand-Archive -Force latest.zip "$env:AppData\XIVLauncher\addon\Hooks\dev"
+        Expand-Archive -Force latest.zip $dalamud
+        "DALAMUD_HOME=$dalamud" >> $env:GITHUB_ENV
 
-    - name: Build with dotnet
-      run: dotnet build --configuration Release
+    - name: Build
+      run: dotnet build AetherFrame.slnx --configuration Release
+
+    # Names the plugin assembly so the embedded artwork is checked in the DLL that ships, not only
+    # in the test assembly.
+    - name: Test
+      env:
+        AETHERFRAME_PLUGIN_ASSEMBLY: ${{ github.workspace }}/AetherFrame/bin/x64/Release/AetherFrame.dll
+      run: dotnet test AetherFrame.Tests/AetherFrame.Tests.csproj --configuration Release --no-build
 
     - name: Store artifacts
+      if: runner.os == 'Windows'
       uses: actions/upload-artifact@v4
       with:
         name: AetherFrame
         path: .\AetherFrame\bin\x64\Release\AetherFrame\*
         if-no-files-found: error
         retention-days: 1
-
