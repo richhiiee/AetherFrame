@@ -3,25 +3,17 @@
 Thanks for helping test AetherFrame. This page covers how to install a test build, what to look at, and how to report what you find.
 
 > [!IMPORTANT]
-> **Current status:** AetherFrame is not in the Dalamud plugin installer yet, and no test build has been published on GitHub yet. Until one of the routes below is live, AetherFrame can only be [built from source](../README.md#building-from-source). This page will say when that changes.
+> **Current status:** AetherFrame is not in the Dalamud plugin installer yet. Test builds are published as [GitHub Releases](https://github.com/richhiiee/AetherFrame/releases), starting with 0.1.5, the first tester build. Install one as a dev plugin: see [From a GitHub Release ZIP](#from-a-github-release-zip-dev-plugin). These builds **do not update themselves**.
 
 AetherFrame is an early alpha. Expect rough edges, and keep a backup of anything you care about (see [Before you start](#before-you-start)).
 
 ## Installing a test build
 
-There are two ways a test build can reach you. Use only one at a time.
-
-### From the Dalamud plugin installer (testing builds)
-
-This is the main route once AetherFrame has been accepted into the official Dalamud repository's testing track. Updates arrive automatically.
-
-1. Type `/xlsettings` in game and open the **Experimental** tab.
-2. Tick **Get plugin testing builds**, then **Save and Close**.
-3. Type `/xlplugins`, search for **AetherFrame**, and install it.
+There are two ways a test build can reach you. Right now only the GitHub Release ZIP is available. Use only one at a time.
 
 ### From a GitHub Release ZIP (dev plugin)
 
-Occasionally a build may be attached to a [GitHub Release](https://github.com/richhiiee/AetherFrame/releases) before it reaches Dalamud. These load through Dalamud's dev plugin loader and **do not update themselves**.
+This is the current route. Test builds are attached to [GitHub Releases](https://github.com/richhiiee/AetherFrame/releases) and load through Dalamud's dev plugin loader. They **do not update themselves**: check the Releases page for newer builds.
 
 1. Download `AetherFrame-<version>.zip` from the release.
 2. Optional: check it against the SHA-256 in the release notes. In PowerShell: `Get-FileHash .\AetherFrame-<version>.zip`.
@@ -30,6 +22,14 @@ Occasionally a build may be attached to a [GitHub Release](https://github.com/ri
 5. Type `/xlplugins`, open **Dev Tools → Installed Dev Plugins**, and enable AetherFrame.
 
 To update, disable AetherFrame, replace the three files with the new ones, and enable it again.
+
+### From the Dalamud plugin installer (testing builds)
+
+**Not available yet.** This will become the main route once AetherFrame has been accepted into the official Dalamud repository's testing track. Updates will then arrive automatically.
+
+1. Type `/xlsettings` in game and open the **Experimental** tab.
+2. Tick **Get plugin testing builds**, then **Save and Close**.
+3. Type `/xlplugins`, search for **AetherFrame**, and install it.
 
 ### Switching between the two
 

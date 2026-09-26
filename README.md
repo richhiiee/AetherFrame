@@ -160,9 +160,13 @@ Sharing Plates with other players is a possible future direction, not a current 
 
 ## Installation
 
-AetherFrame is not in the Dalamud plugin installer yet. The plan is to submit it to the official Dalamud plugin repository's testing track first, so testers can install it from `/xlplugins` with **Get plugin testing builds** turned on. There won't be a separate custom plugin repository.
+AetherFrame is not in the Dalamud plugin installer yet.
 
-Until then, you can build it from source and load it as a dev plugin (see below). If you'd like to help test, the [tester guide](docs/Testing.md) explains how to install a test build once one is available, what to look at, and how to report problems.
+To test it now, download a test build from [GitHub Releases](https://github.com/richhiiee/AetherFrame/releases), starting with 0.1.5, and load it as a Dalamud dev plugin. The [tester guide](docs/Testing.md) has the steps, what to look at, and how to report problems. Test builds from GitHub don't update themselves, so check the Releases page for newer ones.
+
+The plan is to submit AetherFrame to the official Dalamud plugin repository's testing track, so testers can install it from `/xlplugins` with **Get plugin testing builds** turned on and receive updates automatically. There won't be a separate custom plugin repository.
+
+Developers can also build it from source and load it as a dev plugin (see below).
 
 ## Building from source
 
