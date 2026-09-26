@@ -4,11 +4,13 @@
 # into a fork of https://github.com/goatcorp/DalamudPluginsD17 as
 #
 #   testing/live/AetherFrame/manifest.toml      (new plugins must start in testing)
-#   testing/live/AetherFrame/images/icon.png    (1:1, 64-512 px)
+#   testing/live/AetherFrame/images/icon.png    (1:1, 64-512 px; the current icon is AI-generated,
+#                                                and a hand-made replacement is recommended first)
 #   testing/live/AetherFrame/images/image1.png  (optional, up to image5.png, max 730 x 380 PNG)
 #
-# Before copying: set `commit` to the full SHA of the tagged release commit (it must be public on
-# GitHub and contain packages.lock.json from a Release build), and update `changelog`.
+# Prepared for v0.1.5. Before copying: set `commit` to the full SHA of the v0.1.5 tag's commit (it
+# must be public on GitHub and contain packages.lock.json from a Release build), and check
+# `changelog` still describes that build.
 # Checklist and PR description: docs/Releasing.md.
 
 [plugin]
@@ -17,7 +19,7 @@ commit = "REPLACE_WITH_THE_FULL_SHA_OF_THE_RELEASE_TAG_COMMIT"
 owners = ["richhiiee"]
 project_path = "AetherFrame"
 changelog = """
-First testing release of AetherFrame: design character Plates in an Adventure Plate-style Basic Editor or a freeform Advanced Editor, keep them in a local My Plates library, and view the Active Plate with /af view.
+AetherFrame 0.1.5, the first testing release: design character Plates in an Adventure Plate-style Basic Editor or a freeform Advanced Editor, keep them in a local My Plates library, and view the Active Plate with /af view.
 
 Everything is local. There is no networking, no account and no data collection.
 """

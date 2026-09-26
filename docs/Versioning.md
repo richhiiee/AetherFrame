@@ -16,15 +16,15 @@ The version is set in one place: [`Version.props`](../Version.props) at the repo
 
 | Where | Value | Set by |
 |---|---|---|
-| `AssemblyVersion`, `FileVersion` | `0.1.4.0` | .NET SDK |
-| `InformationalVersion` | `0.1.4+<commit>` | .NET SDK (Source Link appends the commit) |
-| Dalamud manifest `AssemblyVersion` | `0.1.4.0` | DalamudPackager, read from the built assembly |
+| `AssemblyVersion`, `FileVersion` | `0.1.5.0` | .NET SDK |
+| `InformationalVersion` | `0.1.5+<commit>` | .NET SDK (Source Link appends the commit) |
+| Dalamud manifest `AssemblyVersion` | `0.1.5.0` | DalamudPackager, read from the built assembly |
 
 Don't write a version anywhere else. The tests fail if a project sets its own version.
 
 ## Seeing which build is loaded
 
-- **`/aetherframe version`** or **`/af version`** prints the running build in chat, for example `AetherFrame 0.1.4 (build 1bf26e1)`.
+- **`/aetherframe version`** or **`/af version`** prints the running build in chat, for example `AetherFrame 0.1.5 (build 1bf26e1)`.
 - `dalamud.log` records the same text when the plugin loads.
 - The Dalamud plugin installer shows the manifest version.
 

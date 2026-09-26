@@ -14,7 +14,7 @@ body:
     attributes:
       label: AetherFrame version
       description: Type `/af version` in game and paste what it prints.
-      placeholder: AetherFrame 0.1.4 (build cbf1ba3)
+      placeholder: AetherFrame 0.1.5 (build 1a2b3c4)
     validations:
       required: true
 

@@ -8,9 +8,10 @@
     <Author>richhiiee</Author>
     <Name>AetherFrame</Name>
     <Punchline>Design character Plates in a familiar Basic Editor or a freeform Advanced Editor.</Punchline>
-    <!-- The last sentence is the AI-generated asset disclosure the Dalamud AI Usage Policy requires
-         in the plugin description (https://dalamud.dev/plugin-publishing/ai-policy). -->
-    <Description>Design character Plates: start from an Adventure Plate-style layout in the Basic Editor, or build freeform layouts with text, images and decorative Components in the Advanced Editor. Some bundled decorative artwork (the Celestial Dream and Celestial Sakura Components) was created with AI assistance.</Description>
+    <!-- The last sentence is the AI-generated asset disclosure (icon and bundled artwork) that the
+         Dalamud AI Usage Policy requires in the plugin description
+         (https://dalamud.dev/plugin-publishing/ai-policy). -->
+    <Description>Design character Plates: start from an Adventure Plate-style layout in the Basic Editor, or build freeform layouts with text, images and decorative Components in the Advanced Editor. The plugin icon is AI-generated, and the bundled Celestial Dream and Celestial Sakura Components use AI-assisted artwork.</Description>
     <RepoUrl>https://github.com/richhiiee/AetherFrame</RepoUrl>
     <Tags>aetherframe;plates;adventure-plate;profile;customization</Tags>
     <!-- Approved icon, served from the AetherFrameAssets repo

@@ -24,11 +24,12 @@ public class ReleaseMetadataTests
     }
 
     [Fact]
-    public void PluginDescription_DisclosesTheAiAssistedArtwork()
+    public void PluginDescription_DisclosesTheAiIconAndArtwork()
     {
         var description = XDocument.Load(RepositoryFile("AetherFrame/AetherFrame.csproj")).Descendants("Description").Single().Value;
 
-        Assert.Contains("created with AI assistance", description);
+        Assert.Contains("plugin icon is AI-generated", description);
+        Assert.Contains("AI-assisted artwork", description);
         Assert.Contains("Celestial Dream", description);
         Assert.Contains("Celestial Sakura", description);
     }

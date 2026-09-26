@@ -4,19 +4,22 @@ All notable changes to AetherFrame are listed here. Versions follow the [version
 
 ## [Unreleased]
 
-Documentation, repository and release tooling only. Nothing in the running plugin changes.
+## [0.1.5] - 2026-09-25
+
+Distribution and submission readiness: the first version meant to reach testers. Saved Plates, Templates, `.aetherframe` packages and the configuration format are unchanged, and so is how the plugin behaves in game.
 
 ### Added
 
 - This changelog.
-- Issue templates for bug reports and feature requests.
-- A guide for testers ([docs/Testing.md](docs/Testing.md)).
+- Issue templates for bug reports and feature requests, with guidance on keeping personal details out of public reports.
+- A guide for testers ([docs/Testing.md](docs/Testing.md)): installing through Dalamud's testing builds or a GitHub Release ZIP, what to test, and how to report problems.
 - A tag-based release workflow that builds, tests and checks the plugin package and prepares a **draft** GitHub Release for review ([docs/Releasing.md](docs/Releasing.md)).
-- Preparation notes and a draft `manifest.toml` for submitting AetherFrame to the official Dalamud plugin repository.
+- Preparation notes and a draft `manifest.toml` for submitting AetherFrame to the official Dalamud plugin repository's testing track.
 
 ### Changed
 
-- The plugin description shown in the Dalamud plugin installer now says that some bundled decorative artwork was created with AI assistance.
+- The plugin description in the Dalamud plugin installer now says that the plugin icon is AI-generated and that the bundled Celestial Dream and Celestial Sakura Components use AI-assisted artwork.
+- The README describes the installation plan, where to get support, and AetherFrame's AI use at the Dalamud policy's *Copilot* level.
 
 ## [0.1.4] - 2026-09-25
 
@@ -78,7 +81,8 @@ The first versioned alpha.
 - **Plate Viewer** and the commands `/aetherframe` (`/af`), `/af view` and `/af version`.
 - Builds and tests on Windows and Linux in CI.
 
-[Unreleased]: https://github.com/richhiiee/AetherFrame/compare/v0.1.4...HEAD
+[Unreleased]: https://github.com/richhiiee/AetherFrame/compare/v0.1.5...HEAD
+[0.1.5]: https://github.com/richhiiee/AetherFrame/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/richhiiee/AetherFrame/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/richhiiee/AetherFrame/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/richhiiee/AetherFrame/compare/v0.1.1...v0.1.2

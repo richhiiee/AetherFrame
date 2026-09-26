@@ -49,7 +49,7 @@ The workflow only runs for tags pushed after it exists, so the existing tags `v0
 To run the package check locally after a Release build (PowerShell 7 or Windows PowerShell 5.1):
 
 ```powershell
-./.github/scripts/New-ReleasePackage.ps1 -Version 0.1.4 -Destination dist
+./.github/scripts/New-ReleasePackage.ps1 -Version 0.1.5 -Destination dist
 ```
 
 ## Official Dalamud repository
@@ -78,9 +78,9 @@ Every new plugin is submitted to `testing/live`, so this is the list for the fir
 | Dalamud Windowing API for windows | Done. Every window is a `Window` in one `WindowSystem` |
 | Clean install, working main and settings buttons | Done. The installer's main and settings buttons both open My Plates. Confirm on a clean install |
 | Follows the Plugin Restrictions | Done. No server communication, no combat, no automation, no other players' account IDs. The own character's Content ID is a local file key and is stripped from exports |
-| `icon.png` in the D17 `images/` folder, 1:1, 64–512 px | 512 × 512 file ready (`AetherFrame/images/icon.png`). **Its provenance is still to be confirmed**, see [Artwork](#artwork-and-ai-disclosure) |
-| AI-generated assets disclosed in the plugin description | Done. The description names the Celestial Dream and Celestial Sakura artwork. The icon needs adding if it is AI-generated |
-| AI use level disclosed in the PR description | Draft below |
+| `icon.png` in the D17 `images/` folder, 1:1, 64–512 px | 512 × 512 file ready (`AetherFrame/images/icon.png`). It is AI-generated, so a hand-made replacement is recommended before submitting. See [Artwork](#artwork-and-ai-disclosure) |
+| AI-generated assets disclosed in the plugin description | Done. The description names the AI-generated icon and the AI-assisted Celestial Dream and Celestial Sakura artwork |
+| AI use level disclosed in the PR description | **Copilot**. Draft below |
 | `manifest.toml` in `testing/live/AetherFrame/` with `repository`, `commit`, `owners`, `project_path` | Draft in [`dalamud-submission/manifest.toml`](dalamud-submission/manifest.toml). `commit` is filled in at submission |
 | One plugin per PR, from its own branch | At submission |
 | Acceptable Use Policy, Terms of Service, Code of Conduct | Read and accept at submission |
@@ -98,7 +98,7 @@ Moving from testing to stable means copying the manifest folder from `testing/li
 ### Recommended but optional
 
 - **Installer preview images**: up to five, `image1.png`–`image5.png`, PNG, at most 730 × 380. See [Installer artwork](#installer-artwork).
-- **A hand-made icon.** The AI Usage Policy prefers even a crude hand-drawn icon to an AI-generated one, and the team may ask for one.
+- **A hand-made icon.** Strongly recommended before the D17 submission. The current icon is AI-generated, and the AI Usage Policy prefers even a crude hand-drawn icon to an AI-generated one; the team may ask for one. Disclosing the AI icon meets the rule, so this isn't a hard blocker.
 - **A `changelog` in `manifest.toml`**, so it shows in the installer. The PR description is used otherwise, but isn't shown in the installer.
 - **`CategoryTags`** in the csproj, to help the installer group the plugin.
 - Asking in the Dalamud Discord's developer channels before submitting.
@@ -108,7 +108,7 @@ Moving from testing to stable means copying the manifest folder from `testing/li
 
 | Image | Required | Size | Format | Current state |
 |---|---|---|---|---|
-| `icon.png` | Yes | Square, 64 × 64 to 512 × 512 | PNG | 512 × 512 RGBA, in `AetherFrame/images/`. Provenance to confirm |
+| `icon.png` | Yes | Square, 64 × 64 to 512 × 512 | PNG | 512 × 512 RGBA, in `AetherFrame/images/`. AI-generated; replace with a hand-made icon before submitting |
 | `image1.png`–`image5.png` | No | At most 730 × 380 | PNG | None yet |
 
 The images live in the D17 folder (`testing/live/AetherFrame/images/`), not in this repository. The csproj's `IconUrl` is only used outside the official repository, for dev and custom-repository installs.
@@ -119,14 +119,14 @@ A good preview set would be the four README screenshots in `docs/screenshots/`, 
 
 The AI Usage Policy asks for two separate disclosures:
 
-- **Assets, to players**, in the plugin description. `AetherFrame.csproj`'s `Description` says that the Celestial Dream and Celestial Sakura artwork was created with AI assistance. The README says the same under Components.
-- **Code, to reviewers**, as a level in the PR description. The README's development note describes the work as *AI implements while I plan, decide and test*, which is the policy's **Copilot** level.
+- **Assets, to players**, in the plugin description. `AetherFrame.csproj`'s `Description` says that the plugin icon is AI-generated and that the Celestial Dream and Celestial Sakura Components use AI-assisted artwork. The README says the same.
+- **Code, to reviewers**, as a level in the PR description. The intended level is **Copilot**: AI implements while I plan, decide, review and test. The README's development note says the same.
 
 | Asset | Origin | Disclosure |
 |---|---|---|
 | Celestial Sakura (7 pieces) | Created with AI assistance. Shipped byte for byte, each with embedded C2PA Content Credentials | Description and README. Credentials verified present in all seven files |
 | Celestial Dream *Astrolabe Pivot* | Created with AI assistance. The runtime copy is resampled, so it carries no credentials | Description and README |
-| Plugin icon | **Not recorded.** The file has no provenance metadata | **To confirm.** If AI-generated, add it to the description and README, and expect a request for a hand-made icon |
+| Plugin icon | Generated with ChatGPT, then refined. The file carries no provenance metadata | Description and README. **A hand-made replacement is recommended before the D17 submission.** When it lands, drop the icon from the description and from `ReleaseMetadataTests` |
 | Fonts | PT Sans, PT Serif, Cousine under the SIL OFL 1.1 | `Fonts/THIRD-PARTY-FONT-LICENSES.txt` |
 
 ### Draft PR description
@@ -146,9 +146,9 @@ Changelog: https://github.com/richhiiee/AetherFrame/blob/master/CHANGELOG.md
 Level: Copilot. AI writes most of the implementation and helps with code review. I decide what gets
 built and how it works, review the changes, and test every release in game myself.
 
-Assets: the bundled Celestial Dream and Celestial Sakura Component artwork was created with AI
-assistance, and the plugin description says so. The Celestial Sakura files keep their C2PA
-Content Credentials.
+Assets: the plugin icon is AI-generated (ChatGPT, then refined), and the bundled Celestial Dream
+and Celestial Sakura Component artwork is AI-assisted. The plugin description says so. The
+Celestial Sakura files keep their C2PA Content Credentials.
 ```
 
-Adjust the level if it no longer describes how AetherFrame is made.
+Copilot is the intended level. Change it only if it no longer describes how AetherFrame is made. If the icon has been replaced by then, update the Assets paragraph.

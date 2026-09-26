@@ -61,7 +61,7 @@ Everything is useful, but these areas matter most right now:
 
 Open a [bug report](https://github.com/richhiiee/AetherFrame/issues/new?template=bug_report.yml). The form asks for:
 
-- **Your version.** Type `/af version` in game and copy what it prints, for example `AetherFrame 0.1.4 (build cbf1ba3)`.
+- **Your version.** Type `/af version` in game and copy what it prints, for example `AetherFrame 0.1.5 (build 1a2b3c4)`.
 - **What happened, and how to make it happen again.**
 - **Log lines**, if anything went wrong. Type `/xllog` to open Dalamud's log, or find `dalamud.log` in `%AppData%\XIVLauncher\`. Lines mentioning AetherFrame are the useful ones.
 

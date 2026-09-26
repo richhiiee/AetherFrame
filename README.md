@@ -4,7 +4,7 @@
 
 **Enhanced character Plates for Final Fantasy XIV.**
 
-**AetherFrame 0.1.4 Alpha** · [Changelog](CHANGELOG.md) · [Versioning](docs/Versioning.md)
+**AetherFrame 0.1.5 Alpha** · [Changelog](CHANGELOG.md) · [Versioning](docs/Versioning.md)
 
 AetherFrame is a [Dalamud](https://github.com/goatcorp/Dalamud) plugin for designing character Plates: profile cards that start from the familiar shape of the in-game Adventure Plate and can grow into fully freeform layouts.
 
@@ -103,7 +103,7 @@ Reusable decorative pieces you add to a Plate and restyle without redrawing anyt
 
 ## What’s coming
 
-AetherFrame 0.1.4 is still an early version. There is a lot more I want to build before I consider it finished.
+AetherFrame 0.1.5 is still an early version. There is a lot more I want to build before I consider it finished.
 
 ### More ways to design Plates
 
@@ -250,7 +250,7 @@ Full-size source artwork for bundled Components lives in the separate [AetherFra
 
 I use AI heavily while developing AetherFrame, mainly for implementation and code review. I decide what gets built, how the product works, and test the plugin in game myself. In the terms of the [Dalamud AI Usage Policy](https://dalamud.dev/plugin-publishing/ai-policy), that is the *Copilot* level.
 
-The bundled Celestial Dream and Celestial Sakura artwork was also created with AI assistance, and the plugin's description in the Dalamud installer says so. The Celestial Sakura files are shipped unmodified, so they keep their embedded C2PA Content Credentials, which record how each image was made.
+The plugin icon was generated with ChatGPT and then refined, and the bundled Celestial Dream and Celestial Sakura artwork was also created with AI assistance. The plugin's description in the Dalamud installer says so. The Celestial Sakura files are shipped unmodified, so they keep their embedded C2PA Content Credentials, which record how each image was made. I'd like to replace the icon with a hand-made one before AetherFrame goes into the official Dalamud repository.
 
 ## Support and feedback
 
