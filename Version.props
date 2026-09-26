@@ -4,15 +4,15 @@
     The AetherFrame product version: the one place it is set (policy: docs/Versioning.md).
 
     The .NET SDK derives everything else from it, so nothing else carries a copy:
-      AssemblyVersion / FileVersion   0.1.3.0
-      InformationalVersion            0.1.3+<commit>  (the commit is appended by the SDK's Source Link)
+      AssemblyVersion / FileVersion   0.1.4.0
+      InformationalVersion            0.1.4+<commit>  (the commit is appended by the SDK's Source Link)
       Dalamud manifest AssemblyVersion  read by DalamudPackager from the built assembly
 
     Imported explicitly (not a Directory.Build.props) so worktrees nested inside a checkout never
     pick up another branch's version by walking up the directory tree.
   -->
   <PropertyGroup>
-    <Version>0.1.3</Version>
+    <Version>0.1.4</Version>
   </PropertyGroup>
 
 </Project>

@@ -19,7 +19,7 @@ namespace AetherFrame.Tests;
 public class AetherFrameVersionTests
 {
     /// <summary>This milestone's version. Changing Version.props means changing this, deliberately.</summary>
-    private const string ExpectedProductVersion = "0.1.3";
+    private const string ExpectedProductVersion = "0.1.4";
 
     private static readonly string[] VersionProperties =
         ["Version", "VersionPrefix", "VersionSuffix", "AssemblyVersion", "FileVersion", "InformationalVersion", "PackageVersion"];

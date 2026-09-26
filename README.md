@@ -4,7 +4,7 @@
 
 **Enhanced character Plates for Final Fantasy XIV.**
 
-**AetherFrame 0.1.3 Alpha** · [Versioning](docs/Versioning.md)
+**AetherFrame 0.1.4 Alpha** · [Versioning](docs/Versioning.md)
 
 AetherFrame is a [Dalamud](https://github.com/goatcorp/Dalamud) plugin for designing character Plates: profile cards that start from the familiar shape of the in-game Adventure Plate and can grow into fully freeform layouts.
 
@@ -103,7 +103,7 @@ Reusable decorative pieces you add to a Plate and restyle without redrawing anyt
 
 ## What’s coming
 
-AetherFrame 0.1.3 is still an early version. There is a lot more I want to build before I consider it finished.
+AetherFrame 0.1.4 is still an early version. There is a lot more I want to build before I consider it finished.
 
 ### More ways to design Plates
 
