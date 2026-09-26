@@ -1,0 +1,138 @@
+name: Release
+
+# Pushing an annotated v<MAJOR>.<MINOR>.<PATCH> tag on master builds, tests and checks the plugin
+# package, then creates a DRAFT GitHub Release with it. A draft is visible only to the repository's
+# maintainers; publishing it is always a manual step. Nothing here submits to Dalamud.
+#
+# Run it by hand (Actions > Release > Run workflow) for a dry run: the same build, tests and package
+# checks, with the package kept as a workflow artifact and no release created.
+#
+# Full process: docs/Releasing.md.
+
+on:
+  push:
+    tags: [ 'v[0-9]+.[0-9]+.[0-9]+' ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+
+  package:
+    runs-on: windows-2022
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v5
+      with:
+        # History and tags, to check where the tag points.
+        fetch-depth: 0
+        persist-credentials: false
+
+    - name: Install .NET
+      uses: actions/setup-dotnet@v5
+      with:
+        dotnet-version: 10.0.x
+
+    - name: Read the product version
+      id: version
+      shell: pwsh
+      run: |
+        $version = ([xml](Get-Content Version.props)).Project.PropertyGroup.Version.Trim()
+        if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "Version.props holds '$version', not MAJOR.MINOR.PATCH." }
+        "version=$version" >> $env:GITHUB_OUTPUT
+        "AetherFrame $version from $env:GITHUB_REF"
+
+    # The tag must be the release the policy describes (docs/Versioning.md): annotated, named after
+    # Version.props, and on master.
+    - name: Check the tag
+      if: github.ref_type == 'tag'
+      shell: pwsh
+      env:
+        TAG: ${{ github.ref_name }}
+        VERSION: ${{ steps.version.outputs.version }}
+      run: |
+        if ($env:TAG -ne "v$env:VERSION") { throw "Tag $env:TAG does not match Version.props ($env:VERSION)." }
+        # Checkout may store a pushed tag as a lightweight ref; fetch the real one.
+        git fetch --force --no-tags origin "refs/tags/$($env:TAG):refs/tags/$($env:TAG)"
+        if ((git cat-file -t "refs/tags/$env:TAG") -ne 'tag') { throw "$env:TAG is a lightweight tag. Release tags are annotated." }
+        if ((git rev-parse "$($env:TAG)^{commit}") -ne $env:GITHUB_SHA) { throw "$env:TAG does not point at the commit being built." }
+        git merge-base --is-ancestor $env:GITHUB_SHA origin/master
+        if ($LASTEXITCODE -ne 0) { throw "$env:TAG is not on master." }
+
+    # Dalamud.NET.Sdk takes the Dalamud reference assemblies from DALAMUD_HOME.
+    - name: Download Dalamud
+      shell: pwsh
+      run: |
+        $dalamud = Join-Path $env:RUNNER_TEMP dalamud
+        Invoke-WebRequest -Uri https://goatcorp.github.io/dalamud-distrib/latest.zip -OutFile latest.zip
+        Expand-Archive -Force latest.zip $dalamud
+        "DALAMUD_HOME=$dalamud" >> $env:GITHUB_ENV
+
+    # Locked mode fails if packages.lock.json is out of date, as the official plugin build would.
+    - name: Restore
+      run: dotnet restore AetherFrame.slnx --locked-mode
+
+    - name: Build
+      run: dotnet build AetherFrame.slnx --configuration Release --no-restore
+
+    - name: Test
+      env:
+        AETHERFRAME_PLUGIN_ASSEMBLY: ${{ github.workspace }}/AetherFrame/bin/x64/Release/AetherFrame.dll
+      run: dotnet test AetherFrame.Tests/AetherFrame.Tests.csproj --configuration Release --no-build
+
+    - name: Check and stage the package
+      shell: pwsh
+      run: ./.github/scripts/New-ReleasePackage.ps1 -Version '${{ steps.version.outputs.version }}' -Destination dist
+
+    - name: Store the package
+      uses: actions/upload-artifact@v4
+      with:
+        name: AetherFrame-${{ steps.version.outputs.version }}
+        path: dist/*
+        if-no-files-found: error
+        retention-days: 30
+
+  draft-release:
+    needs: package
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-24.04
+    # Add required reviewers to this environment (Settings > Environments) to approve each draft.
+    environment: release
+    permissions:
+      contents: write
+
+    steps:
+    - name: Fetch the package
+      uses: actions/download-artifact@v4
+      with:
+        name: AetherFrame-${{ needs.package.outputs.version }}
+        path: dist
+
+    - name: Create the draft release
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GH_REPO: ${{ github.repository }}
+        TAG: ${{ github.ref_name }}
+        VERSION: ${{ needs.package.outputs.version }}
+      run: |
+        # Never replace or add to an existing release, draft or published.
+        if [ -n "$(gh release list --limit 1000 --json tagName --jq ".[] | select(.tagName == \"$TAG\") | .tagName")" ]; then
+          echo "::error::A release for $TAG already exists. Nothing was changed."
+          exit 1
+        fi
+        gh release create "$TAG" \
+          --draft \
+          --verify-tag \
+          --prerelease \
+          --title "AetherFrame $VERSION" \
+          --notes-file dist/release-notes.md \
+          "dist/AetherFrame-$VERSION.zip" \
+          dist/SHA256SUMS.txt

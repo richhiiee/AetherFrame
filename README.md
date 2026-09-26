@@ -4,7 +4,7 @@
 
 **Enhanced character Plates for Final Fantasy XIV.**
 
-**AetherFrame 0.1.4 Alpha** · [Versioning](docs/Versioning.md)
+**AetherFrame 0.1.4 Alpha** · [Changelog](CHANGELOG.md) · [Versioning](docs/Versioning.md)
 
 AetherFrame is a [Dalamud](https://github.com/goatcorp/Dalamud) plugin for designing character Plates: profile cards that start from the familiar shape of the in-game Adventure Plate and can grow into fully freeform layouts.
 
@@ -160,9 +160,9 @@ Sharing Plates with other players is a possible future direction, not a current 
 
 ## Installation
 
-AetherFrame is not yet available from the official Dalamud plugin repository, and there is no public custom repository for players yet. **Public installation instructions will be added later.**
+AetherFrame is not in the Dalamud plugin installer yet. The plan is to submit it to the official Dalamud plugin repository's testing track first, so testers can install it from `/xlplugins` with **Get plugin testing builds** turned on. There won't be a separate custom plugin repository.
 
-Developers can build it from source and load it as a dev plugin (see below).
+Until then, you can build it from source and load it as a dev plugin (see below). If you'd like to help test, the [tester guide](docs/Testing.md) explains how to install a test build once one is available, what to look at, and how to report problems.
 
 ## Building from source
 
@@ -248,11 +248,19 @@ Full-size source artwork for bundled Components lives in the separate [AetherFra
 
 ## Development note
 
-I use AI heavily while developing AetherFrame, mainly for implementation and code review. I decide what gets built, how the product works, and test the plugin in game myself.
+I use AI heavily while developing AetherFrame, mainly for implementation and code review. I decide what gets built, how the product works, and test the plugin in game myself. In the terms of the [Dalamud AI Usage Policy](https://dalamud.dev/plugin-publishing/ai-policy), that is the *Copilot* level.
 
-## Contributing
+The bundled Celestial Dream and Celestial Sakura artwork was also created with AI assistance, and the plugin's description in the Dalamud installer says so. The Celestial Sakura files are shipped unmodified, so they keep their embedded C2PA Content Credentials, which record how each image was made.
 
-AetherFrame is still taking shape. Issues, bug reports and feedback are welcome on the [issue tracker](https://github.com/richhiiee/AetherFrame/issues).
+## Support and feedback
+
+AetherFrame is still taking shape, and feedback is very welcome on the [issue tracker](https://github.com/richhiiee/AetherFrame/issues):
+
+- **Something broken?** Open a [bug report](https://github.com/richhiiee/AetherFrame/issues/new?template=bug_report.yml). Include what `/af version` prints.
+- **An idea?** Open a [feature request](https://github.com/richhiiee/AetherFrame/issues/new?template=feature_request.yml).
+- **Testing a build?** See the [tester guide](docs/Testing.md).
+
+Issues are public, so leave out character names and anything else you'd rather keep to yourself.
 
 ## License
 
@@ -263,6 +271,9 @@ Bundled fonts are licensed separately under the SIL Open Font License 1.1. See `
 ## Links
 
 - Repository: <https://github.com/richhiiee/AetherFrame>
+- Changelog: [CHANGELOG.md](CHANGELOG.md)
+- Tester guide: [docs/Testing.md](docs/Testing.md)
+- Releasing and Dalamud submission: [docs/Releasing.md](docs/Releasing.md)
 - Assets: <https://github.com/richhiiee/AetherFrameAssets>
 
 ---

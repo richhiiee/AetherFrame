@@ -35,3 +35,4 @@ The build is the commit that was checked out when the plugin was built. A build 
 1. Every implementation milestone states its intended version before work begins.
 2. The milestone branch sets that version in `Version.props` during implementation, so in-game testing can tell which build is loaded.
 3. A release version is tagged only after the work is integrated into `master` and verified, including a green CI run on Windows and Ubuntu. Tags are annotated and named `v<version>`, for example `v0.1.0`.
+4. Before tagging, [CHANGELOG.md](../CHANGELOG.md) gets a section for the version. Pushing the tag prepares a draft GitHub Release (see [Releasing](Releasing.md)).

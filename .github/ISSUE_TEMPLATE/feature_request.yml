@@ -1,0 +1,57 @@
+name: Feature request
+description: An idea for something AetherFrame could do, or do better.
+labels: [ enhancement ]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the idea. The README's **What's coming** section lists what's already planned, so it's worth a look first.
+
+        AetherFrame is local first: everything happens on your machine, and sharing is something you choose to do. Ideas that depend on collecting data about other players, or on sharing things automatically, won't fit.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part of AetherFrame is this about?
+      multiple: true
+      options:
+        - My Plates
+        - Basic Editor
+        - Advanced Editor
+        - Plate Viewer
+        - Templates
+        - Components or visual sets
+        - Import and export
+        - Something else
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: Describe what you want to make or do, and what gets in the way today.
+    validations:
+      required: true
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would help?
+      description: How you imagine it working. Sketches and screenshots are welcome.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Anything you've tried instead?
+      description: Workarounds, or how other tools handle it.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before posting
+      options:
+        - label: I searched the existing issues and this hasn't been suggested yet.
+          required: true

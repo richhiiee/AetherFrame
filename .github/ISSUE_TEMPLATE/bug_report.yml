@@ -1,0 +1,107 @@
+name: Bug report
+description: Something in AetherFrame doesn't work the way it should.
+labels: [ bug ]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for testing AetherFrame. A few details make a bug much easier to find.
+
+        **Privacy:** issues are public. Remove character names, Free Company names and anything else you'd rather not share from screenshots, logs and files before posting. Your Windows user name can appear in file paths in `dalamud.log`.
+
+  - type: input
+    id: version
+    attributes:
+      label: AetherFrame version
+      description: Type `/af version` in game and paste what it prints.
+      placeholder: AetherFrame 0.1.4 (build cbf1ba3)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install
+    attributes:
+      label: How did you install AetherFrame?
+      options:
+        - Dalamud plugin installer (testing builds)
+        - Dalamud plugin installer (stable)
+        - Release ZIP from GitHub, loaded as a dev plugin
+        - Built from source
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Where did it happen?
+      multiple: true
+      options:
+        - My Plates
+        - Basic Editor
+        - Advanced Editor
+        - Plate Viewer (/af view)
+        - Templates
+        - Import or export (.aetherframe files)
+        - Components or bundled artwork
+        - Loading, unloading or updating the plugin
+        - Something else
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you see? Include any message AetherFrame showed, word for word if you can.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The shortest way you know to make it happen again.
+      placeholder: |
+        1. Open My Plates with /af
+        2. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect instead?
+    validations:
+      required: true
+
+  - type: input
+    id: ui-scale
+    attributes:
+      label: Dalamud global font / UI scale
+      description: Found in `/xlsettings`. Useful for layout problems.
+      placeholder: 100%
+
+  - type: textarea
+    id: log
+    attributes:
+      label: Log excerpt
+      description: |
+        Lines from `dalamud.log` around the problem, especially ones mentioning AetherFrame. Open it with `/xllog`, or find it at `%AppData%\XIVLauncher\dalamud.log`.
+      render: text
+
+  - type: textarea
+    id: attachments
+    attributes:
+      label: Screenshots or files
+      description: |
+        Drag images here. A `.aetherframe` export of the affected Plate helps with rendering and import bugs, but it contains the Plate's text and images, so only attach one you're happy to make public.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before posting
+      options:
+        - label: I searched the existing issues and this hasn't been reported yet.
+          required: true
+        - label: I removed anything I don't want to be public.
+          required: true
