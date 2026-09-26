@@ -4,7 +4,7 @@ All notable changes to AetherFrame are listed here. Versions follow the [version
 
 ## [Unreleased]
 
-## [0.1.5] - 2026-09-25
+## [0.1.5] - 2026-09-26
 
 Distribution and submission readiness: the first version meant to reach testers. Saved Plates, Templates, `.aetherframe` packages and the configuration format are unchanged, and so is how the plugin behaves in game.
 
