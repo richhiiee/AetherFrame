@@ -4,6 +4,7 @@ using System.Linq;
 using AetherFrame.Domain.Basic;
 using AetherFrame.Domain.Profiles;
 using AetherFrame.Services;
+using AetherFrame.Services.Diagnostics;
 
 namespace AetherFrame.UI.Editor;
 
@@ -268,7 +269,7 @@ internal sealed class BasicEditorSession
         }
         catch (Exception ex)
         {
-            localErrorMessage = ex.Message;
+            localErrorMessage = UserFacingError.Describe(ex, EditorSession.ImageImportFailedMessage);
             return;
         }
 

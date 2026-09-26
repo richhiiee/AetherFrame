@@ -124,9 +124,10 @@ internal sealed class BackgroundStylePanel
         }
     }
 
-    private const float ThemeCardWidth = 118f;
-    private const float ThemeCardPadding = 6f;
-    private const float PatternCardSize = 68f;
+    // Card sizes in unscaled pixels, at Dalamud's global UI scale when drawn (their labels scale too).
+    private static float ThemeCardWidth => EditorWidgets.Scaled(118f);
+    private static float ThemeCardPadding => EditorWidgets.Scaled(6f);
+    private static float PatternCardSize => EditorWidgets.Scaled(68f);
 
     // How many rows of theme cards the Basic Theme browser shows before its grid scrolls.
     private const float ThemeBrowserVisibleRows = 2.5f;
@@ -419,7 +420,7 @@ internal sealed class BackgroundStylePanel
         EditorWidgets.PropertyLabel("Swatches", 0f);
 
         const int perRow = 8;
-        var spacing = 3f;
+        var spacing = EditorWidgets.Scaled(3f);
         var size = MathF.Floor((ImGui.GetContentRegionAvail().X - (spacing * (perRow - 1))) / perRow);
         var rowStartX = ImGui.GetCursorPosX();
 

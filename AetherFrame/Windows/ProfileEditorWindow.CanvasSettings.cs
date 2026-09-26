@@ -127,7 +127,7 @@ internal sealed partial class ProfileEditorWindow
         }
 
         var target = canvasResizePromptTarget;
-        const float popupContentWidth = 280f;
+        var popupContentWidth = EditorWidgets.Scaled(280f);
 
         ImGui.TextUnformatted($"Resize canvas to {target.Width:0} x {target.Height:0}?");
         ImGui.Spacing();

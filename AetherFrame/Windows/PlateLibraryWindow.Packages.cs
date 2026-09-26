@@ -119,7 +119,7 @@ internal sealed partial class PlateLibraryWindow
 
         using (ImRaii.Disabled(IsBusy))
         {
-            if (ImGui.Button("Replace", new Vector2(110f, 0f)))
+            if (ImGui.Button("Replace", EditorWidgets.Scaled(new Vector2(110f, 0f))))
             {
                 pendingOverwrite = null;
                 StartExport(pending.PlateId, pending.Name, pending.Path, overwrite: true);
@@ -128,7 +128,7 @@ internal sealed partial class PlateLibraryWindow
         }
 
         ImGui.SameLine();
-        if (ImGui.Button("Cancel", new Vector2(110f, 0f)))
+        if (ImGui.Button("Cancel", EditorWidgets.Scaled(new Vector2(110f, 0f))))
         {
             pendingOverwrite = null;
             ImGui.CloseCurrentPopup();

@@ -75,109 +75,145 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
     public Plugin()
     {
         DalamudServices.Initialize(PluginInterface, PlayerState, Framework, Log, KeyState, TextureProvider, DataManager, UnlockState, ObjectTable);
+        log = new DalamudAetherFrameLog(Log);
 
-        var savedConfiguration = PluginInterface.GetPluginConfig() as PluginConfiguration;
+        // A damaged configuration file never stops AetherFrame from loading: it starts from the
+        // defaults instead (the file holds only the guidance flag below, and is rewritten readable).
+        var savedConfiguration = StartupGuard.TryLoad(
+            () => PluginInterface.GetPluginConfig() as PluginConfiguration, "its configuration", log, out var configurationUnreadable);
         Configuration = savedConfiguration ?? new PluginConfiguration();
 
         // The one-time Basic suggestion: decided now from the configuration alone (a current one's
         // stored flag always wins), so it's ready before any window can ask for Advanced.
-        basicGuidance = new BasicGuidance(new ConfigurationGuidanceStore(Configuration));
-        basicGuidance.Resolve(BasicGuidance.OriginOf(savedConfiguration is not null, Configuration.Version, PluginConfiguration.CurrentVersion));
+        basicGuidance = new BasicGuidance(new ConfigurationGuidanceStore(Configuration, log));
+        basicGuidance.Resolve(BasicGuidance.OriginOf(
+            savedConfiguration is not null, Configuration.Version, PluginConfiguration.CurrentVersion, configurationUnreadable));
 
-        log = new DalamudAetherFrameLog(Log);
-        var paths = new PlateStoragePaths(PluginInterface.ConfigDirectory.FullName);
-
-        // All Library persistence runs on the framework thread, as profile IO always has, and
-        // stops between files if unloading ever stops waiting for it (see OwnedOperations).
-        var fileStore = new ShutdownGuardedFileStore(new ReliablePlateFileStore(FileStorage), ownedOperations);
-        plateLibrary = new PlateLibraryService(paths, fileStore, log, dispatch: work => Framework.Run(work), operations: ownedOperations);
-        templateLibrary = new TemplateLibraryService(paths, fileStore, plateLibrary, log, dispatch: work => Framework.Run(work), operations: ownedOperations);
-
-        var jobCatalog = new JobCatalog();
-        characterIdentityService = new CharacterIdentityService(jobCatalog);
-
-        // Character details refresh on their own every half second; a login or logout also
-        // refreshes them immediately.
-        ClientState.Login += OnLogin;
-        ClientState.Logout += OnLogout;
-        var profileService = new ProfileService(plateLibrary);
-
-        var assetStorageService = new AssetStorageService(
-            paths.AssetsDirectory, paths.AssetStagingDirectory, new AssetMetadataStore(paths.AssetMetadataDirectory, log), ImageFormatSupport.IsSupported, log);
-        imageTextureCache = new ImageTextureCache(assetStorageService);
-        fontService = new ProfileFontService();
-        proceduralTextureCache = new ProceduralTextureCache();
-        builtInArtTextureCache = new BuiltInArtTextureCache();
-        var renderResources = new ProfileRenderResources(imageTextureCache, fontService, proceduralTextureCache, builtInArtTextureCache, jobCatalog);
-        var fileDialogManager = new FileDialogManager();
-        var basicFileDialogManager = new FileDialogManager();
-
-        // No thumbnail generator yet (no offscreen renderer exists): cards use their fallback.
-        thumbnailService = new PlateThumbnailService(paths.ThumbnailsDirectory, generator: null, log);
-        thumbnailTextures = new PlateThumbnailTextures(thumbnailService);
-        plateLibrary.PlateSaved += thumbnailService.Invalidate;
-        plateLibrary.PlateDeleted += thumbnailService.Remove;
-
-        // Same (currently inert) thumbnail pipeline as Plates, kept in a separate directory only
-        // to avoid a Guid-collision surface between a Template id and a Plate id.
-        templateThumbnailService = new PlateThumbnailService(paths.TemplateThumbnailsDirectory, generator: null, log);
-        templateThumbnailTextures = new PlateThumbnailTextures(templateThumbnailService);
-
-        var editorSession = new EditorSession(profileService, assetStorageService, imageTextureCache, log, () => ImGui.GetFrameCount());
-        editorSurfaces = new EditorSurfaceCoordinator(() =>
+        // Everything from here on is undone if a later step throws (see StartupGuard): Dalamud never
+        // disposes a plugin whose constructor failed.
+        var startup = new StartupGuard(log);
+        try
         {
-            editorSession.CommitPendingEdits();
-            editorSession.EndInteraction();
-        });
-        var gameTitleCatalog = new GameTitleCatalog();
-        var textMeasurer = new ProfileTextMeasurer(fontService);
-        editorSession.IdentityMeasurer = textMeasurer;
-        var basicIdentitySession = new BasicIdentitySession(
-            profileService, editorSession, characterIdentityService, textMeasurer, gameTitleCatalog);
-        var basicEditorSession = new BasicEditorSession(
-            profileService, editorSession, assetStorageService, basicIdentitySession, characterIdentityService, jobCatalog);
-        keyboardShortcutService = new KeyboardShortcutService();
+            var paths = new PlateStoragePaths(PluginInterface.ConfigDirectory.FullName);
 
-        // Undo, Redo, Save and Revert as both editors' shared action bar offers them.
-        var documentCommands = new EditorDocumentCommands(profileService, editorSession);
+            // All Library persistence runs on the framework thread, as profile IO always has, and
+            // stops between files if unloading ever stops waiting for it (see OwnedOperations).
+            var fileStore = new ShutdownGuardedFileStore(new ReliablePlateFileStore(FileStorage), ownedOperations);
+            plateLibrary = new PlateLibraryService(paths, fileStore, log, dispatch: work => Framework.Run(work), operations: ownedOperations);
+            templateLibrary = new TemplateLibraryService(paths, fileStore, plateLibrary, log, dispatch: work => Framework.Run(work), operations: ownedOperations);
 
-        basicProfileEditorWindow = new BasicProfileEditorWindow(
-            profileService, editorSession, basicEditorSession, imageTextureCache, renderResources, basicFileDialogManager, gameTitleCatalog, jobCatalog,
-            OpenAdvancedEditor, OpenMyPlates, editorSurfaces, documentCommands, keyboardShortcutService);
-        profileEditorWindow = new ProfileEditorWindow(
-            profileService, editorSession, keyboardShortcutService, renderResources, fileDialogManager, OpenBasicEditor, OpenMyPlates, editorSurfaces, documentCommands);
-        editorSurfaces.Attach(basicProfileEditorWindow, profileEditorWindow);
-        // The one place "this character's Active Plate" is resolved (the viewer's default request).
-        var activePlates = new ActivePlateResolver(plateLibrary, () => characterIdentityService.CurrentCharacter);
-        profileViewWindow = new ProfileViewWindow(profileService, plateLibrary, activePlates, renderResources, OpenMyPlates);
+            var jobCatalog = new JobCatalog();
+            characterIdentityService = new CharacterIdentityService(jobCatalog);
+            var profileService = new ProfileService(plateLibrary);
 
-        // .aetherframe export/import: local files only, chosen by the player; nothing networked.
-        packageService = new PlatePackageService(
-            plateLibrary, assetStorageService, paths, $"AetherFrame {PluginInterface.Manifest.AssemblyVersion}", ImageFormatSupport.IsSupported, log,
-            operations: ownedOperations);
-        packageImportWindow = new PackageImportWindow(packageService, renderResources, (plateId, name) => plateLibraryWindow!.OnPlateImported(plateId, name));
-        plateLibraryWindow = new PlateLibraryWindow(
-            plateLibrary, templateLibrary, profileService, editorSession, characterIdentityService, thumbnailService, thumbnailTextures,
-            templateThumbnailService, templateThumbnailTextures, renderResources, OpenBasicEditor, OpenAdvancedEditor, () => editorSurfaces.ActiveSurface,
-            basicGuidance, profileViewWindow.ShowPlate, profileViewWindow.ShowDocument,
-            packageService, new FileDialogManager(), packageImportWindow.Begin);
+            var assetStorageService = new AssetStorageService(
+                paths.AssetsDirectory, paths.AssetStagingDirectory, new AssetMetadataStore(paths.AssetMetadataDirectory, log), ImageFormatSupport.IsSupported, log);
+            imageTextureCache = new ImageTextureCache(assetStorageService);
+            fontService = new ProfileFontService();
+            startup.OnFailure("fonts", fontService.Dispose);
+            proceduralTextureCache = new ProceduralTextureCache();
+            startup.OnFailure("pattern textures", proceduralTextureCache.Dispose);
+            builtInArtTextureCache = new BuiltInArtTextureCache();
+            startup.OnFailure("artwork textures", builtInArtTextureCache.Dispose);
+            var renderResources = new ProfileRenderResources(imageTextureCache, fontService, proceduralTextureCache, builtInArtTextureCache, jobCatalog);
+            var fileDialogManager = new FileDialogManager();
+            var basicFileDialogManager = new FileDialogManager();
 
-        WindowSystem.AddWindow(plateLibraryWindow);
-        WindowSystem.AddWindow(basicProfileEditorWindow);
-        WindowSystem.AddWindow(profileEditorWindow);
-        WindowSystem.AddWindow(profileViewWindow);
-        WindowSystem.AddWindow(packageImportWindow);
+            // No thumbnail generator yet (no offscreen renderer exists): cards use their fallback.
+            thumbnailService = new PlateThumbnailService(paths.ThumbnailsDirectory, generator: null, log);
+            thumbnailTextures = new PlateThumbnailTextures(thumbnailService);
+            startup.OnFailure("Plate thumbnails", thumbnailService.Dispose);
+            plateLibrary.PlateSaved += thumbnailService.Invalidate;
+            plateLibrary.PlateDeleted += thumbnailService.Remove;
 
-        // /aetherframe and its /af alias, both on this one handler.
-        commands = new AetherFrameCommandRegistration(new DalamudCommandRegistrar(CommandManager), log);
-        commands.Register(new AetherFrameCommandHandler(ToggleMainUi, profileViewWindow.ShowActivePlate, ShowVersion));
+            // Same (currently inert) thumbnail pipeline as Plates, kept in a separate directory only
+            // to avoid a Guid-collision surface between a Template id and a Plate id.
+            templateThumbnailService = new PlateThumbnailService(paths.TemplateThumbnailsDirectory, generator: null, log);
+            templateThumbnailTextures = new PlateThumbnailTextures(templateThumbnailService);
+            startup.OnFailure("Template thumbnails", templateThumbnailService.Dispose);
 
-        PluginInterface.UiBuilder.Draw += WindowSystem.Draw;
-        PluginInterface.UiBuilder.OpenMainUi += ToggleMainUi;
-        PluginInterface.UiBuilder.OpenConfigUi += ToggleMainUi;
+            var editorSession = new EditorSession(profileService, assetStorageService, imageTextureCache, log, () => ImGui.GetFrameCount());
+            editorSurfaces = new EditorSurfaceCoordinator(() =>
+            {
+                editorSession.CommitPendingEdits();
+                editorSession.EndInteraction();
+            });
+            var gameTitleCatalog = new GameTitleCatalog();
+            var textMeasurer = new ProfileTextMeasurer(fontService);
+            editorSession.IdentityMeasurer = textMeasurer;
+            var basicIdentitySession = new BasicIdentitySession(
+                profileService, editorSession, characterIdentityService, textMeasurer, gameTitleCatalog);
+            var basicEditorSession = new BasicEditorSession(
+                profileService, editorSession, assetStorageService, basicIdentitySession, characterIdentityService, jobCatalog);
+            keyboardShortcutService = new KeyboardShortcutService();
+            startup.OnFailure("keyboard shortcuts", keyboardShortcutService.Dispose);
 
-        // Names the exact build in dalamud.log, so a stale dev DLL is obvious.
-        Log.Information($"==={AetherFrameBuildInfo.Current.Describe()} loaded ({PluginInterface.Manifest.Name})===");
+            // Undo, Redo, Save and Revert as both editors' shared action bar offers them.
+            var documentCommands = new EditorDocumentCommands(profileService, editorSession);
+
+            basicProfileEditorWindow = new BasicProfileEditorWindow(
+                profileService, editorSession, basicEditorSession, imageTextureCache, renderResources, basicFileDialogManager, gameTitleCatalog, jobCatalog,
+                OpenAdvancedEditor, OpenMyPlates, editorSurfaces, documentCommands, keyboardShortcutService);
+            profileEditorWindow = new ProfileEditorWindow(
+                profileService, editorSession, keyboardShortcutService, renderResources, fileDialogManager, OpenBasicEditor, OpenMyPlates, editorSurfaces, documentCommands);
+            editorSurfaces.Attach(basicProfileEditorWindow, profileEditorWindow);
+            // The one place "this character's Active Plate" is resolved (the viewer's default request).
+            var activePlates = new ActivePlateResolver(plateLibrary, () => characterIdentityService.CurrentCharacter);
+            profileViewWindow = new ProfileViewWindow(profileService, plateLibrary, activePlates, renderResources, OpenMyPlates);
+
+            // .aetherframe export/import: local files only, chosen by the player; nothing networked.
+            packageService = new PlatePackageService(
+                plateLibrary, assetStorageService, paths, $"AetherFrame {PluginInterface.Manifest.AssemblyVersion}", ImageFormatSupport.IsSupported, log,
+                operations: ownedOperations);
+            packageImportWindow = new PackageImportWindow(packageService, renderResources, (plateId, name) => plateLibraryWindow!.OnPlateImported(plateId, name));
+            plateLibraryWindow = new PlateLibraryWindow(
+                plateLibrary, templateLibrary, profileService, editorSession, characterIdentityService, thumbnailService, thumbnailTextures,
+                templateThumbnailService, templateThumbnailTextures, renderResources, OpenBasicEditor, OpenAdvancedEditor, () => editorSurfaces.ActiveSurface,
+                basicGuidance, profileViewWindow.ShowPlate, profileViewWindow.ShowDocument,
+                packageService, new FileDialogManager(), packageImportWindow.Begin);
+
+            WindowSystem.AddWindow(plateLibraryWindow);
+            WindowSystem.AddWindow(basicProfileEditorWindow);
+            WindowSystem.AddWindow(profileEditorWindow);
+            WindowSystem.AddWindow(profileViewWindow);
+            WindowSystem.AddWindow(packageImportWindow);
+            startup.OnFailure("windows", WindowSystem.RemoveAllWindows);
+
+            // /aetherframe and its /af alias, both on this one handler.
+            commands = new AetherFrameCommandRegistration(new DalamudCommandRegistrar(CommandManager), log);
+            commands.Register(new AetherFrameCommandHandler(ToggleMainUi, profileViewWindow.ShowActivePlate, ShowVersion));
+            startup.OnFailure("commands", commands.Unregister);
+
+            // Character details refresh on their own every half second; a login or logout also
+            // refreshes them immediately.
+            ClientState.Login += OnLogin;
+            ClientState.Logout += OnLogout;
+            startup.OnFailure("login events", () =>
+            {
+                ClientState.Login -= OnLogin;
+                ClientState.Logout -= OnLogout;
+            });
+
+            PluginInterface.UiBuilder.Draw += WindowSystem.Draw;
+            PluginInterface.UiBuilder.OpenMainUi += ToggleMainUi;
+            PluginInterface.UiBuilder.OpenConfigUi += ToggleMainUi;
+            startup.OnFailure("drawing", () =>
+            {
+                PluginInterface.UiBuilder.Draw -= WindowSystem.Draw;
+                PluginInterface.UiBuilder.OpenMainUi -= ToggleMainUi;
+                PluginInterface.UiBuilder.OpenConfigUi -= ToggleMainUi;
+            });
+
+            // Names the exact build in dalamud.log, so a stale dev DLL is obvious.
+            Log.Information($"==={AetherFrameBuildInfo.Current.Describe()} loaded ({PluginInterface.Manifest.Name})===");
+
+            startup.Complete();
+        }
+        catch
+        {
+            startup.RollBack();
+            throw;
+        }
     }
 
     public async Task LoadAsync(CancellationToken cancellationToken)
@@ -206,8 +242,8 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
         {
             ThrowIfLoadStopped(ex, cancellationToken);
 
-            // Nothing on disk is touched by a failed load; Templates says it couldn't load,
-            // exactly like My Plates does above.
+            // Nothing on disk is touched by a failed load; Templates says the saved ones couldn't
+            // load, and built-in Templates stay usable, so Create Plate still works.
             Log.Error(ex, "AetherFrame could not load the Template Library.");
         }
     }
@@ -321,7 +357,7 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
     private void OpenAdvancedEditor() => editorSurfaces.Show(EditorSurfaceKind.Advanced);
 
     /// <summary>The guidance flag, persisted in the plugin configuration.</summary>
-    private sealed class ConfigurationGuidanceStore(PluginConfiguration configuration) : IBasicGuidanceStore
+    private sealed class ConfigurationGuidanceStore(PluginConfiguration configuration, IAetherFrameLog log) : IBasicGuidanceStore
     {
         public bool BasicGuidanceHandled
         {
@@ -329,10 +365,18 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
             set => configuration.BasicGuidanceHandled = value;
         }
 
+        /// <summary>Never throws: failing to remember the flag only means the suggestion may show again.</summary>
         public void Save()
         {
             configuration.Version = PluginConfiguration.CurrentVersion;
-            PluginInterface.SavePluginConfig(configuration);
+            try
+            {
+                PluginInterface.SavePluginConfig(configuration);
+            }
+            catch (Exception ex)
+            {
+                log.Error(ex, "AetherFrame could not save its configuration.");
+            }
         }
     }
 }

@@ -526,6 +526,69 @@ public class TemplateRenameDuplicateDeleteTests
     }
 }
 
+/// <summary>
+/// The saved Templates failing to load (their folder unreadable, say) never blocks Create Plate:
+/// built-in Templates are generated, not read, so they keep working; the saved ones refuse every
+/// change rather than acting on a Library that isn't really loaded.
+/// </summary>
+public class TemplateLoadFailureTests
+{
+    [Fact]
+    public async Task SavedTemplatesUnreadable_BuiltInTemplatesStillCreatePlates()
+    {
+        var store = new FaultInjectingStore();
+        using var fixture = new TemplateLibraryFixture(store);
+        await fixture.PlateLibrary.InitializeAsync();
+        var templates = fixture.CreateService();
+        store.FailList = directory => directory == fixture.Paths.TemplatesDirectory;
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => templates.InitializeAsync());
+
+        Assert.True(templates.LoadFailed);
+        Assert.False(templates.IsLoaded);
+        Assert.Equal(BuiltInTemplateCatalog.All.Select(d => d.TemplateId), templates.GetOrderedTemplates().Select(t => t.TemplateId));
+
+        var classic = await templates.InstantiateAsync(BuiltInTemplateCatalog.AdventurePlateClassicId, Characters.Alice, new PlateStarterContent(null));
+        var blank = await templates.InstantiateAsync(BuiltInTemplateCatalog.BlankCanvasId, null);
+
+        Assert.True(BasicEditorSession.CanResetLayout(fixture.PlateLibrary.OpenDocumentForEditing(classic.PlateId)));
+        Assert.Empty(fixture.PlateLibrary.OpenDocumentForEditing(blank.PlateId).Elements);
+    }
+
+    [Fact]
+    public async Task SavedTemplatesUnreadable_EveryChangeIsRefused_AndNothingIsWritten()
+    {
+        var store = new FaultInjectingStore();
+        using var fixture = new TemplateLibraryFixture(store);
+        await fixture.PlateLibrary.InitializeAsync();
+        var source = await fixture.PlateLibrary.CreatePlateAsync(PlateStartingLayout.Blank, null, "Source");
+        var templates = fixture.CreateService();
+        store.FailList = directory => directory == fixture.Paths.TemplatesDirectory;
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => templates.InitializeAsync());
+
+        var refused = await Assert.ThrowsAsync<TemplateLibraryException>(() => templates.SaveAsTemplateAsync(source.PlateId, "New"));
+        Assert.Contains("couldn't be loaded", refused.Message);
+        await Assert.ThrowsAsync<TemplateLibraryException>(() => templates.InstantiateAsync(Guid.NewGuid(), null));
+
+        // An incomplete scan must never feed image cleanup.
+        await Assert.ThrowsAsync<TemplateLibraryException>(() => templates.ScanAssetReferencesAsync());
+        Assert.False(Directory.Exists(fixture.Paths.TemplatesDirectory));
+    }
+
+    [Fact]
+    public async Task BuiltInTemplate_NeverWaitsForSavedTemplatesToLoad()
+    {
+        using var fixture = new TemplateLibraryFixture();
+        await fixture.PlateLibrary.InitializeAsync();
+        var templates = fixture.CreateService();
+
+        var result = await templates.InstantiateAsync(BuiltInTemplateCatalog.BlankCanvasId, null);
+
+        Assert.False(templates.IsLoaded);
+        Assert.NotEqual(Guid.Empty, result.PlateId);
+    }
+}
+
 public class TemplateInstantiateTests
 {
     [Fact]

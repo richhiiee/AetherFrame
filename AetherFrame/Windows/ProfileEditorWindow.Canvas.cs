@@ -15,16 +15,18 @@ namespace AetherFrame.Windows;
 /// </summary>
 internal sealed partial class ProfileEditorWindow
 {
-    private const float HandleScreenSize = 8f;
+    // Screen-space sizes below are in unscaled pixels, at Dalamud's global UI scale when used, so
+    // handles stay grabbable and snapping feels the same on a high-DPI screen.
+    private static float HandleScreenSize => EditorWidgets.Scaled(8f);
 
     // Snapping pulls within this many SCREEN pixels, at any zoom — close enough to feel helpful,
     // small enough not to fight deliberate placement.
-    private const float SnapThresholdScreenPixels = 6f;
+    private static float SnapThresholdScreenPixels => EditorWidgets.Scaled(6f);
 
     private const float WheelZoomStep = 1.15f;
 
     // How much of the canvas must stay inside the panel when panning.
-    private const float PanKeepVisiblePixels = 48f;
+    private static float PanKeepVisiblePixels => EditorWidgets.Scaled(48f);
 
     private static readonly Vector4 SelectionColor = new(1f, 0.85f, 0.2f, 1f);
     private static readonly Vector4 HoverColor = new(0.45f, 0.72f, 1f, 0.75f);

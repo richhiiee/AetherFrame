@@ -93,10 +93,15 @@ internal sealed partial class PlateLibraryWindow
         }
 
         DrawTemplateHeader(allTemplates.Count);
+        if (templates.LoadFailed)
+        {
+            ImGui.TextColored(EditorWidgets.WarningColor, UserTemplatesUnavailableText);
+        }
+
         ImGui.Separator();
 
         var shown = string.IsNullOrWhiteSpace(templateSearchText) ? allTemplates : templates.Search(templateSearchText);
-        var footerHeight = (ImGui.GetFrameHeightWithSpacing() * 2f) + ImGui.GetStyle().ItemSpacing.Y + 4f;
+        var footerHeight = (ImGui.GetFrameHeightWithSpacing() * 2f) + ImGui.GetStyle().ItemSpacing.Y + EditorWidgets.Scaled(4f);
         using (var grid = ImRaii.Child("##TemplateGrid", new Vector2(-1, -footerHeight), false))
         {
             if (grid.Success)
@@ -123,7 +128,7 @@ internal sealed partial class PlateLibraryWindow
         ImGui.TextUnformatted("Manage Templates");
 
         ImGui.SameLine();
-        ImGui.SetNextItemWidth(220f);
+        ImGui.SetNextItemWidth(EditorWidgets.Scaled(220f));
         ImGui.InputTextWithHint("##TemplateSearch", "Search Templates...", ref templateSearchText, 64);
 
         var countText = templateCount == 1 ? "1 Template" : $"{templateCount} Templates";
@@ -293,9 +298,10 @@ internal sealed partial class PlateLibraryWindow
         var label = template.IsBuiltIn ? "Built In" : "My Template";
         var color = template.IsBuiltIn ? BuiltInBadgeColor : UserTemplateBadgeColor;
         var textSize = ImGui.CalcTextSize(label);
-        var padding = new Vector2(6f, 2f);
-        var badgeMax = new Vector2(thumbnailMax.X - 4f, thumbnailMin.Y + 4f + textSize.Y + (padding.Y * 2f));
-        var badgeMin = new Vector2(badgeMax.X - textSize.X - (padding.X * 2f), thumbnailMin.Y + 4f);
+        var padding = EditorWidgets.Scaled(new Vector2(6f, 2f));
+        var inset = EditorWidgets.Scaled(4f);
+        var badgeMax = new Vector2(thumbnailMax.X - inset, thumbnailMin.Y + inset + textSize.Y + (padding.Y * 2f));
+        var badgeMin = new Vector2(badgeMax.X - textSize.X - (padding.X * 2f), thumbnailMin.Y + inset);
 
         drawList.AddRectFilled(badgeMin, badgeMax, ImGui.GetColorU32(color), 4f);
         drawList.AddText(badgeMin + padding, ImGui.GetColorU32(new Vector4(0.05f, 0.05f, 0.07f, 1f)), label);
@@ -483,6 +489,8 @@ internal sealed partial class PlateLibraryWindow
         ImGui.EndPopup();
     }
 
+    private const string UserTemplatesUnavailableText = "Your saved Templates couldn't be loaded. Built-in Templates still work. See the Dalamud log for details.";
+
     private void DrawTemplateChooserLeftPane()
     {
         ImGui.TextDisabled("START");
@@ -500,7 +508,12 @@ internal sealed partial class PlateLibraryWindow
         var userTemplates = templates.GetOrderedTemplates().Where(t => t.Kind == TemplateKind.UserSaved).ToList();
         if (userTemplates.Count == 0)
         {
-            ImGui.TextDisabled("You haven't saved any Templates yet.");
+            using (ImRaii.TextWrapPos(0f))
+            {
+                ImGui.TextDisabled(templates.LoadFailed ? UserTemplatesUnavailableText
+                    : !templates.IsLoaded ? "Loading your Templates..."
+                    : "You haven't saved any Templates yet.");
+            }
         }
         else
         {
@@ -794,7 +807,7 @@ internal sealed partial class PlateLibraryWindow
             ImGui.SetKeyboardFocusHere();
         }
 
-        ImGui.SetNextItemWidth(300f);
+        ImGui.SetNextItemWidth(EditorWidgets.Scaled(300f));
         var submitted = ImGui.InputText("##TemplateName", ref saveAsTemplateBuffer, TemplateNaming.MaxNameLength, ImGuiInputTextFlags.EnterReturnsTrue);
 
         if (saveAsTemplateError is { } error)
@@ -805,7 +818,7 @@ internal sealed partial class PlateLibraryWindow
         ImGui.Spacing();
         using (ImRaii.Disabled(IsBusy))
         {
-            if (ImGui.Button("Save as Template", new Vector2(160f, 0f)) || submitted)
+            if (ImGui.Button("Save as Template", EditorWidgets.Scaled(new Vector2(160f, 0f))) || submitted)
             {
                 if (!TemplateNaming.TryNormalizeName(saveAsTemplateBuffer, out var name, out var validationError))
                 {
@@ -822,7 +835,7 @@ internal sealed partial class PlateLibraryWindow
         }
 
         ImGui.SameLine();
-        if (ImGui.Button("Cancel", new Vector2(110f, 0f)))
+        if (ImGui.Button("Cancel", EditorWidgets.Scaled(new Vector2(110f, 0f))))
         {
             ImGui.CloseCurrentPopup();
         }
@@ -850,7 +863,7 @@ internal sealed partial class PlateLibraryWindow
             ImGui.SetKeyboardFocusHere();
         }
 
-        ImGui.SetNextItemWidth(300f);
+        ImGui.SetNextItemWidth(EditorWidgets.Scaled(300f));
         var submitted = ImGui.InputText("##RenameTemplateName", ref templateRenameBuffer, TemplateNaming.MaxNameLength, ImGuiInputTextFlags.EnterReturnsTrue);
 
         if (templateRenameError is { } error)
@@ -861,7 +874,7 @@ internal sealed partial class PlateLibraryWindow
         ImGui.Spacing();
         using (ImRaii.Disabled(IsBusy))
         {
-            if (ImGui.Button("Rename", new Vector2(110f, 0f)) || submitted)
+            if (ImGui.Button("Rename", EditorWidgets.Scaled(new Vector2(110f, 0f))) || submitted)
             {
                 if (!TemplateNaming.TryNormalizeName(templateRenameBuffer, out var name, out var validationError))
                 {
@@ -877,7 +890,7 @@ internal sealed partial class PlateLibraryWindow
         }
 
         ImGui.SameLine();
-        if (ImGui.Button("Cancel", new Vector2(110f, 0f)))
+        if (ImGui.Button("Cancel", EditorWidgets.Scaled(new Vector2(110f, 0f))))
         {
             ImGui.CloseCurrentPopup();
         }
@@ -916,7 +929,7 @@ internal sealed partial class PlateLibraryWindow
         {
             using (ImRaii.PushColor(ImGuiCol.Button, new Vector4(0.6f, 0.18f, 0.18f, 1f)))
             {
-                if (ImGui.Button("Delete", new Vector2(110f, 0f)))
+                if (ImGui.Button("Delete", EditorWidgets.Scaled(new Vector2(110f, 0f))))
                 {
                     var templateId = template.TemplateId;
                     var name = template.DisplayName;
@@ -935,7 +948,7 @@ internal sealed partial class PlateLibraryWindow
         }
 
         ImGui.SameLine();
-        if (ImGui.Button("Cancel", new Vector2(110f, 0f)))
+        if (ImGui.Button("Cancel", EditorWidgets.Scaled(new Vector2(110f, 0f))))
         {
             ImGui.CloseCurrentPopup();
         }

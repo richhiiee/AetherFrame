@@ -27,10 +27,6 @@ namespace AetherFrame.Windows;
 /// </summary>
 internal sealed partial class ProfileEditorWindow : Window, IDisposable, IEditorSurface
 {
-    private const float LeftPanelWidth = 236f;
-    private const float RightPanelWidth = 344f;
-    private const float MinCanvasWidth = 360f;
-
     private const string ElementContextMenuId = "##AetherFrameElementContextMenu";
     private const string CanvasResizePopupId = "##AetherFrameCanvasResizePopup";
     private const string ZoomMenuPopupId = "##AetherFrameZoomMenu";
@@ -91,7 +87,7 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable, IEditor
     {
         SizeConstraints = new WindowSizeConstraints
         {
-            MinimumSize = new Vector2(980, 560),
+            MinimumSize = AdvancedEditorLayout.MinimumWindowSize,
             MaximumSize = new Vector2(float.MaxValue, float.MaxValue),
         };
 
@@ -190,8 +186,15 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable, IEditor
         fileDialogManager.Reset();
     }
 
-    /// <summary>Clean Preview's presentation (see <see cref="CleanPreviewPresenter"/>), or the editor's own.</summary>
-    public override void PreDraw() => cleanPreview.PreDraw();
+    /// <summary>
+    /// The first-open size, then Clean Preview's presentation (see <see cref="CleanPreviewPresenter"/>)
+    /// or the editor's own — in that order, so the preview's sizing always wins.
+    /// </summary>
+    public override void PreDraw()
+    {
+        EditorWidgets.SetFirstUseSize(AdvancedEditorLayout.FirstUseSize, AdvancedEditorLayout.MinimumWindowSize);
+        cleanPreview.PreDraw();
+    }
 
     public override void PostDraw() => cleanPreview.PostDraw();
 
@@ -253,17 +256,15 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable, IEditor
         EditorWidgets.UnsupportedElementsNotice(profile);
         ImGui.Separator();
 
-        var contentAvail = ImGui.GetContentRegionAvail();
         var spacing = ImGui.GetStyle().ItemSpacing;
         var statusBarHeight = ImGui.GetFrameHeightWithSpacing() + spacing.Y;
-        var bodyHeight = Math.Max(200f, contentAvail.Y - statusBarHeight - spacing.Y);
-        var canvasWidth = Math.Max(MinCanvasWidth, contentAvail.X - LeftPanelWidth - RightPanelWidth - (spacing.X * 2f));
+        var layout = AdvancedEditorLayout.Compute(ImGui.GetContentRegionAvail(), statusBarHeight, spacing, ImGuiHelpers.GlobalScale);
 
-        DrawLayersPanel(profile, new Vector2(LeftPanelWidth, bodyHeight));
+        DrawLayersPanel(profile, new Vector2(layout.LayersWidth, layout.BodyHeight));
         ImGui.SameLine();
-        DrawCanvasPanel(profile, new Vector2(canvasWidth, bodyHeight));
+        DrawCanvasPanel(profile, new Vector2(layout.CanvasWidth, layout.BodyHeight));
         ImGui.SameLine();
-        DrawInspectorPanel(profile, new Vector2(RightPanelWidth, bodyHeight));
+        DrawInspectorPanel(profile, new Vector2(layout.InspectorWidth, layout.BodyHeight));
 
         ImGui.Separator();
         DrawStatusBar(profile);
@@ -317,7 +318,7 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable, IEditor
     private static void ToolbarGap()
     {
         ImGui.SameLine();
-        ImGui.Dummy(new Vector2(6f, 0f));
+        ImGui.Dummy(new Vector2(EditorWidgets.Scaled(6f), 0f));
         ImGui.SameLine();
     }
 
@@ -332,15 +333,15 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable, IEditor
             editorSession.SetZoom(editorSession.Zoom / 1.25f);
         }
 
-        ImGui.SameLine(0f, 2f);
-        if (ImGui.Button($"{editorSession.Zoom * 100f:0}%##ZoomLevel", new Vector2(58f, 0f)))
+        ImGui.SameLine(0f, EditorWidgets.Scaled(2f));
+        if (ImGui.Button($"{editorSession.Zoom * 100f:0}%##ZoomLevel", new Vector2(EditorWidgets.Scaled(58f), 0f)))
         {
             pendingZoomMenu = true;
         }
 
         EditorWidgets.Tooltip("Zoom (mouse wheel over the canvas)");
 
-        ImGui.SameLine(0f, 2f);
+        ImGui.SameLine(0f, EditorWidgets.Scaled(2f));
         if (EditorWidgets.IconButton("ZoomIn", FontAwesomeIcon.Plus, "Zoom in"))
         {
             editorSession.SetZoom(editorSession.Zoom * 1.25f);
@@ -364,7 +365,7 @@ internal sealed partial class ProfileEditorWindow : Window, IDisposable, IEditor
             const string hints = "Wheel: zoom   Middle-drag: pan   F: fit   Alt: no snap";
             var hintWidth = ImGui.CalcTextSize(hints).X;
             var hintX = ImGui.GetWindowContentRegionMax().X - hintWidth;
-            if (hintX > ImGui.GetCursorPosX() + 16f)
+            if (hintX > ImGui.GetCursorPosX() + EditorWidgets.Scaled(16f))
             {
                 ImGui.SameLine(hintX);
                 ImGui.TextUnformatted(hints);

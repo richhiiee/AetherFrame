@@ -105,7 +105,8 @@ internal sealed class BackupSimulatingStore : IPlateFileStore
     public void DeleteFile(string path) => files.DeleteFile(path);
 }
 
-/// <summary>Plain files with switchable failures, for fault injection.</summary>
+/// <summary>Plain files with switchable failures, for fault injection. Like the operating
+/// system's own, a failure's message names the full path.</summary>
 internal sealed class FaultInjectingStore : IPlateFileStore
 {
     private readonly SystemFileStore files = new();
@@ -116,11 +117,23 @@ internal sealed class FaultInjectingStore : IPlateFileStore
     /// <summary>Moves whose source path matches fail with an IOException.</summary>
     internal Func<string, bool>? FailMove { get; set; }
 
+    /// <summary>Listings of a matching directory fail with an UnauthorizedAccessException.</summary>
+    internal Func<string, bool>? FailList { get; set; }
+
     internal int FailedOperations { get; private set; }
 
     public bool FileExists(string path) => files.FileExists(path);
 
-    public IReadOnlyList<string> ListFiles(string directory, string searchPattern) => files.ListFiles(directory, searchPattern);
+    public IReadOnlyList<string> ListFiles(string directory, string searchPattern)
+    {
+        if (FailList?.Invoke(directory) == true)
+        {
+            FailedOperations++;
+            throw new UnauthorizedAccessException($"Injected access failure: '{directory}'");
+        }
+
+        return files.ListFiles(directory, searchPattern);
+    }
 
     public Task ReadTextAsync(string path, Action<string> reader) => files.ReadTextAsync(path, reader);
 
@@ -129,7 +142,7 @@ internal sealed class FaultInjectingStore : IPlateFileStore
         if (FailWrite?.Invoke(path) == true)
         {
             FailedOperations++;
-            throw new IOException($"Injected write failure: {System.IO.Path.GetFileName(path)}");
+            throw new IOException($"Injected write failure: '{path}'");
         }
 
         return files.WriteTextAsync(path, contents);
@@ -140,7 +153,7 @@ internal sealed class FaultInjectingStore : IPlateFileStore
         if (FailMove?.Invoke(sourcePath) == true)
         {
             FailedOperations++;
-            throw new IOException($"Injected move failure: {System.IO.Path.GetFileName(sourcePath)}");
+            throw new IOException($"Injected move failure: '{sourcePath}'");
         }
 
         files.MoveFile(sourcePath, destinationPath);

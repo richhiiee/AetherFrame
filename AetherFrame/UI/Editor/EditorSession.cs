@@ -101,6 +101,11 @@ internal sealed partial class EditorSession
 
     internal string? ErrorMessage { get; private set; }
 
+    // What ErrorMessage says when a failure's own text isn't meant for the player (see UserFacingError).
+    internal const string EditFailedMessage = "That change couldn't be made.";
+    internal const string ImageImportFailedMessage = "The image couldn't be added.";
+    internal const string SaveFailedMessage = "The Plate couldn't be saved.";
+
     internal Guid? SelectedElementId { get; private set; }
 
     internal bool CanUndo => undoStack.Count > 0;
@@ -187,7 +192,7 @@ internal sealed partial class EditorSession
         }
         catch (Exception ex)
         {
-            ErrorMessage = ex.Message;
+            ErrorMessage = UserFacingError.Describe(ex, EditFailedMessage);
             return null;
         }
     }
@@ -209,7 +214,7 @@ internal sealed partial class EditorSession
         }
         catch (Exception ex)
         {
-            ErrorMessage = ex.Message;
+            ErrorMessage = UserFacingError.Describe(ex, ImageImportFailedMessage);
             return;
         }
 
@@ -248,7 +253,7 @@ internal sealed partial class EditorSession
         }
         catch (Exception ex)
         {
-            ErrorMessage = ex.Message;
+            ErrorMessage = UserFacingError.Describe(ex, EditFailedMessage);
             return Guid.Empty;
         }
     }
@@ -270,7 +275,7 @@ internal sealed partial class EditorSession
         }
         catch (Exception ex)
         {
-            ErrorMessage = ex.Message;
+            ErrorMessage = UserFacingError.Describe(ex, ImageImportFailedMessage);
             return;
         }
 
@@ -315,7 +320,7 @@ internal sealed partial class EditorSession
         }
         catch (Exception ex)
         {
-            ErrorMessage = ex.Message;
+            ErrorMessage = UserFacingError.Describe(ex, EditFailedMessage);
         }
     }
 
@@ -351,7 +356,7 @@ internal sealed partial class EditorSession
         }
         catch (Exception ex)
         {
-            ErrorMessage = ex.Message;
+            ErrorMessage = UserFacingError.Describe(ex, EditFailedMessage);
         }
     }
 
@@ -409,7 +414,7 @@ internal sealed partial class EditorSession
         }
         catch (Exception ex)
         {
-            ErrorMessage = ex.Message;
+            ErrorMessage = UserFacingError.Describe(ex, EditFailedMessage);
             return;
         }
 
@@ -419,7 +424,7 @@ internal sealed partial class EditorSession
         }
         catch (Exception ex)
         {
-            ErrorMessage = ex.Message;
+            ErrorMessage = UserFacingError.Describe(ex, EditFailedMessage);
             return;
         }
 
@@ -462,7 +467,7 @@ internal sealed partial class EditorSession
             }
             catch (Exception ex)
             {
-                ErrorMessage = ex.Message;
+                ErrorMessage = UserFacingError.Describe(ex, EditFailedMessage);
                 return;
             }
         }
@@ -473,7 +478,7 @@ internal sealed partial class EditorSession
         }
         catch (Exception ex)
         {
-            ErrorMessage = ex.Message;
+            ErrorMessage = UserFacingError.Describe(ex, EditFailedMessage);
         }
     }
 
@@ -565,7 +570,7 @@ internal sealed partial class EditorSession
         }
         catch (Exception ex)
         {
-            ErrorMessage = ex.Message;
+            ErrorMessage = UserFacingError.Describe(ex, SaveFailedMessage);
             log.Error(ex, "AetherFrame failed to save the current profile.");
             return false;
         }
@@ -599,7 +604,7 @@ internal sealed partial class EditorSession
         }
         catch (Exception ex)
         {
-            ErrorMessage = ex.Message;
+            ErrorMessage = UserFacingError.Describe(ex, EditFailedMessage);
             return;
         }
 
@@ -663,7 +668,7 @@ internal sealed partial class EditorSession
         }
         catch (Exception ex)
         {
-            ErrorMessage = ex.Message;
+            ErrorMessage = UserFacingError.Describe(ex, EditFailedMessage);
         }
 
         DropSelectionIfMissing();
@@ -692,7 +697,7 @@ internal sealed partial class EditorSession
         }
         catch (Exception ex)
         {
-            ErrorMessage = ex.Message;
+            ErrorMessage = UserFacingError.Describe(ex, EditFailedMessage);
         }
 
         DropSelectionIfMissing();
@@ -733,7 +738,7 @@ internal sealed partial class EditorSession
         }
         catch (Exception ex)
         {
-            ErrorMessage = ex.Message;
+            ErrorMessage = UserFacingError.Describe(ex, EditFailedMessage);
             return;
         }
 

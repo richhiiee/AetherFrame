@@ -47,6 +47,7 @@ internal sealed class TemplateLibraryService
     private readonly Dictionary<Guid, TemplateRecord> templates = new();
 
     private bool isLoaded;
+    private bool loadFailed;
     private int generation;
     private IReadOnlyList<TemplateSummary>? orderedSummaries;
 
@@ -68,9 +69,18 @@ internal sealed class TemplateLibraryService
         this.operations = operations ?? new OwnedOperations();
     }
 
+    /// <summary>Whether the player's saved Templates have loaded. Built-in Templates never wait on
+    /// this: they're usable while loading and after a failed load.</summary>
     internal bool IsLoaded
     {
         get { lock (gate) return isLoaded; }
+    }
+
+    /// <summary>The player's saved Templates couldn't be loaded (see <see cref="InitializeAsync"/>);
+    /// only built-in Templates are listed and usable until AetherFrame loads again.</summary>
+    internal bool LoadFailed
+    {
+        get { lock (gate) return loadFailed; }
     }
 
     /// <summary>Changes whenever anything visible in the Library changes (cheap cache key for UI).</summary>
@@ -131,24 +141,40 @@ internal sealed class TemplateLibraryService
     /// legacy format to migrate on disk and no index to rebuild).
     /// </summary>
     /// <remarks>Loading only reads, so <paramref name="cancellationToken"/> (like shutdown) stops it
-    /// between files with <see cref="OperationCanceledException"/>, leaving Templates unloaded.</remarks>
+    /// between files with <see cref="OperationCanceledException"/>, leaving Templates unloaded. Any
+    /// other failure (the Templates folder itself unreadable, say) is rethrown for the caller to log,
+    /// after marking the load failed: saved Templates then refuse every change, and built-in
+    /// Templates stay usable, so Create Plate always works.</remarks>
     internal Task InitializeAsync(CancellationToken cancellationToken = default) => RunExclusiveAsync(() => InitializeCoreAsync(cancellationToken));
 
     private async Task InitializeCoreAsync(CancellationToken cancellationToken)
     {
         var loaded = new List<TemplateRecord>();
-        foreach (var path in store.ListFiles(paths.TemplatesDirectory, "*.json"))
+        try
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            operations.Stopping.ThrowIfCancellationRequested();
-
-            if (!PlateStoragePaths.TryParseTemplateFileName(path, out var templateId))
+            foreach (var path in store.ListFiles(paths.TemplatesDirectory, "*.json"))
             {
-                log.Warning($"AetherFrame ignored a file in the Templates folder that isn't a Template: {Path.GetFileName(path)}");
-                continue;
+                cancellationToken.ThrowIfCancellationRequested();
+                operations.Stopping.ThrowIfCancellationRequested();
+
+                if (!PlateStoragePaths.TryParseTemplateFileName(path, out var templateId))
+                {
+                    log.Warning($"AetherFrame ignored a file in the Templates folder that isn't a Template: {Path.GetFileName(path)}");
+                    continue;
+                }
+
+                loaded.Add(await LoadTemplateAsync(path, templateId).ConfigureAwait(false));
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException and not OperationAbandonedException)
+        {
+            lock (gate)
+            {
+                loadFailed = true;
+                Changed();
             }
 
-            loaded.Add(await LoadTemplateAsync(path, templateId).ConfigureAwait(false));
+            throw;
         }
 
         lock (gate)
@@ -160,6 +186,7 @@ internal sealed class TemplateLibraryService
             }
 
             isLoaded = true;
+            loadFailed = false;
             Changed();
         }
 
@@ -437,11 +464,11 @@ internal sealed class TemplateLibraryService
     internal Task<PlateCreationResult> InstantiateAsync(Guid templateId, CharacterContext? character, PlateStarterContent? starterForBuiltIn = null) =>
         RunExclusiveAsync(async () =>
         {
-            RequireLoaded();
-
             JsonObject rawDocument;
             string name;
 
+            // A built-in Template is generated, never read from disk, so it's usable however the
+            // saved Templates' load went — Create Plate never depends on it.
             if (BuiltInTemplateCatalog.IsBuiltIn(templateId))
             {
                 var definition = BuiltInTemplateCatalog.Find(templateId)!;
@@ -451,6 +478,7 @@ internal sealed class TemplateLibraryService
             }
             else
             {
+                RequireLoaded();
                 lock (gate)
                 {
                     var record = RequireReadyLocked(templateId, "used");
@@ -572,9 +600,17 @@ internal sealed class TemplateLibraryService
 
     private void RequireLoaded()
     {
-        if (!IsLoaded)
+        lock (gate)
         {
-            throw new TemplateLibraryException("Templates are still loading.");
+            if (loadFailed)
+            {
+                throw new TemplateLibraryException("Your saved Templates couldn't be loaded, so they can't be used or changed right now. Built-in Templates still work.");
+            }
+
+            if (!isLoaded)
+            {
+                throw new TemplateLibraryException("Templates are still loading.");
+            }
         }
     }
 

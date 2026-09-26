@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using AetherFrame.Domain.Components;
 using AetherFrame.Domain.Profiles;
+using AetherFrame.Services.Diagnostics;
 using AetherFrame.UI.Rendering;
 
 namespace AetherFrame.UI.Editor;
@@ -127,7 +128,7 @@ internal sealed partial class EditorSession
         }
         catch (Exception ex)
         {
-            ErrorMessage = ex.Message;
+            ErrorMessage = UserFacingError.Describe(ex, ImageImportFailedMessage);
             return;
         }
 

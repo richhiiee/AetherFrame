@@ -4,6 +4,7 @@ using System.Numerics;
 using System.Threading.Tasks;
 using AetherFrame.Domain.Plates;
 using AetherFrame.Services;
+using AetherFrame.Services.Diagnostics;
 using AetherFrame.Services.Plates;
 using AetherFrame.Services.Templates;
 using AetherFrame.UI.Editor;
@@ -317,7 +318,7 @@ internal sealed partial class PlateLibraryWindow
         }
         catch (Exception ex) when (ex is PlateLibraryException or InvalidOperationException)
         {
-            errorMessage = ex.Message;
+            errorMessage = UserFacingError.Describe(ex, "That Plate couldn't be opened.");
         }
         catch (Exception ex)
         {
@@ -397,7 +398,7 @@ internal sealed partial class PlateLibraryWindow
         ImGui.TextUnformatted($"Save them before opening \"{targetName}\"?");
         ImGui.Spacing();
 
-        var buttonSize = new Vector2(110f, 0f);
+        var buttonSize = EditorWidgets.Scaled(new Vector2(110f, 0f));
         using (ImRaii.Disabled(profileService.IsBusy || guardSaveTask is not null))
         {
             if (ImGui.Button(guardSaveTask is null ? "Save" : "Saving...", buttonSize))
@@ -444,7 +445,7 @@ internal sealed partial class PlateLibraryWindow
             ImGui.SetKeyboardFocusHere();
         }
 
-        ImGui.SetNextItemWidth(300f);
+        ImGui.SetNextItemWidth(EditorWidgets.Scaled(300f));
         var submitted = ImGui.InputText("##PlateName", ref renameBuffer, PlateNaming.MaxNameLength, ImGuiInputTextFlags.EnterReturnsTrue);
 
         if (renameError is { } error)
@@ -455,7 +456,7 @@ internal sealed partial class PlateLibraryWindow
         ImGui.Spacing();
         using (ImRaii.Disabled(IsBusy))
         {
-            if (ImGui.Button("Rename", new Vector2(110f, 0f)) || submitted)
+            if (ImGui.Button("Rename", EditorWidgets.Scaled(new Vector2(110f, 0f))) || submitted)
             {
                 if (!PlateNaming.TryNormalizeName(renameBuffer, out var name, out var validationError))
                 {
@@ -471,7 +472,7 @@ internal sealed partial class PlateLibraryWindow
         }
 
         ImGui.SameLine();
-        if (ImGui.Button("Cancel", new Vector2(110f, 0f)))
+        if (ImGui.Button("Cancel", EditorWidgets.Scaled(new Vector2(110f, 0f))))
         {
             ImGui.CloseCurrentPopup();
         }
@@ -534,7 +535,7 @@ internal sealed partial class PlateLibraryWindow
         {
             using (ImRaii.PushColor(ImGuiCol.Button, new Vector4(0.6f, 0.18f, 0.18f, 1f)))
             {
-                if (ImGui.Button("Delete", new Vector2(110f, 0f)))
+                if (ImGui.Button("Delete", EditorWidgets.Scaled(new Vector2(110f, 0f))))
                 {
                     var plateId = plate.PlateId;
                     var name = plate.DisplayName;
@@ -555,7 +556,7 @@ internal sealed partial class PlateLibraryWindow
         }
 
         ImGui.SameLine();
-        if (ImGui.Button("Cancel", new Vector2(110f, 0f)))
+        if (ImGui.Button("Cancel", EditorWidgets.Scaled(new Vector2(110f, 0f))))
         {
             ImGui.CloseCurrentPopup();
         }

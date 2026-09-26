@@ -880,6 +880,6 @@ internal sealed partial class ProfileEditorWindow
 
     /// <summary>X offset for a second label/value pair on the same row (e.g. Visible | Locked).</summary>
     private static float LabelColumnOffset(int column) =>
-        EditorWidgets.LabelColumnWidth + ((column - 1) * 56f);
+        EditorWidgets.LabelColumnWidth + ((column - 1) * EditorWidgets.Scaled(56f));
 
 }

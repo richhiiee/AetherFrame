@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Numerics;
 using AetherFrame.Domain.Profiles;
 using AetherFrame.Services;
+using AetherFrame.Services.Diagnostics;
 using AetherFrame.UI.Rendering;
 
 namespace AetherFrame.UI.Editor;
@@ -279,7 +280,7 @@ internal sealed partial class EditorSession
         }
         catch (Exception ex)
         {
-            ErrorMessage = ex.Message;
+            ErrorMessage = UserFacingError.Describe(ex, EditFailedMessage);
         }
     }
 
@@ -355,7 +356,7 @@ internal sealed partial class EditorSession
         }
         catch (Exception ex)
         {
-            ErrorMessage = ex.Message;
+            ErrorMessage = UserFacingError.Describe(ex, EditFailedMessage);
             return;
         }
 
@@ -376,7 +377,7 @@ internal sealed partial class EditorSession
         }
         catch (Exception ex)
         {
-            ErrorMessage = ex.Message;
+            ErrorMessage = UserFacingError.Describe(ex, EditFailedMessage);
             return;
         }
 

@@ -57,8 +57,8 @@ internal sealed partial class ProfileEditorWindow
         ImGui.TextDisabled(countText);
         ImGui.Separator();
 
-        var footerHeight = ImGui.GetFrameHeightWithSpacing() + ImGui.GetStyle().ItemSpacing.Y + 4f;
-        var listHeight = Math.Max(60f, ImGui.GetContentRegionAvail().Y - footerHeight);
+        var footerHeight = ImGui.GetFrameHeightWithSpacing() + ImGui.GetStyle().ItemSpacing.Y + EditorWidgets.Scaled(4f);
+        var listHeight = Math.Max(EditorWidgets.Scaled(60f), ImGui.GetContentRegionAvail().Y - footerHeight);
 
         using (var list = ImRaii.Child("##AetherFrameLayersList", new Vector2(-1, listHeight), false))
         {

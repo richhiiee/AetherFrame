@@ -4,7 +4,9 @@ using System.Numerics;
 using AetherFrame.Domain.Components;
 using AetherFrame.Services;
 using Dalamud.Bindings.ImGui;
+using AetherFrame.UI.Editor;
 using Dalamud.Interface;
+using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
 
 namespace AetherFrame.Windows;
@@ -16,7 +18,10 @@ namespace AetherFrame.Windows;
 /// </summary>
 internal static class EditorWidgets
 {
-    internal const float LabelColumnWidth = 92f;
+    private const float BaseLabelColumnWidth = 92f;
+
+    /// <summary>The property label column's width at the current UI scale.</summary>
+    internal static float LabelColumnWidth => Scaled(BaseLabelColumnWidth);
 
     internal static readonly Vector4 AccentColor = new(0.30f, 0.62f, 1.00f, 1f);
     internal static readonly Vector4 ActiveToggleColor = new(0.26f, 0.46f, 0.78f, 1f);
@@ -24,6 +29,22 @@ internal static class EditorWidgets
     internal static readonly Vector4 WarningColor = new(1f, 0.70f, 0.30f, 1f);
     internal static readonly Vector4 ErrorColor = new(1f, 0.42f, 0.42f, 1f);
     internal static readonly Vector4 SuccessColor = new(0.45f, 0.85f, 0.50f, 1f);
+
+    /// <summary>A length in unscaled pixels at Dalamud's global UI scale.</summary>
+    internal static float Scaled(float pixels) => pixels * ImGuiHelpers.GlobalScale;
+
+    /// <summary>A size in unscaled pixels at Dalamud's global UI scale.</summary>
+    internal static Vector2 Scaled(Vector2 pixels) => pixels * ImGuiHelpers.GlobalScale;
+
+    /// <summary>
+    /// For a window's PreDraw: the size it opens at the very first time (see
+    /// <see cref="FirstUseWindowSize"/>). Called before anything else in PreDraw sets the next
+    /// window size, so anything that must win (Clean Preview's presentation) still does. Deliberately
+    /// not <c>Window.Size</c>: Dalamud applies that after PreDraw, overriding those.
+    /// </summary>
+    internal static void SetFirstUseSize(Vector2 preferred, Vector2 minimum) =>
+        ImGui.SetNextWindowSize(
+            FirstUseWindowSize.Compute(preferred, minimum, ImGui.GetMainViewport().WorkSize, ImGuiHelpers.GlobalScale), ImGuiCond.FirstUseEver);
 
     /// <summary>
     /// Draws a dimmed property label in the fixed left column and positions the cursor for the

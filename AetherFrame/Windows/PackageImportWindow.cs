@@ -23,7 +23,7 @@ namespace AetherFrame.Windows;
 /// </summary>
 internal sealed class PackageImportWindow : Window, IDisposable
 {
-    private static readonly Vector2 PreviewSize = new(480f, 270f);
+    private static Vector2 PreviewSize => EditorWidgets.Scaled(new Vector2(480f, 270f));
 
     private readonly PlatePackageService packages;
     private readonly ProfileRenderResources renderResources;
@@ -209,7 +209,7 @@ internal sealed class PackageImportWindow : Window, IDisposable
 
         using (ImRaii.Disabled(!package.CanImport || importTask is not null))
         {
-            if (ImGui.Button(importTask is null ? "Import as New Plate" : "Importing...", new Vector2(160f, 0f)))
+            if (ImGui.Button(importTask is null ? "Import as New Plate" : "Importing...", EditorWidgets.Scaled(new Vector2(160f, 0f))))
             {
                 importError = null;
                 importTask = packages.ImportAsync(package);
@@ -219,7 +219,7 @@ internal sealed class PackageImportWindow : Window, IDisposable
         ImGui.SameLine();
         using (ImRaii.Disabled(importTask is not null))
         {
-            if (ImGui.Button(package.CanImport ? "Cancel" : "Close", new Vector2(110f, 0f)))
+            if (ImGui.Button(package.CanImport ? "Cancel" : "Close", EditorWidgets.Scaled(new Vector2(110f, 0f))))
             {
                 IsOpen = false;
             }

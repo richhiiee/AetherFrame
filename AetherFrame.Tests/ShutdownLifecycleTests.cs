@@ -353,18 +353,18 @@ public class ShutdownLifecycleTests
     }
 
     [Fact]
-    public void GuardedStore_RefusesEveryFileStep_OnceAbandoned_AndNothingBefore()
+    public async Task GuardedStore_RefusesEveryFileStep_OnceAbandoned_AndNothingBefore()
     {
         using var directory = new TempDirectory();
         var operations = new OwnedOperations();
         var store = new ShutdownGuardedFileStore(new SystemFileStore(), operations);
         var path = Path.Combine(directory.Path, "a.json");
 
-        store.WriteTextAsync(path, "{}").GetAwaiter().GetResult();
+        await store.WriteTextAsync(path, "{}");
         Assert.True(store.FileExists(path));
 
         Assert.True(operations.TryBegin(out var lease));
-        Assert.False(operations.ShutdownAsync(TimeSpan.FromMilliseconds(10)).GetAwaiter().GetResult());
+        Assert.False(await operations.ShutdownAsync(TimeSpan.FromMilliseconds(10)));
 
         // Refused before anything starts: thrown synchronously, no task is ever created.
         Assert.Throws<OperationAbandonedException>(() => { _ = store.WriteTextAsync(path, "{\"changed\":1}"); });

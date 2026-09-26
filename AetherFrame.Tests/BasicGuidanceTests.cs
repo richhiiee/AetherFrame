@@ -238,4 +238,20 @@ public class BasicGuidanceTests
     [InlineData(true, 3, (int)GuidanceConfigOrigin.Current)]
     public void OriginOf_ClassifiesTheLoadedConfiguration(bool found, int version, int expected) =>
         Assert.Equal((GuidanceConfigOrigin)expected, BasicGuidance.OriginOf(found, version, currentVersion: 2));
+
+    [Fact]
+    public void AnUnreadableConfiguration_NeverNagsItsPlayer_AndIsRewrittenReadable()
+    {
+        // Only a player who has used AetherFrame before has a configuration file at all.
+        var origin = BasicGuidance.OriginOf(configurationFound: false, version: 0, currentVersion: 2, configurationUnreadable: true);
+        var store = new FakeGuidanceStore { Version = 0 };
+        var guidance = new BasicGuidance(store);
+
+        guidance.Resolve(origin);
+
+        Assert.Equal(GuidanceConfigOrigin.Unreadable, origin);
+        Assert.False(guidance.ShouldSuggestBasic);
+        Assert.True(store.BasicGuidanceHandled);
+        Assert.Equal(1, store.Saves);
+    }
 }

@@ -56,6 +56,13 @@ internal enum GuidanceConfigOrigin
 
     /// <summary>A configuration that already records the guidance flag.</summary>
     Current,
+
+    /// <summary>
+    /// A configuration file exists but couldn't be read (damaged, say). Only a player who has used
+    /// AetherFrame before has one, so it's treated as handled, like <see cref="Legacy"/>, and
+    /// replaced by a readable one.
+    /// </summary>
+    Unreadable,
 }
 
 /// <summary>
@@ -106,8 +113,10 @@ internal sealed class BasicGuidance
     /// <param name="configurationFound">Whether a saved configuration was loaded.</param>
     /// <param name="version">Its Version.</param>
     /// <param name="currentVersion">The Version that added the flag.</param>
-    internal static GuidanceConfigOrigin OriginOf(bool configurationFound, int version, int currentVersion) =>
-        !configurationFound ? GuidanceConfigOrigin.Missing
+    /// <param name="configurationUnreadable">Whether a saved configuration existed but couldn't be read.</param>
+    internal static GuidanceConfigOrigin OriginOf(bool configurationFound, int version, int currentVersion, bool configurationUnreadable = false) =>
+        configurationUnreadable ? GuidanceConfigOrigin.Unreadable
+        : !configurationFound ? GuidanceConfigOrigin.Missing
         : version < currentVersion ? GuidanceConfigOrigin.Legacy
         : GuidanceConfigOrigin.Current;
 
@@ -119,7 +128,7 @@ internal sealed class BasicGuidance
     internal static bool IsHandled(GuidanceConfigOrigin origin, bool storedHandled) => origin switch
     {
         GuidanceConfigOrigin.Current => storedHandled,
-        GuidanceConfigOrigin.Legacy => true,
+        GuidanceConfigOrigin.Legacy or GuidanceConfigOrigin.Unreadable => true,
         _ => false,
     };
 

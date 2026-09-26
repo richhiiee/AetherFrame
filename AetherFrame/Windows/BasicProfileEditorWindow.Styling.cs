@@ -100,7 +100,7 @@ internal sealed partial class BasicProfileEditorWindow
     {
         ImGui.AlignTextToFramePadding();
         ImGui.TextUnformatted(text);
-        ImGui.SameLine(EditorWidgets.LabelColumnWidth * Dalamud.Interface.Utility.ImGuiHelpers.GlobalScale);
+        ImGui.SameLine(EditorWidgets.LabelColumnWidth);
         ImGui.SetNextItemWidth(-1);
     }
 

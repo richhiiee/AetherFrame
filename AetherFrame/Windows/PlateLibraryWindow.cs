@@ -34,10 +34,16 @@ namespace AetherFrame.Windows;
 /// </summary>
 internal sealed partial class PlateLibraryWindow : Window, IDisposable
 {
-    private const float CardWidth = 196f;
-    private const float CardPadding = 8f;
+    // Card sizes in unscaled pixels, at Dalamud's global UI scale when drawn, so a card keeps room
+    // for its (scaled) name on a high-DPI screen.
+    private static float CardWidth => EditorWidgets.Scaled(196f);
+    private static float CardPadding => EditorWidgets.Scaled(8f);
     private const float ThumbnailAspect = 16f / 9f;
     private const string CardDragPayloadType = "AF_PLATE";
+
+    // The window's minimum size, and its size the first time it opens: room for four cards across.
+    private static readonly Vector2 MinimumWindowSize = new(560f, 440f);
+    private static readonly Vector2 FirstUseSize = new(880f, 620f);
 
     private static readonly byte[] CardDragPayload = [1];
     private static readonly Vector4 CardColor = new(1f, 1f, 1f, 0.04f);
@@ -100,7 +106,7 @@ internal sealed partial class PlateLibraryWindow : Window, IDisposable
     {
         SizeConstraints = new WindowSizeConstraints
         {
-            MinimumSize = new Vector2(560, 440),
+            MinimumSize = MinimumWindowSize,
             MaximumSize = new Vector2(float.MaxValue, float.MaxValue),
         };
 
@@ -145,6 +151,8 @@ internal sealed partial class PlateLibraryWindow : Window, IDisposable
     {
         activeView = LibraryView.MyPlates;
     }
+
+    public override void PreDraw() => EditorWidgets.SetFirstUseSize(FirstUseSize, MinimumWindowSize);
 
     public override void Draw()
     {
@@ -211,7 +219,7 @@ internal sealed partial class PlateLibraryWindow : Window, IDisposable
         ImGui.Separator();
 
         // Two plain text lines now (status/info, then the right-click hint) — no button row.
-        var footerHeight = (ImGui.GetTextLineHeightWithSpacing() * 2f) + 4f;
+        var footerHeight = (ImGui.GetTextLineHeightWithSpacing() * 2f) + EditorWidgets.Scaled(4f);
         using (var grid = ImRaii.Child("##PlateGrid", new Vector2(-1, -footerHeight), false))
         {
             if (grid.Success)
@@ -242,7 +250,7 @@ internal sealed partial class PlateLibraryWindow : Window, IDisposable
         EditorWidgets.Tooltip("Add a Plate from an .aetherframe file. It's checked and previewed first,\nand always added as a new Plate.");
 
         ImGui.SameLine();
-        ImGui.SetNextItemWidth(220f);
+        ImGui.SetNextItemWidth(EditorWidgets.Scaled(220f));
         ImGui.InputTextWithHint("##PlateSearch", "Search Plates...", ref searchText, 64);
 
         // Never the character's name or World (see MyPlatesCharacterText): only whether one is
@@ -532,8 +540,10 @@ internal sealed partial class PlateLibraryWindow : Window, IDisposable
         using (DalamudServices.PluginInterface.UiBuilder.IconFontHandle.Push())
         {
             var size = ImGui.CalcTextSize(icon);
-            var pos = new Vector2(thumbnailMin.X + 5f, thumbnailMax.Y - size.Y - 5f);
-            drawList.AddRectFilled(pos - new Vector2(3f), pos + size + new Vector2(3f), ImGui.GetColorU32(new Vector4(0f, 0f, 0f, 0.55f)), 4f);
+            var inset = EditorWidgets.Scaled(5f);
+            var margin = new Vector2(EditorWidgets.Scaled(3f));
+            var pos = new Vector2(thumbnailMin.X + inset, thumbnailMax.Y - size.Y - inset);
+            drawList.AddRectFilled(pos - margin, pos + size + margin, ImGui.GetColorU32(new Vector4(0f, 0f, 0f, 0.55f)), 4f);
             drawList.AddText(pos, ImGui.GetColorU32(EditorWidgets.WarningColor), icon);
         }
     }
@@ -542,9 +552,10 @@ internal sealed partial class PlateLibraryWindow : Window, IDisposable
     {
         const string label = "Active";
         var textSize = ImGui.CalcTextSize(label);
-        var padding = new Vector2(6f, 2f);
-        var badgeMax = new Vector2(thumbnailMax.X - 4f, thumbnailMin.Y + 4f + textSize.Y + (padding.Y * 2f));
-        var badgeMin = new Vector2(badgeMax.X - textSize.X - (padding.X * 2f), thumbnailMin.Y + 4f);
+        var padding = EditorWidgets.Scaled(new Vector2(6f, 2f));
+        var inset = EditorWidgets.Scaled(4f);
+        var badgeMax = new Vector2(thumbnailMax.X - inset, thumbnailMin.Y + inset + textSize.Y + (padding.Y * 2f));
+        var badgeMin = new Vector2(badgeMax.X - textSize.X - (padding.X * 2f), thumbnailMin.Y + inset);
 
         drawList.AddRectFilled(badgeMin, badgeMax, ImGui.GetColorU32(ActiveBadgeColor), 4f);
         drawList.AddText(badgeMin + padding, ImGui.GetColorU32(new Vector4(0.1f, 0.08f, 0.02f, 1f)), label);
