@@ -66,6 +66,27 @@ internal static class EditorWidgets
         ImGui.SetNextItemWidth(width);
     }
 
+    /// <summary>
+    /// A <see cref="PropertyLabel"/> that can be clicked: highlighted while <paramref name="selected"/>,
+    /// true on the frame it is clicked. It covers only the label column, so the control after it
+    /// keeps its own clicks.
+    /// </summary>
+    internal static bool SelectablePropertyLabel(string label, bool selected, float width = -1f)
+    {
+        ImGui.AlignTextToFramePadding();
+        // A fixed width: the label column, less the gap before the control, whatever the text (and its ## id) measures.
+        var labelWidth = Math.Max(1f, LabelColumnWidth - ImGui.GetStyle().ItemSpacing.X);
+        bool clicked;
+        using (ImRaii.PushColor(ImGuiCol.Text, DimTextColor, !selected))
+        {
+            clicked = ImGui.Selectable(label, selected, ImGuiSelectableFlags.None, new Vector2(labelWidth, 0f));
+        }
+
+        ImGui.SameLine(LabelColumnWidth);
+        ImGui.SetNextItemWidth(width);
+        return clicked;
+    }
+
     // Open/closed state per section label, kept here rather than in ImGui's per-ID storage so a
     // section stays collapsed (or open) as the selection moves between elements.
     private static readonly Dictionary<string, bool> SectionOpenStates = new();
@@ -114,6 +135,9 @@ internal static class EditorWidgets
         SectionOpenStates[label] = open;
         return open;
     }
+
+    /// <summary>Opens a <see cref="Section"/> the next time it is drawn (to reveal a control inside it).</summary>
+    internal static void OpenSection(string label) => SectionOpenStates[label] = true;
 
     /// <summary>A square icon-only button (FontAwesome) with an optional tooltip.</summary>
     internal static bool IconButton(string id, FontAwesomeIcon icon, string? tooltip = null, float size = 0f)

@@ -53,6 +53,34 @@ internal static class ProfileRenderer
             ? new Vector2(size.Width, size.Height)
             : null;
 
+    // Reused by BuildPaintPlan (framework thread only), apart from Draw's own buffers.
+    private static readonly List<ProfileElement> PlanPaintOrderBuffer = new(ProfileDocument.MaxElementCount);
+    private static readonly List<ProfileElement> PlanDrawnBuffer = new(ProfileDocument.MaxElementCount);
+
+    /// <summary>
+    /// The paint sequence <see cref="Draw"/> paints for <paramref name="profile"/> with the same
+    /// <paramref name="options"/> and resources (the same drawn elements, and the identity text
+    /// measured the same way), into <paramref name="output"/>: what the editors hit test, so a click
+    /// finds what is drawn where it lands (<see cref="CanvasHitTest"/>).
+    /// </summary>
+    internal static void BuildPaintPlan(ProfileDocument profile, ProfileRenderResources resources, in ProfileRenderOptions options, List<PaintStep> output)
+    {
+        ProfileVisualBounds.FillDrawnElements(profile, options, PlanPaintOrderBuffer, PlanDrawnBuffer);
+        measureFonts = resources.Fonts;
+        measureImages = resources.Images;
+        try
+        {
+            ComponentPaintPlan.Build(profile, PlanDrawnBuffer, BuiltInComponentCatalog.Instance, output, MeasureText, MeasureImage);
+        }
+        finally
+        {
+            measureFonts = null;
+            measureImages = null;
+            PlanDrawnBuffer.Clear();
+            PlanPaintOrderBuffer.Clear();
+        }
+    }
+
     /// <summary>
     /// Draws the full logical canvas starting at <paramref name="canvasOrigin"/> in screen space,
     /// uniformly scaled by <paramref name="scale"/> from the profile's own logical canvas size.

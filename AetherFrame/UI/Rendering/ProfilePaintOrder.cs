@@ -77,20 +77,25 @@ internal static class ProfilePaintOrder
                 continue;
             }
 
-            var rotationDegrees = RotationGeometry.GetRotationDegrees(element);
-            var testPoint = rotationDegrees == 0f
-                ? logicalPoint
-                : RotationGeometry.RotatePoint(logicalPoint, RotationGeometry.GetCenter(element.Position, element.Size), -rotationDegrees);
-
-            var min = element.Position;
-            var max = element.Position + element.Size;
-
-            if (testPoint.X >= min.X && testPoint.X <= max.X && testPoint.Y >= min.Y && testPoint.Y <= max.Y)
+            if (Contains(element, logicalPoint))
             {
                 return element;
             }
         }
 
         return null;
+    }
+
+    /// <summary>Whether <paramref name="logicalPoint"/> is inside <paramref name="element"/>'s box, with its rotation.</summary>
+    internal static bool Contains(ProfileElement element, System.Numerics.Vector2 logicalPoint)
+    {
+        var rotationDegrees = RotationGeometry.GetRotationDegrees(element);
+        var testPoint = rotationDegrees == 0f
+            ? logicalPoint
+            : RotationGeometry.RotatePoint(logicalPoint, RotationGeometry.GetCenter(element.Position, element.Size), -rotationDegrees);
+
+        var min = element.Position;
+        var max = element.Position + element.Size;
+        return testPoint.X >= min.X && testPoint.X <= max.X && testPoint.Y >= min.Y && testPoint.Y <= max.Y;
     }
 }

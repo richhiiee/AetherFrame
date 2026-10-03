@@ -57,6 +57,20 @@ internal sealed partial class ProfileEditorWindow
             }
         }
 
+        // A newly selected Component (from the canvas, Layers or the Basic editor) brings the Canvas
+        // tab forward with its Components section open and that Component's controls expanded.
+        if (editorSession.SelectedComponentId != lastInspectedComponentId)
+        {
+            lastInspectedComponentId = editorSession.SelectedComponentId;
+            if (lastInspectedComponentId is { } componentId)
+            {
+                selectCanvasTabPending = true;
+                expandedComponentId = componentId;
+                scrollToExpandedComponentPending = true;
+                EditorWidgets.OpenSection(ComponentsSectionLabel);
+            }
+        }
+
         using var tabBar = ImRaii.TabBar("##AetherFrameInspectorTabs");
         if (!tabBar.Success)
         {
@@ -65,8 +79,9 @@ internal sealed partial class ProfileEditorWindow
 
         // A tab the tutorial points into comes forward for as long as it does.
         var elementTabFlags = selectElementTabPending || TutorialWantsElementTab() ? ImGuiTabItemFlags.SetSelected : ImGuiTabItemFlags.None;
-        var canvasTabFlags = TutorialWantsCanvasTab() ? ImGuiTabItemFlags.SetSelected : ImGuiTabItemFlags.None;
+        var canvasTabFlags = selectCanvasTabPending || TutorialWantsCanvasTab() ? ImGuiTabItemFlags.SetSelected : ImGuiTabItemFlags.None;
         selectElementTabPending = false;
+        selectCanvasTabPending = false;
 
         using (var elementTab = ImRaii.TabItem("Element", elementTabFlags))
         {

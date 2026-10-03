@@ -112,6 +112,13 @@ internal sealed partial class EditorSession
 
     internal Guid? SelectedElementId { get; private set; }
 
+    /// <summary>
+    /// The Component selected instead of an element (issue #115): from a click on it on either
+    /// editor's canvas, or from a list. At most one of this and <see cref="SelectedElementId"/> is
+    /// set. Selection is editor state only: it never changes the Plate, its history or its dirty state.
+    /// </summary>
+    internal Guid? SelectedComponentId { get; private set; }
+
     internal bool CanUndo => undoStack.Count > 0;
 
     internal bool CanRedo => redoStack.Count > 0;
@@ -648,7 +655,7 @@ internal sealed partial class EditorSession
 
     // ---------------------------------------------------------------- selection / history
 
-    /// <summary>Selects an element, or clears the selection when null.</summary>
+    /// <summary>Selects an element, or clears the selection (a Component's too) when null.</summary>
     internal void Select(Guid? elementId)
     {
         if (SelectedElementId != elementId)
@@ -657,6 +664,25 @@ internal sealed partial class EditorSession
         }
 
         SelectedElementId = elementId;
+        SelectedComponentId = null;
+    }
+
+    /// <summary>Selects a Component of the open Plate (which deselects any element), or clears the
+    /// selection when null. An id the Plate doesn't hold clears it.</summary>
+    internal void SelectComponent(Guid? componentId)
+    {
+        if (componentId is { } id && profileService.CurrentProfile?.Components?.Exists(c => c.Id == id) != true)
+        {
+            componentId = null;
+        }
+
+        if (SelectedElementId is not null || SelectedComponentId != componentId)
+        {
+            CommitPendingEdits();
+        }
+
+        SelectedElementId = null;
+        SelectedComponentId = componentId;
     }
 
     /// <summary>Reverts the most recent recorded action, if any.</summary>
@@ -837,6 +863,11 @@ internal sealed partial class EditorSession
         {
             SelectedElementId = null;
         }
+
+        if (SelectedComponentId is { } componentId && profileService.CurrentProfile?.Components?.Exists(c => c.Id == componentId) != true)
+        {
+            SelectedComponentId = null;
+        }
     }
 
     private void ResetTransientState()
@@ -848,6 +879,7 @@ internal sealed partial class EditorSession
         pendingDocumentBefore = null;
         lastDocumentEdit = null;
         SelectedElementId = null;
+        SelectedComponentId = null;
         CancelInteraction();
         ErrorMessage = null;
         InvalidateDirtyMemo();

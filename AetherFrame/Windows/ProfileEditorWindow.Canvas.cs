@@ -101,21 +101,36 @@ internal sealed partial class ProfileEditorWindow
             drawList.AddRect(canvasOrigin, canvasOrigin + canvasScreenSize, ImGui.GetColorU32(CanvasBorderColor));
         }
 
-        // Hit testing walks paint order in reverse, so the visually topmost element wins.
-        ProfilePaintOrder.Fill(profile, paintOrderBuffer, includeHidden: false);
+        // Hit testing walks the paint sequence the renderer just drew, in reverse, so whatever is
+        // visually topmost wins: an element, or a Component drawn over it (issue #115).
+        ProfileRenderer.BuildPaintPlan(profile, renderResources, renderOptions, canvasPlanBuffer);
 
         var selectedElement = GetSelectedElement(profile);
+        var selectedComponent = editorSession.SelectedComponentId is { } selectedComponentId ? Domain.Components.PlateComponentEditor.Find(profile, selectedComponentId) : null;
         Vector2[]? selectedScreenCorners = null;
 
         var logicalMouse = (ImGui.GetMousePos() - canvasOrigin) / zoom;
-        var hoverTarget = panelHovered && editorSession.ActiveInteraction == ElementInteractionKind.None && !isPanning
-            ? ProfilePaintOrder.HitTest(paintOrderBuffer, logicalMouse)
-            : null;
+        var hover = panelHovered && editorSession.ActiveInteraction == ElementInteractionKind.None && !isPanning
+            ? CanvasHitTest.Find(canvasPlanBuffer, logicalMouse, Domain.Components.ComponentPaintPlan.Unit(profile))
+            : default;
+        var hoverTarget = hover.Element;
 
         if (showGuides && hoverTarget is not null && hoverTarget.Id != selectedElement?.Id)
         {
             var hoverCorners = GetScreenCorners(hoverTarget, canvasOrigin, zoom);
             drawList.AddQuad(hoverCorners[0], hoverCorners[1], hoverCorners[2], hoverCorners[3], ImGui.GetColorU32(HoverColor), 1.5f);
+        }
+
+        // Components are outlined by each placement they draw (every corner of a Corner Ornament),
+        // with no resize handles: they keep their own placement rules.
+        if (showGuides && hover.Component is { } hoverComponent && !ReferenceEquals(hoverComponent, selectedComponent))
+        {
+            DrawComponentOutlines(drawList, hoverComponent, canvasOrigin, zoom, HoverColor);
+        }
+
+        if (selectedComponent is not null)
+        {
+            DrawComponentOutlines(drawList, selectedComponent, canvasOrigin, zoom, SelectionColor);
         }
 
         if (selectedElement is not null)
@@ -144,9 +159,23 @@ internal sealed partial class ProfileEditorWindow
         // Guides off also disables resize-handle interaction (nothing is drawn to grab) by
         // simply not handing HandleCanvasInput any corners to hit-test against; plain click-to-
         // select and drag-to-move on the canvas stay fully functional either way.
-        HandleCanvasInput(selectedElement, showGuides && selectedElement is { Visible: true } ? selectedScreenCorners : null, hoverTarget, logicalMouse, panelHovered, zoom);
+        HandleCanvasInput(selectedElement, showGuides && selectedElement is { Visible: true } ? selectedScreenCorners : null, hoverTarget, hover.Component, logicalMouse, panelHovered, zoom);
 
-        paintOrderBuffer.Clear();
+        canvasPlanBuffer.Clear();
+    }
+
+    private void DrawComponentOutlines(ImDrawListPtr drawList, Domain.Components.PlateComponent component, Vector2 canvasOrigin, float zoom, Vector4 color)
+    {
+        CanvasHitTest.Outlines(canvasPlanBuffer, component, componentOutlineBuffer);
+        var packed = ImGui.GetColorU32(color);
+        foreach (var corners in componentOutlineBuffer)
+        {
+            drawList.AddQuad(
+                canvasOrigin + (corners[0] * zoom), canvasOrigin + (corners[1] * zoom), canvasOrigin + (corners[2] * zoom), canvasOrigin + (corners[3] * zoom),
+                packed, 1.5f);
+        }
+
+        componentOutlineBuffer.Clear();
     }
 
     private static Vector2[] GetScreenCorners(ProfileElement element, Vector2 canvasOrigin, float zoom)
@@ -224,6 +253,7 @@ internal sealed partial class ProfileEditorWindow
         ProfileElement? selectedElement,
         Vector2[]? selectedScreenCorners,
         ProfileElement? hoverTarget,
+        Domain.Components.PlateComponent? hoverComponent,
         Vector2 logicalMouse,
         bool panelHovered,
         float zoom)
@@ -261,9 +291,11 @@ internal sealed partial class ProfileEditorWindow
             return;
         }
 
+        var onHandle = false;
         if (selectedElement is not null && !selectedElement.Locked && selectedScreenCorners is not null
             && TryGetHoveredHandle(mouseScreen, selectedScreenCorners, out var hoveredHandle))
         {
+            onHandle = true;
             ImGui.SetMouseCursor(GetResizeCursor(selectedScreenCorners, hoveredHandle));
 
             if (leftClicked)
@@ -275,6 +307,19 @@ internal sealed partial class ProfileEditorWindow
         else if (hoverTarget is { Locked: false })
         {
             ImGui.SetMouseCursor(ImGuiMouseCursor.ResizeAll);
+        }
+        else if (hoverComponent is not null)
+        {
+            ImGui.SetMouseCursor(ImGuiMouseCursor.Hand);
+        }
+
+        // A Component is selected by a click (either button), which opens its controls in the
+        // Canvas tab; it never moves from the canvas, since its layer and anchor place it. The
+        // selected element's resize handles stay its own, even over a Component.
+        if (!onHandle && hoverComponent is not null && (leftClicked || rightClicked))
+        {
+            editorSession.SelectComponent(hoverComponent.Id);
+            return;
         }
 
         // A locked element is selected like any other (click, right-click menu), but never

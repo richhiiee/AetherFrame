@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
 using AetherFrame.Domain.Basic;
+using AetherFrame.Domain.Components;
 using AetherFrame.Domain.Profiles;
 using AetherFrame.UI.Rendering;
 
@@ -346,20 +347,50 @@ internal static class BasicEditorView
         new(Math.Max(0f, (available.X - size.X) / 2f), Math.Max(0f, (available.Y - size.Y) / 2f));
 
     /// <summary>
-    /// The category of the Basic section drawn topmost at a point on the Plate (logical canvas
-    /// coordinates), or null. Uses the same paint order and hit test as the Advanced canvas, over
-    /// what the finished Plate actually shows: hidden elements and suppressed empty headings don't
-    /// count, and elements that aren't Basic sections are looked through.
+    /// The category a click at a point on the Plate (logical canvas coordinates) opens, or null: what
+    /// <see cref="TargetAt"/> finds over the finished Plate's paint sequence, built here without the
+    /// renderer's text measuring (so text backings are hit by their whole box). Hidden elements and
+    /// suppressed empty headings don't count, and elements that aren't Basic sections are looked through.
     /// </summary>
     internal static BasicEditorCategory? CategoryAt(ProfileDocument profile, Vector2 logicalPoint, List<ProfileElement> paintOrderBuffer)
     {
-        ProfilePaintOrder.Fill(profile, paintOrderBuffer, includeHidden: false);
-        var hit = ProfilePaintOrder.HitTest(
-            paintOrderBuffer,
-            logicalPoint,
-            element => BasicSections.SectionOf(element.Role) is null || !BasicSections.IsDrawnInFinishedRendering(profile, element));
+        var drawn = new List<ProfileElement>();
+        var plan = new List<PaintStep>();
+        ProfileVisualBounds.FillDrawnElements(profile, ProfileRenderOptions.Finished, paintOrderBuffer, drawn);
+        ComponentPaintPlan.Build(profile, drawn, BuiltInComponentCatalog.Instance, plan);
         paintOrderBuffer.Clear();
-
-        return hit is not null && BasicSections.SectionOf(hit.Role) is { } section ? CategoryOf(section) : null;
+        return TargetAt(profile, plan, logicalPoint).Category;
     }
+
+    /// <summary>
+    /// What a click on the live view at <paramref name="logicalPoint"/> opens (issue #115): the
+    /// topmost thing drawn there in <paramref name="plan"/> (the finished rendering's paint sequence;
+    /// see <see cref="ProfileRenderer.BuildPaintPlan"/>), either a Basic section, which opens its
+    /// category as before, or a Component (a Corner Ornament, a frame, a backing...), which opens the
+    /// category holding its slot and is returned so the editor can select it. Elements that aren't
+    /// Basic sections are looked through, as are Components that take no clicks (<see cref="CanvasHitTest"/>).
+    /// </summary>
+    internal static (BasicEditorCategory? Category, PlateComponent? Component) TargetAt(ProfileDocument profile, IReadOnlyList<PaintStep> plan, Vector2 logicalPoint)
+    {
+        var hit = CanvasHitTest.Find(
+            plan,
+            logicalPoint,
+            ComponentPaintPlan.Unit(profile),
+            element => BasicSections.SectionOf(element.Role) is null || !BasicSections.IsDrawnInFinishedRendering(profile, element));
+
+        if (hit.Component is { } component)
+        {
+            return (CategoryOf(component.Kind), component);
+        }
+
+        return (hit.Element is { } element && BasicSections.SectionOf(element.Role) is { } section ? CategoryOf(section) : null, null);
+    }
+
+    /// <summary>The category whose page holds a Component kind's Basic slot.</summary>
+    internal static BasicEditorCategory CategoryOf(PlateComponentKind kind) => kind switch
+    {
+        PlateComponentKind.PortraitFrame or PlateComponentKind.PortraitOverlay => BasicEditorCategory.Portrait,
+        PlateComponentKind.NameBacking => BasicEditorCategory.Identity,
+        _ => BasicEditorCategory.Style,
+    };
 }

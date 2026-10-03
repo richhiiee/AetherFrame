@@ -203,6 +203,9 @@ internal sealed partial class EditorSession
         }
 
         RecordDocumentEdit(before, profileService.CaptureDocumentState());
+
+        // An edit can take away what is selected (removing a Component, choosing None for its slot).
+        DropSelectionIfMissing();
         return true;
     }
 

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Numerics;
+using AetherFrame.Domain.Components;
 using AetherFrame.Domain.Profiles;
 using AetherFrame.Services;
 using AetherFrame.UI.Editor;
@@ -15,7 +16,7 @@ namespace AetherFrame.Windows;
 
 /// <summary>
 /// Layers panel: every element, topmost first, each row with visibility and lock toggles, a type
-/// icon, and its (inline-renamable) name. Rows drag to reorder; selection is shared with the
+/// icon, and its (inline-renamable) name; then the Plate's Components, selectable like elements. Rows drag to reorder; selection is shared with the
 /// canvas (it's the same <see cref="EditorSession.SelectedElementId"/>), so the two can never
 /// disagree. A locked element is selectable here and on the canvas; locking only blocks transforms.
 /// </summary>
@@ -43,6 +44,7 @@ internal sealed partial class ProfileEditorWindow
     private bool renameFocusPending;
     private Guid? layerDragSourceId;
     private Guid? lastScrolledToSelection;
+    private Guid? lastScrolledToComponent;
 
     private void DrawLayersPanel(ProfileDocument profile, Vector2 size)
     {
@@ -80,7 +82,6 @@ internal sealed partial class ProfileEditorWindow
         if (profile.Elements.Count == 0)
         {
             EditorWidgets.Hint("No elements yet. Use + Text or + Image in the toolbar.");
-            return;
         }
 
         // Snapshot in paint order (hidden included), shown topmost first. Iterating the snapshot
@@ -94,6 +95,7 @@ internal sealed partial class ProfileEditorWindow
         }
 
         layerRows.Clear();
+        DrawComponentLayerRows(profile);
 
         if (!ImGui.IsMouseDown(ImGuiMouseButton.Left))
         {
@@ -263,6 +265,68 @@ internal sealed partial class ProfileEditorWindow
         }
 
         ImGui.TextDisabled("Double-click to rename. Drag to reorder.");
+    }
+
+    /// <summary>
+    /// The Plate's Components, after the elements (issue #115): each an entry that selects it, as a
+    /// click on it on the canvas does, so one covered by others is still reachable. They keep their
+    /// own layers (frames, backings, decorations; see <see cref="ComponentPaintPlan"/>), so they don't
+    /// drag among the elements: their order and settings are in the Inspector's Canvas tab.
+    /// </summary>
+    private void DrawComponentLayerRows(ProfileDocument profile)
+    {
+        if (profile.Components is not { Count: > 0 } components)
+        {
+            return;
+        }
+
+        ImGui.Spacing();
+        ImGui.TextDisabled("COMPONENTS");
+        EditorWidgets.Tooltip("Frames, backings and decorations, drawn in their own layers. Select one to edit it in the Canvas tab.");
+
+        // A copy of the ids: selecting can't change the list, but stay safe like the element rows.
+        var ids = new Guid[components.Count];
+        for (var i = 0; i < components.Count; i++)
+        {
+            ids[i] = components[i].Id;
+        }
+
+        foreach (var componentId in ids)
+        {
+            if (PlateComponentEditor.Find(profile, componentId) is not { } component)
+            {
+                continue;
+            }
+
+            using var pushId = ImRaii.PushId(componentId.ToString("N"));
+            var isSelected = editorSession.SelectedComponentId == componentId;
+            var status = ComponentPaintPlan.Resolve(component, BuiltInComponentCatalog.Instance, out var definition);
+            var name = $"{PlateComponentEditor.KindLabel(component.Kind)}: {definition?.Name ?? "Unavailable"}{(component.Visible ? string.Empty : " (hidden)")}";
+            var dim = !component.Visible || status is not (ComponentStatus.Ready or ComponentStatus.MissingImage);
+            bool clicked;
+            using (ImRaii.PushColor(ImGuiCol.Text, EditorWidgets.DimTextColor, dim))
+            {
+                clicked = ImGui.Selectable(name, isSelected);
+            }
+
+            if (clicked)
+            {
+                editorSession.SelectComponent(componentId);
+                lastScrolledToComponent = componentId;
+            }
+
+            if (!component.Visible)
+            {
+                EditorWidgets.Tooltip("Hidden. Show it again from its row in the Canvas tab.");
+            }
+
+            if (isSelected && lastScrolledToComponent != componentId)
+            {
+                // Selected from the canvas: bring its row into view once.
+                ImGui.SetScrollHereY();
+                lastScrolledToComponent = componentId;
+            }
+        }
     }
 
     private void SelectFromLayers(Guid elementId)

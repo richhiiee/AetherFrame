@@ -40,7 +40,31 @@ internal sealed partial class BasicProfileEditorWindow
             ? "None"
             : status is ComponentStatus.Ready or ComponentStatus.MissingImage && currentDefinition is not null ? currentDefinition.Name : "Unavailable";
 
-        EditorWidgets.PropertyLabel(PlateComponentEditor.KindLabel(kind));
+        // The slot's label is its Component's entry: clicking it selects the Component (outlined on
+        // the live view) or lets go of it, as clicking the Component on the live view does (issue #115).
+        if (current is null)
+        {
+            EditorWidgets.PropertyLabel(PlateComponentEditor.KindLabel(kind));
+        }
+        else
+        {
+            var selected = editorSession.SelectedComponentId == current.Id;
+            if (revealComponentSlot == kind)
+            {
+                ImGui.SetScrollHereY(0.3f);
+                revealComponentSlot = null;
+            }
+
+            if (EditorWidgets.SelectablePropertyLabel($"{PlateComponentEditor.KindLabel(kind)}##Select", selected))
+            {
+                editorSession.SelectComponent(selected ? null : current.Id);
+            }
+
+            ToolTip(selected ? "Selected: outlined on the live view. Click to let go." : "Click to outline it on the live view.");
+            ImGui.SameLine(EditorWidgets.LabelColumnWidth);
+            ImGui.SetNextItemWidth(-1f);
+        }
+
         using (var combo = ImRaii.Combo("##Style", preview))
         {
             if (combo.Success)

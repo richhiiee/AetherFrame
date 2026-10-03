@@ -56,6 +56,7 @@
     <Compile Include="..\AetherFrame\UI\Tutorial\*.cs" Link="Linked\UI\Tutorial\%(Filename)%(Extension)" />
     <Compile Include="..\AetherFrame\UI\Rendering\ProfileRenderOptions.cs" Link="Linked\UI\Rendering\ProfileRenderOptions.cs" />
     <Compile Include="..\AetherFrame\UI\Rendering\ProfilePaintOrder.cs" Link="Linked\UI\Rendering\ProfilePaintOrder.cs" />
+    <Compile Include="..\AetherFrame\UI\Rendering\CanvasHitTest.cs" Link="Linked\UI\Rendering\CanvasHitTest.cs" />
     <Compile Include="..\AetherFrame\UI\Rendering\ProfileVisualBounds.cs" Link="Linked\UI\Rendering\ProfileVisualBounds.cs" />
     <Compile Include="..\AetherFrame\UI\Rendering\PlateViewerLayout.cs" Link="Linked\UI\Rendering\PlateViewerLayout.cs" />
     <Compile Include="..\AetherFrame\UI\Rendering\PlateViewerTarget.cs" Link="Linked\UI\Rendering\PlateViewerTarget.cs" />

@@ -13,16 +13,24 @@ namespace AetherFrame.Windows;
 /// editor's slots choose, with the Advanced refinements on top — style (including image styles),
 /// color, opacity, offset, scale, rotation, and order within the Component's layer. Components are
 /// placed by their layer and anchor (see <see cref="ComponentPaintPlan"/>), so they aren't canvas
-/// elements: no selection box or Layers entry, and element Z order never moves them out of their layer.
+/// elements: they have no resize handles, and element Z order never moves them out of their layer.
+/// They are selected like elements, though (issue #115): by a click on the canvas, from their own
+/// entries in the Layers panel, or by opening a row here, and all three stay in step through
+/// <see cref="UI.Editor.EditorSession.SelectedComponentId"/>.
 /// </summary>
 internal sealed partial class ProfileEditorWindow
 {
-    // Which Component's details are expanded (runtime-only UI state).
+    private const string ComponentsSectionLabel = "Components";
+
+    // Which Component's details are expanded (runtime-only UI state); follows the selected Component.
     private Guid? expandedComponentId;
+
+    // Scrolls the expanded row into view once, after it was selected somewhere else.
+    private bool scrollToExpandedComponentPending;
 
     private void DrawComponentsSection(ProfileDocument profile)
     {
-        if (!EditorWidgets.Section("Components"))
+        if (!EditorWidgets.Section(ComponentsSectionLabel))
         {
             return;
         }
@@ -96,6 +104,7 @@ internal sealed partial class ProfileEditorWindow
             if (ImGui.Selectable($"   {definition.Name}##Add{definition.Id}") && editorSession.AddComponent(definition.Id) is { } added)
             {
                 expandedComponentId = added;
+                SelectComponentFromList(added);
             }
 
             EditorWidgets.Tooltip(definition.Description);
@@ -120,9 +129,17 @@ internal sealed partial class ProfileEditorWindow
         ImGui.SameLine();
         var buttons = (ImGui.GetFrameHeight() * 3f) + (ImGui.GetStyle().ItemSpacing.X * 3f);
         var expanded = expandedComponentId == component.Id;
-        if (ImGui.Selectable(label, expanded, ImGuiSelectableFlags.None, new Vector2(Math.Max(40f, ImGui.GetContentRegionAvail().X - buttons), 0f)))
+        if (ImGui.Selectable(label, expanded || editorSession.SelectedComponentId == component.Id, ImGuiSelectableFlags.None, new Vector2(Math.Max(40f, ImGui.GetContentRegionAvail().X - buttons), 0f)))
         {
+            // Opening a row selects its Component on the canvas; closing it lets go of it.
             expandedComponentId = expanded ? null : component.Id;
+            SelectComponentFromList(expanded ? null : component.Id);
+        }
+
+        if (expanded && scrollToExpandedComponentPending)
+        {
+            ImGui.SetScrollHereY(0.2f);
+            scrollToExpandedComponentPending = false;
         }
 
         if (status is not (ComponentStatus.Ready or ComponentStatus.MissingImage))
@@ -151,6 +168,8 @@ internal sealed partial class ProfileEditorWindow
                 expandedComponentId = null;
             }
 
+            lastInspectedComponentId = editorSession.SelectedComponentId;
+
             return;
         }
 
@@ -163,6 +182,19 @@ internal sealed partial class ProfileEditorWindow
 
             ImGui.Spacing();
         }
+    }
+
+    /// <summary>Selects a Component (or lets go of it, null) from a list here or in Layers, without
+    /// the Inspector treating it as a selection from elsewhere (it is already where it should be).</summary>
+    private void SelectComponentFromList(Guid? componentId)
+    {
+        if (componentId is null && editorSession.SelectedComponentId is null)
+        {
+            return;
+        }
+
+        editorSession.SelectComponent(componentId);
+        lastInspectedComponentId = editorSession.SelectedComponentId;
     }
 
     private void DrawComponentDetails(ProfileDocument profile, PlateComponent component, ComponentStatus status, ComponentDefinition? definition)
