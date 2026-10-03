@@ -2,6 +2,7 @@ using System;
 using System.Numerics;
 using AetherFrame.Domain.Components;
 using AetherFrame.Domain.Profiles;
+using AetherFrame.UI.Editor;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
 using Dalamud.Interface.Utility.Raii;
@@ -70,6 +71,9 @@ internal sealed partial class ProfileEditorWindow
         {
             if (combo.Success)
             {
+                // No selection here: reopening returns the list to where it was (issue #114).
+                var memory = ChooserMemories.For("AddComponent");
+                ChooserScroll.Begin(memory, null);
                 foreach (var kind in PlateComponentEditor.BasicSlots)
                 {
                     DrawAddComponentGroup(kind);
@@ -79,6 +83,8 @@ internal sealed partial class ProfileEditorWindow
                 {
                     DrawAddComponentGroup(kind);
                 }
+
+                ChooserScroll.End(memory, null);
             }
         }
 
@@ -176,16 +182,25 @@ internal sealed partial class ProfileEditorWindow
             using var combo = ImRaii.Combo("##Style", definition?.Name ?? "Unavailable");
             if (combo.Success)
             {
+                // The same list memory as Basic's slot for this kind (issue #114).
+                var memory = ChooserMemories.For(BasicProfileEditorWindow.ComponentStyleChooserKey(component.Kind));
+                var selection = component.DefinitionId;
+                var opening = ChooserScroll.Begin(memory, selection, layout: BasicProfileEditorWindow.AdvancedStyleListLayout);
                 foreach (var candidate in BuiltInComponentCatalog.OfKind(component.Kind))
                 {
-                    if (ImGui.Selectable(candidate.Name, candidate.Id == component.DefinitionId) && candidate.Id != component.DefinitionId)
+                    var isCurrent = candidate.Id == component.DefinitionId;
+                    if (ImGui.Selectable(candidate.Name, isCurrent) && !isCurrent)
                     {
                         var definitionId = candidate.Id;
                         editorSession.EditComponent(componentId, c => c.DefinitionId = definitionId, continuous: false);
+                        selection = definitionId;
                     }
 
                     EditorWidgets.Tooltip(candidate.Description);
+                    ChooserScroll.ScrollHereIfOpening(opening, isCurrent);
                 }
+
+                ChooserScroll.End(memory, selection, BasicProfileEditorWindow.AdvancedStyleListLayout);
             }
         }
 

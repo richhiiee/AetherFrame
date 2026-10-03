@@ -28,6 +28,15 @@ internal sealed partial class BasicProfileEditorWindow
         Hint("Colors follow your theme. Fine-tune placement and color in the Advanced Editor (Canvas tab, Components).");
     }
 
+    /// <summary>The <see cref="ChooserMemories"/> key of a Component kind's style list, shared by both editors.</summary>
+    internal static string ComponentStyleChooserKey(PlateComponentKind kind) => $"ComponentStyle.{(int)kind}";
+
+    /// <summary>The style list's layout in each editor (see <see cref="ChooserMemory.Open"/>): Basic's starts
+    /// with None and leaves out image styles, so a place kept in one editor isn't reused in the other,
+    /// which scrolls to the selected style instead.</summary>
+    internal const int BasicStyleListLayout = 1;
+    internal const int AdvancedStyleListLayout = 2;
+
     /// <summary>One slot: a label and a style combo. Choosing is one undo step.</summary>
     private void DrawComponentSlot(ProfileDocument profile, PlateComponentKind kind)
     {
@@ -45,11 +54,17 @@ internal sealed partial class BasicProfileEditorWindow
         {
             if (combo.Success)
             {
+                // Each kind's list keeps its own place (issue #114); the selection is the slot's style, "" for None.
+                var memory = ChooserMemories.For(ComponentStyleChooserKey(kind));
+                var selection = current?.DefinitionId ?? string.Empty;
+                var opening = ChooserScroll.Begin(memory, selection, layout: BasicStyleListLayout);
                 if (ImGui.Selectable("None", current is null) && current is not null)
                 {
                     editorSession.SetComponentSlot(kind, null);
+                    selection = string.Empty;
                 }
 
+                ChooserScroll.ScrollHereIfOpening(opening, current is null);
                 foreach (var definition in BuiltInComponentCatalog.OfKind(kind))
                 {
                     if (definition.RequiresAsset)
@@ -57,13 +72,18 @@ internal sealed partial class BasicProfileEditorWindow
                         continue; // needs an image: Advanced only
                     }
 
-                    if (ImGui.Selectable(definition.Name, current?.DefinitionId == definition.Id) && current?.DefinitionId != definition.Id)
+                    var isCurrent = current?.DefinitionId == definition.Id;
+                    if (ImGui.Selectable(definition.Name, isCurrent) && !isCurrent)
                     {
                         editorSession.SetComponentSlot(kind, definition.Id);
+                        selection = definition.Id;
                     }
 
                     ToolTip(definition.Description);
+                    ChooserScroll.ScrollHereIfOpening(opening, isCurrent);
                 }
+
+                ChooserScroll.End(memory, selection, BasicStyleListLayout);
             }
         }
 
