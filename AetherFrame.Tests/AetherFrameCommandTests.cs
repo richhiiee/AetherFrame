@@ -30,11 +30,20 @@ public class AetherFrameCommandTests
         Assert.Equal(AetherFrameCommandAction.ShowVersion, AetherFrameCommand.Parse(arguments));
 
     [Theory]
+    [InlineData("fonts")]
+    [InlineData("FONTS")]
+    [InlineData("  Fonts  ")]
+    public void Fonts_RoutesToTheFontReport(string arguments) =>
+        Assert.Equal(AetherFrameCommandAction.ShowFontStats, AetherFrameCommand.Parse(arguments));
+
+    [Theory]
     [InlineData("viewer")]
     [InlineData("view extra")]
     [InlineData("edit")]
     [InlineData("versions")]
     [InlineData("version extra")]
+    [InlineData("font")]
+    [InlineData("fonts extra")]
     public void UnrecognizedArguments_BehaveLikeThePlainCommand(string arguments) =>
         Assert.Equal(AetherFrameCommandAction.ToggleMyPlates, AetherFrameCommand.Parse(arguments));
 }
@@ -54,6 +63,19 @@ public class AetherFrameCommandHandlerTests
         internal int ShowVersion { get; private set; }
 
         internal AetherFrameCommandHandler Handler() => new(() => ToggleMyPlates++, () => OpenActivePlateViewer++, () => ShowVersion++);
+    }
+
+    [Fact]
+    public void Fonts_ReportsTheFontCache_AndOpensNothing()
+    {
+        var calls = new Calls();
+        var reports = 0;
+        var handler = new AetherFrameCommandHandler(() => calls.Handler().Handle("/aetherframe", ""), () => calls.Handler().Handle("/aetherframe", "view"), () => calls.Handler().Handle("/aetherframe", "version"), () => reports++);
+
+        handler.Handle("/af", " fonts ");
+
+        Assert.Equal(1, reports);
+        Assert.Equal((0, 0, 0), (calls.ToggleMyPlates, calls.OpenActivePlateViewer, calls.ShowVersion));
     }
 
     [Fact]

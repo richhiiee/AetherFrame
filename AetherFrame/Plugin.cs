@@ -350,7 +350,7 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
 
             // /aetherframe and its /af alias, both on this one handler.
             commands = new AetherFrameCommandRegistration(new DalamudCommandRegistrar(CommandManager), log);
-            commands.Register(new AetherFrameCommandHandler(ToggleMainUi, profileViewWindow.ShowActivePlate, ShowVersion));
+            commands.Register(new AetherFrameCommandHandler(ToggleMainUi, profileViewWindow.ShowActivePlate, ShowVersion, ShowFontStats));
             startup.OnFailure("commands", commands.Unregister);
 
             // Character details refresh on their own every half second; a login or logout also
@@ -791,6 +791,9 @@ public sealed class Plugin : IAsyncDalamudPlugin, IAsyncDisposable
 
     /// <summary><c>/aetherframe version</c> (or <c>/af version</c>): the running build, in chat.</summary>
     private static void ShowVersion() => ChatGui.Print(AetherFrameBuildInfo.Current.Describe());
+
+    /// <summary><c>/aetherframe fonts</c> (or <c>/af fonts</c>): the Plate font cache, in chat.</summary>
+    private void ShowFontStats() => ChatGui.Print(fontService.Stats.Describe());
 
     /// <summary>The main entry point is My Plates.</summary>
     public void ToggleMainUi() => plateLibraryWindow.Toggle();

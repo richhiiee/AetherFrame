@@ -13,6 +13,10 @@ internal enum AetherFrameCommandAction
 
     /// <summary><c>/aetherframe version</c>: reports which AetherFrame build is running.</summary>
     ShowVersion,
+
+    /// <summary><c>/aetherframe fonts</c>: reports what the Plate font cache holds and how long new
+    /// fonts took to appear, for checking font loading in game (issue #117).</summary>
+    ShowFontStats,
 }
 
 /// <summary>
@@ -30,6 +34,8 @@ internal static class AetherFrameCommand
 
     internal const string VersionArgument = "version";
 
+    internal const string FontsArgument = "fonts";
+
     /// <summary>Every name the command is registered under, canonical first.</summary>
     internal static readonly IReadOnlyList<string> Names = [Name, Alias];
 
@@ -46,6 +52,11 @@ internal static class AetherFrameCommand
         if (string.Equals(argument, ViewArgument, StringComparison.OrdinalIgnoreCase))
         {
             return AetherFrameCommandAction.ViewActivePlate;
+        }
+
+        if (string.Equals(argument, FontsArgument, StringComparison.OrdinalIgnoreCase))
+        {
+            return AetherFrameCommandAction.ShowFontStats;
         }
 
         return string.Equals(argument, VersionArgument, StringComparison.OrdinalIgnoreCase)
