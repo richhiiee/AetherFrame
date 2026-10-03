@@ -62,6 +62,8 @@ Verified October 3, 2026, at 18:00 UTC. **For the live status, see [issue #52](h
      - Does My Plates open beside the editor or over it (task 6)?
      - Is a notice wanted when the logged-in character has no Active Plate (task 5)?
   6. **The beta's open questions** (section 3, "External beta"): what sharing must include before outside testers are invited. How the server reaches the Lodestone while the owner's PC is off is chosen (each player's own connection, the owner's choice of October 3) and waits on a release, then on the conditions for unsetting the relay (section 8, step 5).
+- **First, ahead of every other task: Kim's nine P0 usability issues**, [#113](https://github.com/QuietFoxLabs/AetherFrame/issues/113) to [#121](https://github.com/QuietFoxLabs/AetherFrame/issues/121), from Kim's first-user walkthrough. The owner put every one of them ahead of the previous queue on October 3, 2026 (relayed in the project chat at 21:27 UTC). Section 8 lists them in order and their state.
+  - **In review: #113**, Basic size and edge distance controls for Corner Ornaments, with larger defaults for new ones, on the branch `claude/p0-usability-idvhq3`.
 - **Next:** a release carrying the plugin's side of checking through each player's own connection (section 8, step 5), in the order GPT sets as coordinator. Until it ships, a released plugin's check still needs the relay on the owner's PC. The tasks the owner chose on October 2 (section 5) are all done.
 
   Section 8 has the detail. Nothing else starts until the owner picks it.
@@ -384,6 +386,20 @@ Every item below is **OPEN** unless an owner approval is subsequently recorded w
 | The owner's open questions | The interface audit's questions 1 and 3 (tasks 6 and 5). What the beta includes. Not yet asked: whether D2 is still wanted (section 3). The consent question is answered: no one is asked again (section 5). |
 
 ## 8. Next five small PR sized tasks and acceptance criteria
+
+**First: Kim's P0 usability issues (the owner's priority, October 3, 2026).** The owner put all nine ahead of every task below. They are worked in this order, one focused pull request each, with these couplings: #115 and #114 are designed together, #117 lands before #116's previews, and #118 before #119. Each issue holds its acceptance criteria.
+
+| Issue | What | State |
+| --- | --- | --- |
+| [#113](https://github.com/QuietFoxLabs/AetherFrame/issues/113) | Corner Ornament size and edge distance in Basic, larger defaults for new ornaments | in review, branch `claude/p0-usability-idvhq3` |
+| [#114](https://github.com/QuietFoxLabs/AetherFrame/issues/114) | Choosers remember their selection and scroll position, fonts included | not started |
+| [#115](https://github.com/QuietFoxLabs/AetherFrame/issues/115) | Canvas elements, ornaments included, listed and selectable in both editors | not started |
+| [#117](https://github.com/QuietFoxLabs/AetherFrame/issues/117) | Font switching that slows down over time | not started |
+| [#116](https://github.com/QuietFoxLabs/AetherFrame/issues/116) | Font options shown in their own typefaces | not started, after #117 |
+| [#118](https://github.com/QuietFoxLabs/AetherFrame/issues/118) | Art Styles separate from the legacy themes, and first | not started |
+| [#119](https://github.com/QuietFoxLabs/AetherFrame/issues/119) | Controls that do nothing for the active Art Style hidden or explained | not started, after #118 |
+| [#120](https://github.com/QuietFoxLabs/AetherFrame/issues/120) | A screen-wide color eyedropper | not started |
+| [#121](https://github.com/QuietFoxLabs/AetherFrame/issues/121) | Symbols such as ♥ drawn instead of `?` | not started |
 
 **RECOMMENDATION, not new owner decisions.** Recheck current heads first and skip work already completed. [updated 2026-10-02: since NETWORK2 and the open alpha, the next five below the done list are Claude's recommendation, and the owner picks what starts. The rest of this paragraph describes the list until then.] The list follows the order decided in section 5 after the owner's request of September 29, 2026: the NETWORK2 increments first ([docs/networking/NETWORK2.md](docs/networking/NETWORK2.md), section 5), and the 0.1.7 release, which the owner chose on September 30, 2026 to make from `master` without a pass (section 5). The NETWORK2 tasks need the named decisions: under the September 29 delegation the autopilot makes each one, records it in the register, and then implements it. The autopilot keeps five tasks here, refilling from NETWORK2's increment table and, where networking waits on the owner or a review, from the interface work (NETWORK2.md, section 6).
 

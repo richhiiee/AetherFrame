@@ -181,7 +181,7 @@ internal sealed partial class ProfileEditorWindow
                     if (ImGui.Selectable(candidate.Name, candidate.Id == component.DefinitionId) && candidate.Id != component.DefinitionId)
                     {
                         var definitionId = candidate.Id;
-                        editorSession.EditComponent(componentId, c => c.DefinitionId = definitionId, continuous: false);
+                        editorSession.SetComponentDefinition(componentId, definitionId);
                     }
 
                     EditorWidgets.Tooltip(candidate.Description);

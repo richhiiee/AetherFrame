@@ -124,6 +124,7 @@ public class BuiltInArtTests
             c.Opacity = 0.5f;
         });
 
+        var edges = CornerOrnamentPlacement.EdgeDistances(document, PlateComponentEditor.FindSlot(document, PlateComponentKind.CornerOrnament)!, BuiltInComponentCatalog.Find(BuiltInComponentCatalog.CornerOrnamentBracket)!);
         PlateComponentEditor.SetSlot(document, PlateComponentKind.CornerOrnament, AstrolabeDefinition, BuiltInComponentCatalog.Instance);
         var slot = PlateComponentEditor.FindSlot(document, PlateComponentKind.CornerOrnament)!;
 
@@ -132,7 +133,13 @@ public class BuiltInArtTests
         Assert.Equal(new Vector4(0.2f, 0.8f, 0.4f, 1f), slot.Color);
         Assert.Equal(1.5f, slot.Scale);
         Assert.Equal(10f, slot.RotationDegrees);
-        Assert.Equal(new Vector2(4, 6), slot.Offset);
+
+        // A Corner Ornament keeps its distance from the edge rather than its raw offset: the
+        // astrolabe's art is twice the bracket's size, so at 150% the same offset would move it.
+        var after = CornerOrnamentPlacement.EdgeDistances(document, slot, BuiltInComponentCatalog.Find(AstrolabeDefinition)!);
+        Assert.Equal(edges.X, after.X, 0.01f);
+        Assert.Equal(edges.Y, after.Y, 0.01f);
+        Assert.NotEqual(new Vector2(4, 6), slot.Offset);
         Assert.Equal(0.5f, slot.Opacity);
     }
 

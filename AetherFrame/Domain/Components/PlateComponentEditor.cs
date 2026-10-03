@@ -189,7 +189,9 @@ public static class PlateComponentEditor
 
     /// <summary>
     /// Basic: chooses a slot's style, or empties the slot (null). An existing slot Component keeps
-    /// its instance and every Advanced refinement (offset, scale, color...) and only changes style;
+    /// its instance and every Advanced refinement (offset, scale, color...) and only changes style
+    /// (a Corner Ornament keeps its distance from the edge, which at a size other than 100% can
+    /// change its offset: <see cref="CornerOrnamentPlacement.ChangeDefinition"/>);
     /// an empty slot gets a new Component with default placement. Only built-in, image-free
     /// definitions of the slot's own kind are accepted. Returns false when nothing changed.
     /// </summary>
@@ -214,7 +216,7 @@ public static class PlateComponentEditor
                 return false;
             }
 
-            existing.DefinitionId = definition.Id;
+            SetDefinitionCore(profile, existing, definition, catalog);
             existing.AssetId = null;
             return true;
         }
@@ -223,8 +225,38 @@ public static class PlateComponentEditor
         return true;
     }
 
+    /// <summary>
+    /// Advanced: changes a Component's style to another of its kind. Everything else is kept, except
+    /// that a Corner Ornament keeps its distance from the edge rather than its raw offset
+    /// (<see cref="CornerOrnamentPlacement.ChangeDefinition"/>). False when nothing changed or the
+    /// definition isn't one of the Component's kind.
+    /// </summary>
+    public static bool SetDefinition(ProfileDocument profile, Guid componentId, string definitionId, IComponentCatalog catalog)
+    {
+        if (Find(profile, componentId) is not { } component || component.DefinitionId == definitionId
+            || catalog.Find(definitionId) is not { } definition || definition.Kind != component.Kind)
+        {
+            return false;
+        }
+
+        return Update(profile, componentId, c => SetDefinitionCore(profile, c, definition, catalog));
+    }
+
+    private static void SetDefinitionCore(ProfileDocument profile, PlateComponent component, ComponentDefinition definition, IComponentCatalog catalog)
+    {
+        if (component.Kind == PlateComponentKind.CornerOrnament && catalog.Find(component.DefinitionId) is { Kind: PlateComponentKind.CornerOrnament } previous)
+        {
+            CornerOrnamentPlacement.ChangeDefinition(profile, component, previous, definition);
+        }
+        else
+        {
+            component.DefinitionId = definition.Id;
+        }
+    }
+
     /// <summary>Adds a new Component of <paramref name="definition"/> with default placement, on top
-    /// of its layer. Throws when the Plate is at capacity.</summary>
+    /// of its layer (a Corner Ornament at <see cref="CornerOrnamentPlacement"/>'s default size and
+    /// distance from the edge). Throws when the Plate is at capacity.</summary>
     public static PlateComponent Add(ProfileDocument profile, ComponentDefinition definition)
     {
         if (!HasCapacity(profile))
@@ -239,6 +271,11 @@ public static class PlateComponentEditor
             DefinitionId = definition.Id,
             LayerOrder = NextLayerOrder(components, definition.Kind),
         };
+
+        if (definition.Kind == PlateComponentKind.CornerOrnament)
+        {
+            CornerOrnamentPlacement.ApplyDefault(profile, component, definition);
+        }
 
         components.Add(component);
         return component;
@@ -327,7 +364,9 @@ public static class PlateComponentEditor
         return true;
     }
 
-    /// <summary>Resets a Component's Advanced refinements (offset, scale, rotation, opacity, color) to its default placement.</summary>
+    /// <summary>Resets a Component's Advanced refinements (offset, scale, rotation, opacity, color) to its
+    /// default placement: the one <see cref="Add"/> gives a new Component of its definition (for a
+    /// Corner Ornament whose definition this build knows, <see cref="CornerOrnamentPlacement.ApplyDefault"/>).</summary>
     public static bool ResetTransform(ProfileDocument profile, Guid componentId) => Update(profile, componentId, component =>
     {
         component.Offset = default;
@@ -335,7 +374,40 @@ public static class PlateComponentEditor
         component.RotationDegrees = 0f;
         component.Opacity = 1f;
         component.Color = null;
+        if (component.Kind == PlateComponentKind.CornerOrnament && BuiltInComponentCatalog.Find(component.DefinitionId) is { Kind: PlateComponentKind.CornerOrnament } definition)
+        {
+            CornerOrnamentPlacement.ApplyDefault(profile, component, definition);
+        }
     });
+
+    /// <summary>Basic: sets a Corner Ornament's size, keeping its distance from the edge
+    /// (<see cref="CornerOrnamentPlacement.SetScale"/>). False when it isn't a Corner Ornament of a known style, or nothing changed.</summary>
+    public static bool SetCornerOrnamentScale(ProfileDocument profile, Guid componentId, float scale, IComponentCatalog catalog) =>
+        EditCornerOrnament(profile, componentId, catalog, (component, definition) => CornerOrnamentPlacement.SetScale(profile, component, definition, scale));
+
+    /// <summary>Basic: sets a Corner Ornament's distance from the Plate's edge, in reference pixels
+    /// (<see cref="CornerOrnamentPlacement.SetEdgeDistance"/>). False as for <see cref="SetCornerOrnamentScale"/>.</summary>
+    public static bool SetCornerOrnamentEdgeDistance(ProfileDocument profile, Guid componentId, float distance, IComponentCatalog catalog) =>
+        EditCornerOrnament(profile, componentId, catalog, (component, definition) => CornerOrnamentPlacement.SetEdgeDistance(profile, component, definition, distance));
+
+    /// <summary>Basic: puts a Corner Ornament back at the default size and distance, keeping its
+    /// color, opacity, rotation and corners. False as for <see cref="SetCornerOrnamentScale"/>.</summary>
+    public static bool ResetCornerOrnamentPlacement(ProfileDocument profile, Guid componentId, IComponentCatalog catalog) =>
+        EditCornerOrnament(profile, componentId, catalog, (component, definition) => CornerOrnamentPlacement.ApplyDefault(profile, component, definition));
+
+    private static bool EditCornerOrnament(ProfileDocument profile, Guid componentId, IComponentCatalog catalog, Action<PlateComponent, ComponentDefinition> edit)
+    {
+        if (Find(profile, componentId) is not { Kind: PlateComponentKind.CornerOrnament } component
+            || catalog.Find(component.DefinitionId) is not { Kind: PlateComponentKind.CornerOrnament } definition)
+        {
+            return false;
+        }
+
+        var scale = component.Scale;
+        var offset = component.Offset;
+        Update(profile, componentId, c => edit(c, definition));
+        return !component.Scale.Equals(scale) || component.Offset != offset;
+    }
 
     /// <summary>Clamps every numeric value into its bounds (see <see cref="PlateComponentLimits"/>).</summary>
     public static void Bound(PlateComponent component)
